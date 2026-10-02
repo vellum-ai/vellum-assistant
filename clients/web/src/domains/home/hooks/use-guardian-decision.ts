@@ -135,11 +135,17 @@ export function useGuardianDecision(): {
   pendingRequestIds: ReadonlySet<string>;
   /** The requests whose outcome is terminal here; see `isTerminalDecision`. */
   decidedRequestIds: ReadonlySet<string>;
+  /** How many outcomes have settled this session. */
+  settledCount: number;
+  /** The `settledCount` each request's latest outcome settled at. */
+  settledAt: ReadonlyMap<string, number>;
 } {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const invalidateFeed = useInvalidateHomeFeed(assistantId);
   const outcomes = useGuardianDecisionStore.use.outcomes();
   const pendingRequestIds = useGuardianDecisionStore.use.pendingRequestIds();
+  const settledCount = useGuardianDecisionStore.use.settledCount();
+  const settledAt = useGuardianDecisionStore.use.settledAt();
 
   const decision = useGuardianactionsDecisionPostMutation({
     onSuccess: (data, variables) => {
@@ -149,6 +155,9 @@ export function useGuardianDecision(): {
         committed: wasCommitted(data),
         applied: data.applied,
         reason: data.reason,
+        ...(data.applied && data.replyText
+          ? { replyText: data.replyText }
+          : {}),
       };
       useGuardianDecisionStore.getState().recordOutcome(settled);
       if (!settled.applied) {
@@ -212,5 +221,7 @@ export function useGuardianDecision(): {
     outcomes,
     pendingRequestIds,
     decidedRequestIds,
+    settledCount,
+    settledAt,
   };
 }

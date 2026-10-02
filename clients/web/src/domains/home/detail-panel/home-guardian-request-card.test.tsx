@@ -54,8 +54,9 @@ mock.module("@/stores/resolved-assistants-store", () => {
   return { useResolvedAssistantsStore: store };
 });
 
-const { HomeGuardianRequestCard } =
-  await import("./home-guardian-request-card");
+const { HomeGuardianRequestCard } = await import(
+  "./home-guardian-request-card"
+);
 const { useGuardianDecisionStore } = await import("../guardian-decision-store");
 
 function guardianItem(
@@ -116,6 +117,67 @@ describe("HomeGuardianRequestCard", () => {
     render(createElement(HomeGuardianRequestCard, { item: guardianItem({}) }));
     fireEvent.click(screen.getByText("Reject"));
     expect(mutateCalls[0]?.body?.action).toBe("reject");
+  });
+
+  test("an access request offers its card's decisions and submits Trust", () => {
+    render(
+      createElement(HomeGuardianRequestCard, {
+        item: guardianItem({
+          kind: "access_request",
+          decisionActions: [
+            { id: "trust", emphasis: "primary" },
+            { id: "leave_unverified", emphasis: "secondary" },
+            { id: "block", emphasis: "destructive" },
+          ],
+        }),
+      }),
+    );
+
+    expect(screen.queryByText("Approve")).toBeNull();
+    expect(screen.getByText("Leave unverified")).toBeTruthy();
+    expect(screen.getByText("Block")).toBeTruthy();
+    fireEvent.click(screen.getByText("Trust"));
+    expect(mutateCalls[0]?.body?.action).toBe("trust");
+  });
+
+  test("Trust reads 'Trust anyway' beside a code handshake", () => {
+    render(
+      createElement(HomeGuardianRequestCard, {
+        item: guardianItem({
+          kind: "access_request",
+          decisionActions: [
+            { id: "verify_code", emphasis: "primary" },
+            { id: "trust", emphasis: "secondary" },
+            { id: "leave_unverified", emphasis: "secondary" },
+            { id: "block", emphasis: "destructive" },
+          ],
+        }),
+      }),
+    );
+
+    expect(screen.getByText("Verify with a code")).toBeTruthy();
+    expect(screen.getByText("Trust anyway")).toBeTruthy();
+  });
+
+  test("a decision's reply shows on the card, with an approved receipt", () => {
+    useGuardianDecisionStore.getState().recordOutcome({
+      requestId: "req-1",
+      action: "verify_code",
+      committed: true,
+      applied: true,
+      replyText:
+        "Access approved for Alice. Give them this verification code: `424242`.",
+    });
+    render(
+      createElement(HomeGuardianRequestCard, {
+        item: guardianItem({ kind: "access_request" }),
+      }),
+    );
+
+    expect(
+      screen.getByTestId("guardian-request-decision-reply").textContent,
+    ).toContain("424242");
+    expect(screen.getByText("Request approved")).toBeTruthy();
   });
 
   test("a pending question offers no decision buttons, only the hint", () => {

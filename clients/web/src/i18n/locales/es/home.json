@@ -18,9 +18,7 @@
     "guardianRequest": "Solicitud del guardián"
   },
   "homeRecapRow": {
-    "actionsTitle": "Acciones de la actualización",
-    "approve": "Aprobar",
-    "reject": "Rechazar"
+    "actionsTitle": "Acciones de la actualización"
   },
   "homeToolPermissionCard": {
     "missingScopes": "Permisos faltantes",
@@ -54,8 +52,6 @@
     "back": "Volver a las notificaciones"
   },
   "homeGuardianRequestCard": {
-    "approve": "Aprobar",
-    "reject": "Rechazar",
     "answerHint": "Ve a la conversación para responder esta pregunta.",
     "decisionFailed": "No se pudo enviar la decisión. Inténtalo de nuevo.",
     "receipt": {
@@ -70,6 +66,15 @@
     "viewSourceThread": "Ver hilo de origen",
     "toolRequested": "Solicitó ejecutar <code>{toolName}</code>",
     "toolRequesting": "Solicita ejecutar <code>{toolName}</code>"
+  },
+  "guardianDecisionButtons": {
+    "approveOnce": "Aprobar",
+    "reject": "Rechazar",
+    "trust": "Confiar",
+    "trustAnyway": "Confiar de todos modos",
+    "verifyCode": "Verificar con un código",
+    "leaveUnverified": "Dejar sin verificar",
+    "block": "Bloquear"
   },
   "notificationsBellEmptyState": {
     "title": "Todavía no hay nada.",

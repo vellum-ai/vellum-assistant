@@ -3,6 +3,7 @@ import type { Ref, UIEventHandler } from "react";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import type { GuardianDecisionActionId } from "@vellumai/service-contracts/guardian-requests";
 
+import type { GuardianDecisionOutcome } from "../guardian-decision-store";
 import { HomeRecapRow } from "../home-recap-row";
 import { resolveThreadName } from "../utils";
 
@@ -44,9 +45,12 @@ export interface NotificationsBellListProps {
    * down until the feed projects the settled request.
    */
   decidedRequestIds?: ReadonlySet<string>;
+  /** Every decision settled this session, by request id. */
+  decisionOutcomes?: ReadonlyMap<string, GuardianDecisionOutcome>;
 }
 
 const NO_REQUESTS: ReadonlySet<string> = new Set();
+const NO_OUTCOMES: ReadonlyMap<string, GuardianDecisionOutcome> = new Map();
 
 /**
  * The notifications the bell shows before one is opened: a scrolling stack
@@ -69,6 +73,7 @@ export function NotificationsBellList({
   isDecisionPending = false,
   pendingRequestIds = NO_REQUESTS,
   decidedRequestIds = NO_REQUESTS,
+  decisionOutcomes = NO_OUTCOMES,
 }: NotificationsBellListProps) {
   return (
     <div
@@ -104,6 +109,12 @@ export function NotificationsBellList({
             isDecided={
               item.guardianRequest !== undefined &&
               decidedRequestIds.has(item.guardianRequest.requestId)
+            }
+            decisionReply={
+              item.guardianRequest
+                ? decisionOutcomes.get(item.guardianRequest.requestId)
+                    ?.replyText
+                : undefined
             }
           />
         </div>

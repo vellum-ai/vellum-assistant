@@ -105,7 +105,7 @@ const toolApprovalPayload = {
 };
 
 function pendingGuardianItem(requestId: string): FeedItem {
-  const projection = buildPendingGuardianProjection({
+  const projection = buildPendingGuardianProjection("guardian.question", {
     ...toolApprovalPayload,
     requestId,
   });
@@ -193,7 +193,10 @@ describe("healLegacyGuardianReceiptUnread", () => {
 
 describe("buildPendingGuardianProjection", () => {
   test("tool approval projects as a pending approval with source facts", () => {
-    const projection = buildPendingGuardianProjection(toolApprovalPayload);
+    const projection = buildPendingGuardianProjection(
+      "guardian.question",
+      toolApprovalPayload,
+    );
     expect(projection).toMatchObject({
       requestId: "req-1",
       kind: "tool_approval",
@@ -207,7 +210,7 @@ describe("buildPendingGuardianProjection", () => {
   });
 
   test("a question without a tool projects as question intent", () => {
-    const projection = buildPendingGuardianProjection({
+    const projection = buildPendingGuardianProjection("guardian.question", {
       requestKind: "pending_question",
       requestId: "req-q",
       requestCode: "Q1",
@@ -218,7 +221,7 @@ describe("buildPendingGuardianProjection", () => {
   });
 
   test("a captured channel name becomes the source context label", () => {
-    const projection = buildPendingGuardianProjection({
+    const projection = buildPendingGuardianProjection("guardian.question", {
       ...toolApprovalPayload,
       sourceChatName: "user-feedback",
     });
@@ -227,19 +230,21 @@ describe("buildPendingGuardianProjection", () => {
 
   test("a payload without a requestId projects nothing", () => {
     expect(
-      buildPendingGuardianProjection({ requestKind: "tool_approval" }),
+      buildPendingGuardianProjection("guardian.question", {
+        requestKind: "tool_approval",
+      }),
     ).toBeNull();
   });
 
   test("an access-request payload projects with the event's implied kind", () => {
     const projection = buildPendingGuardianProjection(
+      "ingress.access_request",
       {
         requestId: "req-a",
         requestCode: "AC1234",
         sourceChannel: "telegram",
         senderIdentifier: "Alice",
       },
-      "access_request",
     );
     expect(projection).toMatchObject({
       requestId: "req-a",
@@ -248,6 +253,67 @@ describe("buildPendingGuardianProjection", () => {
       status: "pending",
       requesterLabel: "Alice",
     });
+  });
+});
+
+describe("decision actions on the projection", () => {
+  test("a tool approval offers the in-app card's generic pair", () => {
+    const projection = buildPendingGuardianProjection(
+      "guardian.question",
+      toolApprovalPayload,
+    );
+    expect(projection?.decisionActions).toEqual([
+      { id: "approve_once", emphasis: "primary" },
+      { id: "reject", emphasis: "destructive" },
+    ]);
+  });
+
+  test("a question offers no decision actions", () => {
+    const projection = buildPendingGuardianProjection("guardian.question", {
+      requestKind: "pending_question",
+      requestId: "req-q",
+      requestCode: "Q1",
+      questionText: "Which venue should I book?",
+    });
+    expect(projection?.decisionActions).toBeUndefined();
+  });
+
+  test("a workspace member's access request leads with Trust and offers no code", () => {
+    const projection = buildPendingGuardianProjection(
+      "ingress.access_request",
+      {
+        requestId: "req-w",
+        requestCode: "WS1234",
+        sourceChannel: "slack",
+        senderIdentifier: "Alice",
+        isStranger: false,
+        isRestricted: false,
+      },
+    );
+    expect(projection?.decisionActions).toEqual([
+      { id: "trust", emphasis: "primary" },
+      { id: "leave_unverified", emphasis: "secondary" },
+      { id: "block", emphasis: "destructive" },
+    ]);
+  });
+
+  test("a Slack stranger's access request leads with the code handshake", () => {
+    const projection = buildPendingGuardianProjection(
+      "ingress.access_request",
+      {
+        requestId: "req-s",
+        requestCode: "SL1234",
+        sourceChannel: "slack",
+        senderIdentifier: "Alice",
+        isStranger: true,
+      },
+    );
+    expect(projection?.decisionActions?.map((action) => action.id)).toEqual([
+      "verify_code",
+      "trust",
+      "leave_unverified",
+      "block",
+    ]);
   });
 });
 
@@ -498,6 +564,28 @@ describe("reconcileGuardianFeedProjections", () => {
     expect(item?.guardianRequest?.status).toBe("pending");
     expect(item?.conversationId).toBe("conv-1");
     expect(item?.detailPanel?.kind).toBe("permissionChat");
+  });
+
+  test("a backfilled access request carries the card's decisions", async () => {
+    listGuardianRequestsStub = async () => [
+      wireRequest({
+        id: "req-ra",
+        kind: "access_request",
+        sourceChannel: "slack",
+        toolName: null,
+        requesterSignals: JSON.stringify({
+          isStranger: false,
+          isRestricted: false,
+        }),
+      }),
+    ];
+    await reconcileGuardianFeedProjections();
+    const item = readHomeFeed().items.find(
+      (i) => i.id === guardianFeedItemId("req-ra"),
+    );
+    expect(
+      item?.guardianRequest?.decisionActions?.map((action) => action.id),
+    ).toEqual(["trust", "leave_unverified", "block"]);
   });
 
   test("receipts an actionable item whose request went terminal", async () => {

@@ -214,10 +214,8 @@ export async function writeHomeFeedItemForSignal(
     signal.sourceEventName,
   )
     ? buildPendingGuardianProjection(
+        signal.sourceEventName,
         signal.contextPayload,
-        signal.sourceEventName === "ingress.access_request"
-          ? "access_request"
-          : undefined,
       )
     : null;
 

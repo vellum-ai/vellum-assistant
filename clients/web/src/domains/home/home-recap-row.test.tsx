@@ -560,6 +560,50 @@ describe("HomeRecapRow guardian requests", () => {
     expect(screen.queryByTestId("home-recap-row-decision")).toBeNull();
   });
 
+  test("an access request offers the decisions its card offers", () => {
+    const decisions: Array<[string, string]> = [];
+    renderRow({
+      item: makeItem({
+        id: "guardian:req-a",
+        title: "Access Request",
+        summary: "stranger@example.com is requesting access to the assistant",
+        guardianRequest: {
+          requestId: "req-a",
+          kind: "access_request",
+          intent: "approval",
+          status: "pending",
+          decisionActions: [
+            { id: "trust", emphasis: "primary" },
+            { id: "leave_unverified", emphasis: "secondary" },
+            { id: "block", emphasis: "destructive" },
+          ],
+        },
+      }),
+      onDecide: (item, decision) => decisions.push([item.id, decision]),
+    });
+
+    expect(
+      screen.getByTestId("home-recap-row-decision").querySelectorAll("button"),
+    ).toHaveLength(3);
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Trust" }));
+    expect(decisions).toEqual([["guardian:req-a", "trust"]]);
+  });
+
+  test("a decision's reply shows in the row once it is decided", () => {
+    renderRow({
+      item: guardianItem("approval"),
+      onDecide: () => {},
+      isDecided: true,
+      decisionReply: "Give them this verification code: `123456`.",
+    });
+
+    expect(screen.queryByTestId("home-recap-row-decision")).toBeNull();
+    expect(
+      screen.getByTestId("home-recap-row-decision-reply").textContent,
+    ).toContain("123456");
+  });
+
   test("a settled request reads by its own title, with nothing under it", () => {
     renderRow({
       item: guardianItem("approval", "approved"),
