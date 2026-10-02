@@ -135,16 +135,16 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
     // for approval purposes: external by default, prompt unless bundled.
     // MCP-owned tools fall through to the core risk-based path.
     const isExtensionOwned = toolOrigin === "skill" || toolOrigin === "plugin";
-    // A manifest override on a built-in tool (`default` owner, or an as-yet
-    // unowned/unknown origin) is treated as third-party — the override supplies
-    // side-effecting behavior the built-in name would not otherwise carry.
-    // TODO: treat an undefined (unknown) origin as untrusted third-party on its
-    // own once callers stop modeling built-ins as an undefined origin.
-    const isBuiltinOrigin =
-      toolOrigin === undefined || toolOrigin === "default";
+    // A manifest override on a built-in tool (`default` owner) is treated as
+    // third-party: the override supplies side-effecting behavior the built-in
+    // name would not otherwise carry. An unregistered tool (undefined origin)
+    // is always third-party — it is unknown, not a built-in.
+    const isBuiltinOrigin = toolOrigin === "default";
+    const isUnknownOrigin = toolOrigin === undefined;
     const isThirdPartySkill =
       (isExtensionOwned && !isSkillBundled) ||
-      (hasManifestOverride && isBuiltinOrigin);
+      (hasManifestOverride && isBuiltinOrigin) ||
+      isUnknownOrigin;
     if (isThirdPartySkill) {
       if (isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)) {
         return {
