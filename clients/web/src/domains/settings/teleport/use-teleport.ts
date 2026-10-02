@@ -12,7 +12,7 @@ import { type MutableRefObject, useCallback, useRef, useState } from "react";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 
-import { getAssistantHealthz, hatchAssistant } from "@/assistant/api";
+import { hatchAssistant } from "@/assistant/api";
 import { retireAssistant } from "@/assistant/retire-service";
 import { bootstrapLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 import { t } from "@/i18n";
@@ -48,12 +48,8 @@ import {
   type TeleportDestination,
   type TeleportPhase,
 } from "./teleport-types";
-import {
-  exportLocalBundle,
-  exportManagedToGcs,
-  importLocalBundle,
-  pollManagedExportJob,
-} from "./teleport-gateway-client";
+import { exportManagedBundle } from "./managed-export";
+import { exportLocalBundle, importLocalBundle } from "./teleport-gateway-client";
 import {
   downloadFromSignedUrl,
   importFromGcs,
@@ -426,19 +422,14 @@ async function teleportToLocal(
   setProgress: (fraction: number) => void,
   targetRef: MutableRefObject<AssistantRef | null>,
 ): Promise<void> {
-  setStep(t("settings:teleportCard.stepPreparingExport"));
-  // Stamp the upload with the managed source's runtime version so the platform
-  // records the bundle's compat band — without it the download-side
-  // version-mismatch guard has nothing to compare against and a newer-cloud →
-  // older-local import only fails late at runtime import.
-  const sourceRuntimeVersion = await resolveRuntimeVersion(source.assistantId);
-  // The managed pod PUTs the bundle during the server-side export, so the
-  // URL must be signed for the runtime-reachable storage endpoint.
-  const upload = await requestSignedUploadUrl(sourceRuntimeVersion, "runtime");
-
-  setStep(t("settings:teleportCard.stepExportingCloud"));
-  const jobId = await exportManagedToGcs(source.assistantId, upload.url);
-  await awaitManagedExportJob(source.assistantId, jobId);
+  const { bundleKey } = await exportManagedBundle(source.assistantId, {
+    onStep: (step) =>
+      setStep(
+        step === "preparing"
+          ? t("settings:teleportCard.stepPreparingExport")
+          : t("settings:teleportCard.stepExportingCloud"),
+      ),
+  });
 
   // Resolve the local target BEFORE requesting the download so the version
   // check runs against the local *runtime* version, not the Electron shell.
@@ -461,7 +452,7 @@ async function teleportToLocal(
 
   setStep(t("settings:teleportCard.stepPreparingImport"));
   const downloadUrl = await requestSignedDownloadUrl(
-    upload.bundleKey,
+    bundleKey,
     targetRuntimeVersion,
   );
 
@@ -526,18 +517,6 @@ async function cleanupFreshTarget(
   if (original) {
     await setActiveLockfileAssistant(original.id);
   }
-}
-
-/**
- * The runtime version reported by an assistant's gateway healthz, or
- * `undefined` if it can't be read. Used to stamp the bundle's compat band and
- * to validate the import target against the real runtime (not the app shell).
- */
-async function resolveRuntimeVersion(
-  assistantId: string,
-): Promise<string | undefined> {
-  const health = await getAssistantHealthz(assistantId);
-  return health.ok ? (health.data.version ?? undefined) : undefined;
 }
 
 /**
@@ -613,25 +592,6 @@ async function awaitPlatformJob(jobId: string): Promise<void> {
   throw new TeleportError(
     "import_failed",
     t("settings:teleportCard.importTimedOut"),
-  );
-}
-
-/** Poll a managed runtime-local export job until complete. */
-async function awaitManagedExportJob(
-  managedId: string,
-  jobId: string,
-): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < JOB_TIMEOUT_MS) {
-    await sleep(POLL_INTERVAL_MS);
-    const status = await pollManagedExportJob(managedId, jobId);
-    if (status === "complete") {
-      return;
-    }
-  }
-  throw new TeleportError(
-    "export_timed_out",
-    t("settings:teleportCard.exportTimedOut"),
   );
 }
 

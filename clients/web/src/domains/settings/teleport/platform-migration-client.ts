@@ -132,10 +132,14 @@ export async function requestSignedUploadUrl(
  * `{operation:"download", bundle_key, target_runtime_version}`. The platform
  * validates the bundle's runtime-compat range against the target runtime and
  * rejects with 422 + `reason:"version_mismatch"` when there's no overlap.
+ *
+ * `downloadFilename` makes the URL serve the bundle as an attachment under
+ * that name, so a browser saves it to disk instead of buffering it.
  */
 export async function requestSignedDownloadUrl(
   bundleKey: string,
-  targetRuntimeVersion: string,
+  targetRuntimeVersion: string | undefined,
+  downloadFilename?: string,
 ): Promise<string> {
   const { status, data, error } = await requestWithRetry(
     () =>
@@ -145,6 +149,7 @@ export async function requestSignedDownloadUrl(
           operation: "download",
           bundle_key: bundleKey,
           target_runtime_version: targetRuntimeVersion,
+          download_filename: downloadFilename,
         },
         throwOnError: false,
       }),

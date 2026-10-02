@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   Check,
   Copy,
+  Download,
   Loader2,
   RotateCcw,
   Save,
@@ -14,14 +15,26 @@ import {
   listAssistantBackups,
   restoreAssistantBackup,
 } from "@/assistant/api";
+import {
+  exportBundleFilename,
+  exportManagedBundle,
+  type ManagedExportStep,
+} from "@/domains/settings/teleport/managed-export";
+import { requestSignedDownloadUrl } from "@/domains/settings/teleport/platform-migration-client";
+import { TeleportError } from "@/domains/settings/teleport/teleport-types";
+import { useActiveAssistantIsPlatformHosted } from "@/hooks/use-platform-gate";
 import { useTranslation } from "@/i18n";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { captureError } from "@/lib/sentry/capture-error";
+import { saveFile } from "@/runtime/native-file";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { type TagTone, Tag } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 
 const MAX_POINT_IN_TIME_BACKUPS = 3;
+
+type ExportStep = ManagedExportStep | "downloading";
 
 const BACKUP_TYPE_TONE: Record<string, TagTone> = {
   point_in_time: "neutral",
@@ -80,6 +93,9 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
   );
   const [creatingBackup, setCreatingBackup] = useState(false);
   const [copiedSnapshot, setCopiedSnapshot] = useState<string | null>(null);
+  const [exportStep, setExportStep] = useState<ExportStep | null>(null);
+  const [confirmingExport, setConfirmingExport] = useState(false);
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
 
   const handleCopySnapshotName = useCallback(
     (name: string) => {
@@ -177,6 +193,32 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
     }
   }, [assistantId, t]);
 
+  const handleExportConfirm = useCallback(async () => {
+    setConfirmingExport(false);
+    setExportStep("preparing");
+    try {
+      const { bundleKey, runtimeVersion } = await exportManagedBundle(
+        assistantId,
+        { onStep: setExportStep },
+      );
+      setExportStep("downloading");
+      const filename = exportBundleFilename(assistantId, new Date());
+      const url = await requestSignedDownloadUrl(
+        bundleKey,
+        runtimeVersion,
+        filename,
+      );
+      await saveFile(url, filename);
+    } catch (err) {
+      captureError(err, { context: "assistant-backups-export" });
+      toast.error(t("assistantBackups.exportFailedToast"), {
+        description: err instanceof TeleportError ? err.message : undefined,
+      });
+    } finally {
+      setExportStep(null);
+    }
+  }, [assistantId, t]);
+
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
@@ -199,12 +241,34 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
     (b) => b.backup_type === "point_in_time",
   ).length;
 
+  const exportBusy = exportStep !== null;
+  let exportLabel = t("assistantBackups.export");
+  if (exportStep === "preparing") {
+    exportLabel = t("assistantBackups.exportPreparing");
+  } else if (exportStep === "exporting") {
+    exportLabel = t("assistantBackups.exportExporting");
+  } else if (exportStep === "downloading") {
+    exportLabel = t("assistantBackups.exportDownloading");
+  }
+
   const createBackupButton = (
     <div className="flex flex-wrap items-center justify-end gap-3">
       {pitBackupCount >= MAX_POINT_IN_TIME_BACKUPS && (
         <p className="text-body-small-default text-[var(--content-tertiary)]">
           {t("assistantBackups.oldestRemovedNotice")}
         </p>
+      )}
+      {isPlatformHosted && (
+        <Button
+          variant="outlined"
+          loading={exportBusy}
+          leftIcon={<Download />}
+          onClick={() => setConfirmingExport(true)}
+          disabled={exportBusy || restoringSnapshot !== null}
+          className="shrink-0"
+        >
+          {exportLabel}
+        </Button>
       )}
       <Button
         variant="outlined"
@@ -221,14 +285,28 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
     </div>
   );
 
+  const exportConfirmDialog = (
+    <ConfirmDialog
+      open={confirmingExport}
+      title={t("assistantBackups.exportTitle")}
+      message={t("assistantBackups.exportMessage")}
+      confirmLabel={t("assistantBackups.export")}
+      onConfirm={handleExportConfirm}
+      onCancel={() => setConfirmingExport(false)}
+    />
+  );
+
   if (backups.length === 0) {
     return (
-      <div className="space-y-3">
-        <div className="flex justify-end">{createBackupButton}</div>
-        <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          {t("assistantBackups.empty")}
-        </p>
-      </div>
+      <>
+        <div className="space-y-3">
+          <div className="flex justify-end">{createBackupButton}</div>
+          <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
+            {t("assistantBackups.empty")}
+          </p>
+        </div>
+        {exportConfirmDialog}
+      </>
     );
   }
 
@@ -303,7 +381,9 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                       leftIcon={<RotateCcw />}
                       onClick={() => setPendingBackup(backup)}
                       disabled={
-                        restoringSnapshot !== null || !backup.ready_to_use
+                        restoringSnapshot !== null ||
+                        exportBusy ||
+                        !backup.ready_to_use
                       }
                       title={
                         !backup.ready_to_use
@@ -367,7 +447,11 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                 loading={restoringSnapshot === backup.snapshot_name}
                 leftIcon={<RotateCcw />}
                 onClick={() => setPendingBackup(backup)}
-                disabled={restoringSnapshot !== null || !backup.ready_to_use}
+                disabled={
+                  restoringSnapshot !== null ||
+                  exportBusy ||
+                  !backup.ready_to_use
+                }
                 title={
                   !backup.ready_to_use
                     ? t("assistantBackups.notReady")
@@ -395,6 +479,7 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
         onConfirm={handleRestoreConfirm}
         onCancel={() => setPendingBackup(null)}
       />
+      {exportConfirmDialog}
     </>
   );
 }
