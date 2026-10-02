@@ -2,15 +2,18 @@
  * The backups table on the Doctor and debug panels: one row per snapshot with
  * its name and a copy button, a type tag, a ready or pending tag, the creation
  * time, and a restore button that stays disabled until the snapshot is ready.
- * The component fetches its own rows from both the daemon and the platform, so
- * `beforeEach` answers those two reads from fixtures through each generated
- * client's `fetch`. The stories cover a populated list, with enough
- * point-in-time backups to show the rotation notice, and an assistant with no
- * backups yet.
+ * A platform-hosted assistant also gets an Export button beside "Create
+ * Backup". The component fetches its own rows from both the daemon and the
+ * platform, so `beforeEach` answers those two reads from fixtures through each
+ * generated client's `fetch` and marks the active assistant platform-hosted.
+ * The stories cover a populated list, with enough point-in-time backups to
+ * show the rotation notice, an assistant with no backups yet, and a
+ * self-hosted assistant, which has no Export button.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import type { AssistantBackup } from "@/assistant/api";
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { AssistantBackups } from "@/domains/settings/components/assistant-backups";
 import { client as platformClient } from "@/generated/api/client.gen";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
@@ -117,9 +120,15 @@ const meta = {
   beforeEach: () => {
     const restorePlatform = stubClientFetch(platformClient, platformFetch);
     const restoreDaemon = stubClientFetch(daemonClient, daemonFetch);
+    const previousLifecycle =
+      useAssistantLifecycleStore.getState().assistantState;
+    useAssistantLifecycleStore.setState({
+      assistantState: { kind: "active", isLocal: false, health: "healthy" },
+    });
     return () => {
       restorePlatform();
       restoreDaemon();
+      useAssistantLifecycleStore.setState({ assistantState: previousLifecycle });
     };
   },
   decorators: [
@@ -145,5 +154,14 @@ export const Populated: Story = {};
 export const Empty: Story = {
   args: {
     assistantId: ASSISTANT_IDS.fresh,
+  },
+};
+
+/** A self-hosted assistant: the same list without the Export button. */
+export const SelfHosted: Story = {
+  beforeEach: () => {
+    useAssistantLifecycleStore.setState({
+      assistantState: { kind: "self_hosted" },
+    });
   },
 };
