@@ -18,6 +18,7 @@ export interface McpPluginDefinition {
   description: string;
   documentationUrl: string;
   logo: string;
+  versionedLogo?: string;
   oauthProvider?: string;
   category?: IntegrationCategory;
   setup: {

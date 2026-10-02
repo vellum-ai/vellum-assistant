@@ -1,5 +1,4 @@
-import { useState } from "react";
-
+import { useFallbackImageSource } from "@/hooks/use-fallback-image-source";
 import { GoogleLogo } from "@/components/icons/google-logo";
 import { publicAsset } from "@/utils/public-asset";
 
@@ -88,6 +87,7 @@ interface IntegrationIconProps {
   providerKey: string;
   displayName: string | null;
   logoUrl: string | null;
+  fallbackLogoUrl?: string | null;
   size?: number;
 }
 
@@ -95,16 +95,18 @@ export function IntegrationIcon({
   providerKey,
   displayName,
   logoUrl,
+  fallbackLogoUrl,
   size = 32,
 }: IntegrationIconProps) {
-  // Sources that have 404'd (or otherwise failed to decode) this mount. Keyed
-  // by URL rather than a boolean so a failing bundled asset falls through to
-  // the remote `logoUrl` instead of skipping straight to the initials avatar.
-  const [failedSources, setFailedSources] = useState<readonly string[]>([]);
   const normalizedProviderKey = providerKey.toLowerCase();
   const name = displayName ?? providerKey;
   const initials = name.slice(0, 2).toUpperCase();
   const bgColor = colorForKey(providerKey);
+  const { source: effectiveLogoUrl, handleError } = useFallbackImageSource([
+    BUNDLED_LOGO_URLS[normalizedProviderKey],
+    logoUrl,
+    fallbackLogoUrl,
+  ]);
 
   if (normalizedProviderKey === "google") {
     return (
@@ -115,13 +117,6 @@ export function IntegrationIcon({
       />
     );
   }
-
-  const candidates = [BUNDLED_LOGO_URLS[normalizedProviderKey], logoUrl].filter(
-    (candidate): candidate is string => Boolean(candidate),
-  );
-  const effectiveLogoUrl = candidates.find(
-    (candidate) => !failedSources.includes(candidate),
-  );
 
   if (effectiveLogoUrl) {
     return (
@@ -135,13 +130,7 @@ export function IntegrationIcon({
         height={size}
         style={{ width: size, height: size }}
         className="shrink-0 rounded-md object-contain"
-        onError={() =>
-          setFailedSources((previous) =>
-            previous.includes(effectiveLogoUrl)
-              ? previous
-              : [...previous, effectiveLogoUrl],
-          )
-        }
+        onError={handleError}
       />
     );
   }

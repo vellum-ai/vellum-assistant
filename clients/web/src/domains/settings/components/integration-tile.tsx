@@ -218,6 +218,7 @@ export function IntegrationTile({
           providerKey={plan.iconKey}
           displayName={plan.name}
           logoUrl={plan.logoUrl}
+          fallbackLogoUrl={plan.fallbackLogoUrl}
           size={32}
         />
       }

@@ -1,5 +1,5 @@
 # Icon attribution
 
-Source: the vector wordmark embedded in the header of [Navan's official website](https://navan.com/).
+Source: the official Navan app icon shown on [Navan's integrations page](https://navan.com/integrations).
 
-The first glyph was cropped from the wordmark, padded, and rasterized at 128x128 on a white background for theme contrast. This provider asset is a trademark of Navan and is used only to identify this integration.
+The purple gradient app icon was resized to 128x128. This provider asset is a trademark of Navan and is used only to identify this integration.

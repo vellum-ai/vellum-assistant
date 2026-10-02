@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-
+import { useFallbackImageSource } from "@/hooks/use-fallback-image-source";
 import { cn } from "@/utils/misc";
 
 interface PluginIconProps {
@@ -8,6 +7,8 @@ interface PluginIconProps {
   icon?: string;
   /** Platform-hosted catalog icon (https). Outranked by `iconSrc`. */
   iconUrl?: string;
+  /** Legacy catalog icon used when `iconUrl` is unavailable in this bundle. */
+  fallbackIconUrl?: string;
   iconSrc?: string;
   size?: "sm" | "md";
   className?: string;
@@ -24,27 +25,26 @@ const SIZE_CLASS = {
  * `iconSrc` (only when a gate passes and the plugin ships an icon) and
  * `iconUrl` (catalog rows only). Render precedence: the bundled `iconSrc`
  * image, then the `iconUrl` image, then the `icon` emoji, then the origin
- * glyph (📦 for catalog/external, 🧩 otherwise). A failed image load falls
- * through to the emoji/glyph chain.
+ * glyph (📦 for catalog/external, 🧩 otherwise). `fallbackIconUrl` keeps a
+ * stable catalog filename available when a versioned image is missing from an
+ * older bundle.
  */
 export function PluginIcon({
   external = false,
   icon,
   iconUrl,
+  fallbackIconUrl,
   iconSrc,
   size = "sm",
   className,
 }: PluginIconProps) {
-  const [imageFailed, setImageFailed] = useState(false);
-  const imageSrc = iconSrc ?? iconUrl;
-  // Retry the image when the source changes (e.g. a new icon URL or a
-  // cache-busting version) so a past failure doesn't pin a reused instance
-  // to the fallback.
-  useEffect(() => {
-    setImageFailed(false);
-  }, [imageSrc]);
+  const { source: imageSrc, handleError } = useFallbackImageSource([
+    iconSrc,
+    iconUrl,
+    fallbackIconUrl,
+  ]);
   const glyph = icon || (external ? "\u{1F4E6}" : "\u{1F9E9}");
-  const showImage = Boolean(imageSrc) && !imageFailed;
+  const showImage = Boolean(imageSrc);
 
   return (
     <span
@@ -61,7 +61,7 @@ export function PluginIcon({
           aria-hidden
           loading="lazy"
           className="h-full w-full object-contain"
-          onError={() => setImageFailed(true)}
+          onError={handleError}
         />
       ) : (
         glyph

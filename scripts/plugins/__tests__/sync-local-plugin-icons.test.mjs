@@ -12,9 +12,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { syncLocalPluginIcons } from "../sync-local-plugin-icons.mjs";
 
 function makePng(width, height) {
-  const magic = Buffer.from([
-    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-  ]);
+  const magic = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   const ihdrLength = Buffer.alloc(4);
   ihdrLength.writeUInt32BE(13);
   const ihdr = Buffer.alloc(13);
@@ -33,6 +31,7 @@ function writeLocalPlugin({
   sourceVersion = "1.0.1",
   packageVersion = "1.0.1",
   logo = `${name}-mcp.png`,
+  versionedLogo,
 } = {}) {
   const packageRoot = join(repoRoot, "plugins/mcp-catalog", name);
   mkdirSync(packageRoot, { recursive: true });
@@ -53,7 +52,7 @@ function writeLocalPlugin({
             path: `plugins/mcp-catalog/${name}`,
             version: sourceVersion,
           },
-          integration: { kind: "mcp", logo },
+          integration: { kind: "mcp", logo, versionedLogo },
         },
       ],
     }),
@@ -88,10 +87,54 @@ describe("syncLocalPluginIcons", () => {
 
     expect(synced.ok).toBe(true);
     expect(synced.synced).toEqual(["example-mcp.png"]);
-    expect(readFileSync(join(webAssetsDir, "example-mcp.png")).equals(icon)).toBe(
-      true,
-    );
-    expect(run(true)).toEqual({ ok: true, errors: [], synced: [], removed: [] });
+    expect(
+      readFileSync(join(webAssetsDir, "example-mcp.png")).equals(icon),
+    ).toBe(true);
+    expect(run(true)).toEqual({
+      ok: true,
+      errors: [],
+      synced: [],
+      removed: [],
+    });
+  });
+
+  test("supports versioned logo filenames with a stable legacy name", () => {
+    const icon = writeLocalPlugin({
+      versionedLogo: "example-mcp-1.0.1.png",
+    });
+    mkdirSync(webAssetsDir, { recursive: true });
+    writeFileSync(join(webAssetsDir, "example-mcp.png"), makePng(16, 16));
+    writeFileSync(join(webAssetsDir, "example-mcp-1.0.0.png"), makePng(16, 16));
+
+    const synced = run();
+
+    expect(synced.ok).toBe(true);
+    expect(synced.synced).toEqual(["example-mcp-1.0.1.png", "example-mcp.png"]);
+    expect(synced.removed).toEqual(["example-mcp-1.0.0.png"]);
+    expect(
+      readFileSync(join(webAssetsDir, "example-mcp-1.0.1.png")).equals(icon),
+    ).toBe(true);
+    expect(
+      readFileSync(join(webAssetsDir, "example-mcp.png")).equals(icon),
+    ).toBe(true);
+    expect(() =>
+      readFileSync(join(webAssetsDir, "example-mcp-1.0.0.png")),
+    ).toThrow();
+    expect(run(true)).toEqual({
+      ok: true,
+      errors: [],
+      synced: [],
+      removed: [],
+    });
+  });
+
+  test("requires a versioned logo filename to match the package version", () => {
+    writeLocalPlugin({ versionedLogo: "example-mcp-1.0.0.png" });
+
+    const result = run();
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(" ")).toContain("example-mcp-1.0.1.png");
   });
 
   test("reports drift and stale derived copies in check mode", () => {
@@ -106,7 +149,9 @@ describe("syncLocalPluginIcons", () => {
     expect(result.errors).toContain(
       "derived web logo example-mcp.png differs from example/icon.png",
     );
-    expect(result.errors).toContain("stale derived local MCP logo stale-mcp.png");
+    expect(result.errors).toContain(
+      "stale derived local MCP logo stale-mcp.png",
+    );
   });
 
   test("validates package ownership and icon bytes before writing", () => {
@@ -134,10 +179,14 @@ describe("syncLocalPluginIcons", () => {
     writeLocalPlugin();
     mkdirSync(webAssetsDir, { recursive: true });
     writeFileSync(join(webAssetsDir, "stale-mcp.png"), makePng(16, 16));
+    writeFileSync(join(webAssetsDir, "stale-mcp-1.0.0.png"), makePng(16, 16));
 
     const result = run();
 
-    expect(result.removed).toEqual(["stale-mcp.png"]);
+    expect(result.removed).toEqual(["stale-mcp-1.0.0.png", "stale-mcp.png"]);
     expect(() => readFileSync(join(webAssetsDir, "stale-mcp.png"))).toThrow();
+    expect(() =>
+      readFileSync(join(webAssetsDir, "stale-mcp-1.0.0.png")),
+    ).toThrow();
   });
 });
