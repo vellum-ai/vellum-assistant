@@ -1012,35 +1012,43 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   });
 
   // ── Test 4 ────────────────────────────────────────────────────────
-  // A realistic 75+ message conversation with many tool calls where
-  // token estimation underestimates. This test should PASS against
-  // current code because the agent loop returns same-length history
-  // (no progress), so the convergence loop kicks in.
-  test.todo(
-    "overflow recovery succeeds for 75+ message conversation with many tool calls",
-    async () => {
-      const events: AssistantEvent[] = [];
-      const longHistory = buildLongConversation(75);
-      let reducerCalled = false;
+  // A 75+ message conversation where the estimated token count crosses
+  // the mid-loop budget threshold before the first provider call. The
+  // budget gate fires, maybeCompact reduces the history, and the turn
+  // completes with a single provider call.
+  //
+  // The budget gate calls defaultCompact with no overflowSignal, which
+  // routes to manager.maybeCompact (summary-based compaction), not the
+  // overflow reducer. midLoopThreshold = floor(200k * 0.85) * 0.85 =
+  // 144,500. 195k > 144.5k so the gate trips on the first call.
+  test("overflow recovery succeeds for 75+ message conversation with many tool calls", async () => {
+    const events: AssistantEvent[] = [];
+    const longHistory = buildLongConversation(75);
+    let preflightCompactCalled = false;
 
-      // Estimator says ~195k — just above budget so preflight reducer runs
-      mockEstimateTokens = 195_000;
+    // Estimator says ~195k — crosses the mid-loop yield threshold so the
+    // budget gate fires before the first provider call.
+    mockEstimateTokens = 195_000;
 
-      // Reducer reduces to under budget
-      mockReducerStepFn = (msgs: Message[]) => {
-        reducerCalled = true;
-        return {
-          messages: msgs.slice(-10), // Keep only last 10 messages
-          tier: "forced_compaction",
-          state: {
-            appliedTiers: ["forced_compaction"],
-            injectionMode: "full",
-            exhausted: false,
-          },
-          estimatedTokens: 50_000,
-          compactionResult: {
+    // After the preflight budget gate compacts the long history under
+    // budget, a single provider call completes the turn with plain text.
+    const { provider, calls } = createMockProvider([
+      textResponse("Here's the analysis..."),
+    ]);
+
+    const ctx = makeCtx({
+      loopProvider: provider,
+      messages: longHistory,
+      contextWindowManager: {
+        updateConfig: () => {},
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async (msgs: Message[]) => {
+          preflightCompactCalled = true;
+          // Compact to last 10 messages so the budget is satisfied.
+          const compacted = msgs.slice(-10);
+          return {
             compacted: true,
-            messages: msgs.slice(-10),
+            messages: compacted,
             compactedPersistedMessages: msgs.length - 10,
             summaryText: "Long conversation summary",
             previousEstimatedInputTokens: 195_000,
@@ -1052,42 +1060,26 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
             summaryInputTokens: 2000,
             summaryOutputTokens: 500,
             summaryModel: "mock-model",
-          },
-        };
-      };
+          };
+        },
+      } as unknown as Conversation["contextWindowManager"],
+    });
 
-      // After the preflight reducer compacts the long history under budget,
-      // a single provider call completes the turn with plain text.
-      const { provider, calls } = createMockProvider([
-        textResponse("Here's the analysis..."),
-      ]);
+    await runAgentLoopImpl(ctx, "analyze this", "msg-1", (msg) =>
+      events.push(msg),
+    );
 
-      const ctx = makeCtx({
-        loopProvider: provider,
-        messages: longHistory,
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async () => ({ compacted: false }),
-        } as unknown as Conversation["contextWindowManager"],
-      });
-
-      await runAgentLoopImpl(ctx, "analyze this", "msg-1", (msg) =>
-        events.push(msg),
-      );
-
-      // Preflight should trigger the reducer since 195k > 190k budget
-      expect(reducerCalled).toBe(true);
-      // Should succeed
-      expect(calls.length).toBe(1);
-      const conversationError = events.find(
-        (e) => e.type === "conversation_error",
-      );
-      expect(conversationError).toBeUndefined();
-      const complete = events.find((e) => e.type === "message_complete");
-      expect(complete).toBeDefined();
-    },
-  );
+    // Budget gate should have fired: 195k > midLoopThreshold (~144.5k)
+    expect(preflightCompactCalled).toBe(true);
+    // Turn completes with one provider call
+    expect(calls.length).toBe(1);
+    const conversationError = events.find(
+      (e) => e.type === "conversation_error",
+    );
+    expect(conversationError).toBeUndefined();
+    const complete = events.find((e) => e.type === "message_complete");
+    expect(complete).toBeDefined();
+  });
 
   // ── Test 5 ────────────────────────────────────────────────────────
   // BUG: When all 4 reducer tiers have been applied, then the agent
