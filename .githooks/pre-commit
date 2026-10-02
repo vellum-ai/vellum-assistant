@@ -232,6 +232,12 @@ declare -a SAFE_LINE_PATTERNS=(
     # hint made of letters and spaces, then the closing quote) so a real secret
     # appended after the bullets is never prefix-matched as safe.
     "['\"][a-zA-Z0-9_]+['\"][[:space:]]*:[[:space:]]*['\"]•+([[:space:]]*\([a-zA-Z][a-zA-Z[:space:]]*\))?['\"]"
+    # TS/JSX i18n translation function call whose key contains a bearer/token
+    # segment (e.g. `t("mcpServerDetailModal.bearerTokenPlaceholderKeep")`).
+    # The camelCase key crosses the 20-char threshold but is just a lookup
+    # key, not a credential. Anchored: call must start with `t(` and the key
+    # must end with the closing quote immediately followed by `)`.
+    "t\(['\"][a-zA-Z0-9.]*bearer[a-zA-Z0-9._]*['\"][,)[:space:]]"
     # OAuth managed-service config key — always a `<provider>-oauth` slug that
     # crosses the 16-char threshold for some providers (e.g. salesforce-oauth).
     # The value is a routing identifier, not a credential.
