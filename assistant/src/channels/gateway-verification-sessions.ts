@@ -25,6 +25,7 @@ import {
   type CreateOutboundSessionIpcParams,
   type CreateOutboundSessionIpcResponse,
   CreateOutboundSessionIpcResponseSchema,
+  type FindActiveSessionIpcParams,
   SessionLookupIpcResponseSchema,
   SessionMutationIpcResponseSchema,
   type SessionStatus,
@@ -161,10 +162,7 @@ export async function getPendingSession(
  */
 export async function findActiveSession(
   channel: string,
-  filter: {
-    expectedExternalUserId?: string;
-    verificationPurpose?: "guardian" | "trusted_contact";
-  } = {},
+  filter: Omit<FindActiveSessionIpcParams, "channel"> = {},
 ): Promise<VerificationSessionWire | null> {
   return callGateway(
     VERIFICATION_SESSIONS_IPC_METHODS.findActive,

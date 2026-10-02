@@ -5,11 +5,11 @@
  * A Telegram contact known only by @handle is verified through a deep link:
  * the guardian's flow mints a `pending_bootstrap` session for the contact,
  * and opening the link re-mints an identity-bound session in its place. The
- * handoff does not restate the purpose, so the replacement has to inherit
- * it; otherwise it falls back to the session default, `guardian`, and the
- * contact's code binds them as the guardian. The gateway DB and session
- * store are real; the assistant mirror IPC is acknowledged and otherwise
- * inert.
+ * replacement continues the claimed session, so its purpose is the claimed
+ * session's whatever the handoff states; a handoff claiming `guardian` for
+ * a contact's link must not produce a code that binds them as the guardian.
+ * The gateway DB and session store are real; the assistant mirror IPC is
+ * acknowledged and otherwise inert.
  */
 
 import {
@@ -58,7 +58,10 @@ function mintContactDeepLink(): string {
   }).sessionId;
 }
 
-/** Opening the link: the handoff re-mints without restating a purpose. */
+/**
+ * Opening the link. The handoff states the most privileged purpose, which
+ * is the one the claimed session must win over.
+ */
 function openDeepLink(sourceSessionId: string) {
   const minted = createOutboundSessionGuarded({
     channel: CHANNEL,
@@ -66,6 +69,7 @@ function openDeepLink(sourceSessionId: string) {
     expectedChatId: CONTACT,
     identityBindingStatus: "bound",
     destinationAddress: CONTACT,
+    verificationPurpose: "guardian",
     requireSourceSessionPending: sourceSessionId,
   });
   if ("conflict" in minted) {

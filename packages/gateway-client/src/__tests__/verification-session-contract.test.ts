@@ -160,15 +160,24 @@ describe("create session IPC schemas", () => {
       sessionId: "sess-1",
     } as const;
     expect(CreateOutboundSessionIpcParamsSchema.parse(full)).toEqual(full);
-    const minimal = { channel: "phone" };
+    const minimal = {
+      channel: "phone",
+      verificationPurpose: "guardian",
+    } as const;
     expect(CreateOutboundSessionIpcParamsSchema.parse(minimal)).toEqual(
       minimal,
     );
     expect(() =>
       CreateOutboundSessionIpcParamsSchema.parse({
         channel: "phone",
+        verificationPurpose: "guardian",
         identityBindingStatus: "unbound",
       }),
+    ).toThrow();
+    // A mint that does not say what its code grants is refused. It never
+    // becomes a guardian code by omission.
+    expect(() =>
+      CreateOutboundSessionIpcParamsSchema.parse({ channel: "phone" }),
     ).toThrow();
 
     const response = {

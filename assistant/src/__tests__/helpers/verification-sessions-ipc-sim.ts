@@ -24,6 +24,9 @@ import { randomBytes, randomUUID } from "node:crypto";
 import {
   bindsSameIdentity,
   boundIdentity,
+  type CreateOutboundSessionIpcParams,
+  CreateOutboundSessionIpcParamsSchema,
+  type FindActiveSessionIpcParams,
   hashVerificationSecret,
   VERIFICATION_SESSIONS_IPC_METHODS,
   type VerificationSessionWire,
@@ -160,19 +163,11 @@ export function createInboundVerificationSession(
   };
 }
 
-export interface SimCreateOutboundParams {
-  channel: string;
-  expectedExternalUserId?: string;
-  expectedChatId?: string;
-  expectedPhoneE164?: string;
-  identityBindingStatus?: "pending_bootstrap" | "bound";
-  destinationAddress?: string;
-  codeDigits?: number;
-  maxAttempts?: number;
-  verificationPurpose?: "guardian" | "trusted_contact";
-  bootstrapTokenHash?: string;
-  sessionId?: string;
-}
+/** The gateway's create params without the atomic claim guards. */
+export type SimCreateOutboundParams = Omit<
+  CreateOutboundSessionIpcParams,
+  "requireSourceSessionPending" | "ifNoneActiveForExternalUserId"
+>;
 
 export interface SimCreateOutboundResult {
   sessionId: string;
@@ -215,7 +210,7 @@ export function createOutboundSession(
     nextResendAt: null,
     codeDigits: params.codeDigits ?? 6,
     maxAttempts: params.maxAttempts ?? 3,
-    verificationPurpose: params.verificationPurpose ?? "guardian",
+    verificationPurpose: params.verificationPurpose,
     bootstrapTokenHash: params.bootstrapTokenHash ?? null,
     createdAt: now,
     updatedAt: now,
@@ -239,10 +234,7 @@ export type SimGuardedCreateOutboundResult =
 
 /** Guarded create (mirrors the gateway's createOutboundSessionGuarded). */
 export function createOutboundSessionGuarded(
-  params: SimCreateOutboundParams & {
-    requireSourceSessionPending?: string;
-    ifNoneActiveForExternalUserId?: string;
-  },
+  params: CreateOutboundSessionIpcParams,
 ): SimGuardedCreateOutboundResult {
   const {
     requireSourceSessionPending,
@@ -336,10 +328,7 @@ export function getPendingSession(
 
 export function findActiveSession(
   channel: string,
-  filter: {
-    expectedExternalUserId?: string;
-    verificationPurpose?: "guardian" | "trusted_contact";
-  } = {},
+  filter: Omit<FindActiveSessionIpcParams, "channel"> = {},
 ): VerificationSessionWire | null {
   const now = Date.now();
   return (
@@ -604,8 +593,10 @@ export async function handleVerificationSessionsIpc(
         p.sourceConversationId,
       );
     case M.createOutbound:
+      // Parsed with the gateway's own schema, so a mint the gateway would
+      // refuse (no purpose, empty identity field) fails here too.
       return createOutboundSessionGuarded(
-        params as unknown as Parameters<typeof createOutboundSessionGuarded>[0],
+        CreateOutboundSessionIpcParamsSchema.parse(params),
       );
     case M.getPending:
       return getPendingSession(p.channel);

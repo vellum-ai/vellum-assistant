@@ -275,7 +275,9 @@ export const CreateOutboundSessionIpcParamsSchema = z.object({
   destinationAddress: z.string().optional(),
   codeDigits: z.number().int().positive().optional(),
   maxAttempts: z.number().int().positive().optional(),
-  verificationPurpose: VerificationPurposeSchema.optional(),
+  // Required: a mint states what its code grants. A guardian code is the
+  // most privileged kind, so it is never what a caller gets by omission.
+  verificationPurpose: VerificationPurposeSchema,
   bootstrapTokenHash: z.string().optional(),
   // Caller-supplied id (bootstrap flows pre-mint the id for deep links).
   sessionId: z.string().optional(),
