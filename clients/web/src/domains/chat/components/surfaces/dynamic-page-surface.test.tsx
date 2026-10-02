@@ -1,5 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
+import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
 
 import type { Surface } from "@/domains/chat/types/types";
 import type * as UsePinnedApps from "@/hooks/use-pinned-apps";
@@ -46,9 +48,18 @@ function isOpenAppEnabled(html: string): boolean {
   return !openAppMatch[0].includes('disabled=""');
 }
 
+/**
+ * The surface hosts a sandboxed frame, whose host bridge reads the route to
+ * decide whether a conversation is on screen, so it renders inside a router
+ * the way it does in the app.
+ */
+function renderSurface(element: ReactElement): string {
+  return renderToStaticMarkup(<MemoryRouter>{element}</MemoryRouter>);
+}
+
 describe("DynamicPageSurface", () => {
   test("enables preview open when inline HTML exists without a persisted app id", () => {
-    const rendered = renderToStaticMarkup(
+    const rendered = renderSurface(
       <DynamicPageSurface
         surface={surface({
           html: "<html><body>Hello</body></html>",
@@ -63,7 +74,7 @@ describe("DynamicPageSurface", () => {
   });
 
   test("keeps preview open disabled when there is no app id or inline HTML", () => {
-    const rendered = renderToStaticMarkup(
+    const rendered = renderSurface(
       <DynamicPageSurface
         surface={surface({
           html: "",
@@ -78,7 +89,7 @@ describe("DynamicPageSurface", () => {
   });
 
   test("opens snake_case persisted app ids through the app viewer", () => {
-    const rendered = renderToStaticMarkup(
+    const rendered = renderSurface(
       <DynamicPageSurface
         surface={surface({
           app_id: " app-123 ",
@@ -95,7 +106,7 @@ describe("DynamicPageSurface", () => {
   });
 
   test("keeps app cards disabled while the originating tool call is still running", () => {
-    const rendered = renderToStaticMarkup(
+    const rendered = renderSurface(
       <DynamicPageSurface
         surface={{
           ...surface({
@@ -116,7 +127,7 @@ describe("DynamicPageSurface", () => {
   });
 
   test("keeps app cards disabled while the latest surface tool runs without an explicit link", () => {
-    const rendered = renderToStaticMarkup(
+    const rendered = renderSurface(
       <DynamicPageSurface
         surface={surface({
           app_id: "app-123",
