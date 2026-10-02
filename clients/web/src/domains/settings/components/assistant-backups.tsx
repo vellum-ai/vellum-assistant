@@ -22,7 +22,10 @@ import {
 } from "@/domains/settings/teleport/managed-export";
 import { requestSignedDownloadUrl } from "@/domains/settings/teleport/platform-migration-client";
 import { TeleportError } from "@/domains/settings/teleport/teleport-types";
-import { useActiveAssistantIsPlatformHosted } from "@/hooks/use-platform-gate";
+import {
+  useActiveAssistantIsPlatformHosted,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
 import { useTranslation } from "@/i18n";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -94,8 +97,17 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
   const [creatingBackup, setCreatingBackup] = useState(false);
   const [copiedSnapshot, setCopiedSnapshot] = useState<string | null>(null);
   const [exportStep, setExportStep] = useState<ExportStep | null>(null);
-  const [confirmingExport, setConfirmingExport] = useState(false);
+  // The assistant the export confirmation was opened for. The dialog only
+  // shows while that assistant is still current and exportable, so a switch
+  // or sign-out mid-dialog can never export a different assistant.
+  const [exportTarget, setExportTarget] = useState<string | null>(null);
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
+  const canExport = isPlatformHosted && platformGate === "full";
+  const confirmingExport = canExport && exportTarget === assistantId;
+  if (exportTarget !== null && !confirmingExport) {
+    setExportTarget(null);
+  }
 
   const handleCopySnapshotName = useCallback(
     (name: string) => {
@@ -194,15 +206,18 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
   }, [assistantId, t]);
 
   const handleExportConfirm = useCallback(async () => {
-    setConfirmingExport(false);
+    const target = exportTarget;
+    setExportTarget(null);
+    if (!canExport || target !== assistantId) {
+      return;
+    }
     setExportStep("preparing");
     try {
-      const { bundleKey, runtimeVersion } = await exportManagedBundle(
-        assistantId,
-        { onStep: setExportStep },
-      );
+      const { bundleKey, runtimeVersion } = await exportManagedBundle(target, {
+        onStep: setExportStep,
+      });
       setExportStep("downloading");
-      const filename = exportBundleFilename(assistantId, new Date());
+      const filename = exportBundleFilename(target, new Date());
       const url = await requestSignedDownloadUrl(
         bundleKey,
         runtimeVersion,
@@ -217,7 +232,7 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
     } finally {
       setExportStep(null);
     }
-  }, [assistantId, t]);
+  }, [assistantId, canExport, exportTarget, t]);
 
   if (loading) {
     return (
@@ -258,12 +273,12 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
           {t("assistantBackups.oldestRemovedNotice")}
         </p>
       )}
-      {isPlatformHosted && (
+      {canExport && (
         <Button
           variant="outlined"
           loading={exportBusy}
           leftIcon={<Download />}
-          onClick={() => setConfirmingExport(true)}
+          onClick={() => setExportTarget(assistantId)}
           disabled={exportBusy || restoringSnapshot !== null}
           className="shrink-0"
         >
@@ -292,7 +307,7 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
       message={t("assistantBackups.exportMessage")}
       confirmLabel={t("assistantBackups.export")}
       onConfirm={handleExportConfirm}
-      onCancel={() => setConfirmingExport(false)}
+      onCancel={() => setExportTarget(null)}
     />
   );
 

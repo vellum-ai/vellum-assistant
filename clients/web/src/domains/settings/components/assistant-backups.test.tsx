@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 let platformHosted = true;
+let platformGate: "full" | "disabled" = "full";
 let exportFails = false;
 const calls: string[] = [];
 let toastErrors: string[] = [];
@@ -13,6 +14,7 @@ mock.module("@/assistant/api", () => ({
 
 mock.module("@/hooks/use-platform-gate", () => ({
   useActiveAssistantIsPlatformHosted: () => platformHosted,
+  usePlatformGate: () => platformGate,
 }));
 
 mock.module("@/domains/settings/teleport/managed-export", () => ({
@@ -85,6 +87,7 @@ async function confirmExport() {
 describe("AssistantBackups export", () => {
   beforeEach(() => {
     platformHosted = true;
+    platformGate = "full";
     exportFails = false;
     calls.length = 0;
     toastErrors = [];
@@ -139,5 +142,40 @@ describe("AssistantBackups export", () => {
 
     await screen.findByRole("button", { name: "Create Backup" });
     expect(screen.queryByRole("button", { name: "Export" })).toBeNull();
+  });
+
+  test("without a platform session there is no Export button", async () => {
+    platformGate = "disabled";
+    render(<AssistantBackups assistantId="ast-1" />);
+
+    await screen.findByRole("button", { name: "Create Backup" });
+    expect(screen.queryByRole("button", { name: "Export" })).toBeNull();
+  });
+
+  test("switching assistants closes an open confirmation without exporting", async () => {
+    const { rerender } = render(<AssistantBackups assistantId="ast-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Export" }));
+    await screen.findByRole("dialog");
+
+    rerender(<AssistantBackups assistantId="ast-2" />);
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(calls).toEqual([]);
+  });
+
+  test("losing the platform session closes an open confirmation", async () => {
+    const { rerender } = render(<AssistantBackups assistantId="ast-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Export" }));
+    await screen.findByRole("dialog");
+
+    platformGate = "disabled";
+    rerender(<AssistantBackups assistantId="ast-1" />);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    platformGate = "full";
+    rerender(<AssistantBackups assistantId="ast-1" />);
+    await screen.findByRole("button", { name: "Export" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(calls).toEqual([]);
   });
 });
