@@ -1889,13 +1889,15 @@ describe("latency sub-spans", () => {
     try {
       const lanes = await buildLanes();
       // Low dense score against a high threshold closes the gate; no bypass.
+      // The query uses words absent from the corpus so the sparse lane also
+      // carries no signal — the gate hard-skips regardless of normK calibration.
       denseHits = [{ article: "topic-b", section: 0, score: 0.01 }];
       providerStub = selectProvider(["topic-a"]);
       const tracker = new TurnLatencyTracker();
 
       await runWithLatencySubSpans(tracker, MEMORY_CONTEXT_PHASE_KEY, () =>
         orchestrate(
-          makeTurn(1, "apple banana"),
+          makeTurn(1, "zzz yyy"),
           depsOf(lanes, {
             denseK: 100,
             gateConfig: gateConfigOf({ enabled: true, bypassForCore: false }),

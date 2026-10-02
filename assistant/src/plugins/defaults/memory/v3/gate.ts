@@ -24,9 +24,19 @@
 import type { DenseHitScored } from "./dense.js";
 import type { SectionNeedleScoredHit } from "./section-needle.js";
 
-/** BM25F normalization constant when config.bm25NormK is null.
- *  TODO(memory-v3): replace with per-corpus auto-calibration. */
+/** BM25F normalization constant used as a fallback when no corpus size is known. */
 export const DEFAULT_BM25_NORM_K = 9.0;
+
+/**
+ * Derive a corpus-specific BM25F normalization constant from total section count.
+ * Larger corpora produce higher raw BM25F scores (more term competition), so k
+ * must grow with corpus size to keep normalized output in a stable [0,1] range.
+ * Anchored so calibrateBm25NormK(200) ≈ DEFAULT_BM25_NORM_K. Clamped to 1.0
+ * for very small corpora so normalization never collapses.
+ */
+export function calibrateBm25NormK(sectionCount: number): number {
+  return Math.max(1.0, Math.log(sectionCount / 10 + 1) * 3);
+}
 
 export type V3GateReason =
   | "dense_pass"
@@ -63,6 +73,8 @@ export interface V3CheckGateParams {
   needleHits: SectionNeedleScoredHit[];
   denseHits: DenseHitScored[];
   config: V3GateConfig;
+  /** Total sections in the corpus at this turn; drives auto-calibration when config.bm25NormK is null. */
+  corpusSectionCount?: number;
 }
 
 /**
@@ -74,7 +86,7 @@ export interface V3CheckGateParams {
  * orchestrate-level decision, not part of the score check.
  */
 export function checkV3Gate(params: V3CheckGateParams): V3GateResult {
-  const { needleHits, denseHits, config } = params;
+  const { needleHits, denseHits, config, corpusSectionCount } = params;
 
   if (!config.enabled) {
     return {
@@ -102,7 +114,11 @@ export function checkV3Gate(params: V3CheckGateParams): V3GateResult {
   const topDense = denseScores[0] ?? null;
   const topSparseRaw = sparseScores[0] ?? null;
 
-  const normK = config.bm25NormK ?? DEFAULT_BM25_NORM_K;
+  const normK =
+    config.bm25NormK ??
+    (corpusSectionCount != null
+      ? calibrateBm25NormK(corpusSectionCount)
+      : DEFAULT_BM25_NORM_K);
   const topNorm =
     topSparseRaw === null ? null : topSparseRaw / (topSparseRaw + normK);
 
