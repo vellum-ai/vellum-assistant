@@ -793,6 +793,102 @@ describe("resolvePricingForUsageWithOverrides", () => {
     expect(result.pricingStatus).toBe("priced");
     expect(result.estimatedCostUsd).toBeCloseTo(32.6, 10);
   });
+
+  // A gateway serving Claude over an OpenAI-compatible API bills cached input
+  // well below the uncached input rate, and nothing about the provider or the
+  // model ID puts it under Anthropic's rules.
+  test("prices cache tokens at the override's cache rates outside Anthropic's rules", () => {
+    const usage: PricingUsage = {
+      directInputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheCreationInputTokens: 1_000_000,
+      cacheReadInputTokens: 1_000_000,
+      anthropicCacheCreation: null,
+    };
+    const overrides: ModelPricingOverride[] = [
+      {
+        provider: "openai-compatible",
+        modelPattern: "claude-opus-4-6",
+        inputPer1M: 10,
+        outputPer1M: 20,
+        cacheReadPer1M: 1,
+        cacheWritePer1M: 12.5,
+      },
+    ];
+
+    const result = resolvePricingForUsageWithOverrides(
+      "openai-compatible",
+      "claude-opus-4-6",
+      usage,
+      overrides,
+    );
+
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBeCloseTo(10 + 20 + 12.5 + 1, 10);
+  });
+
+  test("falls back to the input rate for cache tokens when the override omits cache rates", () => {
+    const usage: PricingUsage = {
+      directInputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheCreationInputTokens: 1_000_000,
+      cacheReadInputTokens: 1_000_000,
+      anthropicCacheCreation: null,
+    };
+    const overrides: ModelPricingOverride[] = [
+      {
+        provider: "openai-compatible",
+        modelPattern: "claude-opus-4-6",
+        inputPer1M: 10,
+        outputPer1M: 20,
+      },
+    ];
+
+    const result = resolvePricingForUsageWithOverrides(
+      "openai-compatible",
+      "claude-opus-4-6",
+      usage,
+      overrides,
+    );
+
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBeCloseTo(10 + 20 + 10 + 10, 10);
+  });
+
+  // Under Anthropic's rules `cacheWritePer1M` is the 5-minute rate; the 1-hour
+  // rate holds the 2 / 1.25 ratio the input-derived multipliers use.
+  test("treats the override's cacheWritePer1M as the 5-minute rate under Anthropic's rules", () => {
+    const usage: PricingUsage = {
+      directInputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheCreationInputTokens: 2_000_000,
+      cacheReadInputTokens: 1_000_000,
+      anthropicCacheCreation: {
+        ephemeral_5m_input_tokens: 1_000_000,
+        ephemeral_1h_input_tokens: 1_000_000,
+      },
+    };
+    const overrides: ModelPricingOverride[] = [
+      {
+        provider: "anthropic",
+        modelPattern: "claude-opus-4-6",
+        inputPer1M: 10,
+        outputPer1M: 20,
+        cacheReadPer1M: 1,
+        cacheWritePer1M: 12.5,
+      },
+    ];
+
+    const result = resolvePricingForUsageWithOverrides(
+      "anthropic",
+      "claude-opus-4-6",
+      usage,
+      overrides,
+    );
+
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBeCloseTo(10 + 20 + 1 + 12.5 + 20, 10);
+  });
 });
 
 describe("Anthropic models on OpenRouter", () => {

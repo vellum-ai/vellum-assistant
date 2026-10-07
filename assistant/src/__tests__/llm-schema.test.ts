@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { ModelPricingOverrideSchema } from "../config/schemas/inference.js";
 import { LLMConfigBase, LLMSchema } from "../config/schemas/llm.js";
 
 // A legacy `llm.default` blob as older configs persisted it. The schema has
@@ -389,5 +390,76 @@ describe("LLMSchema", () => {
     expect(parsed.profiles.gateway?.inputModalities).toEqual({
       image: { enabled: true, supported: true },
     });
+  });
+});
+
+// `llm.pricingOverrides` entries are validated by `PricingOverrideSchema`
+// inside `LLMSchema`, while `ModelPricingOverrideSchema` types the same entries
+// for consumers such as `resolvePricingForUsageWithOverrides`. Both shapes are
+// asserted here so they stay in step.
+describe("pricing override cache rates", () => {
+  const baseOverride = {
+    provider: "openai-compatible",
+    modelPattern: "claude-opus-4-6",
+    inputPer1M: 10,
+    outputPer1M: 20,
+  };
+
+  test("LLMSchema keeps optional cache rates on a pricing override", () => {
+    const parsed = LLMSchema.parse({
+      pricingOverrides: [
+        { ...baseOverride, cacheReadPer1M: 1, cacheWritePer1M: 12.5 },
+      ],
+    });
+    expect(parsed.pricingOverrides[0]).toEqual({
+      ...baseOverride,
+      cacheReadPer1M: 1,
+      cacheWritePer1M: 12.5,
+    });
+  });
+
+  test("LLMSchema accepts a pricing override that omits cache rates", () => {
+    const parsed = LLMSchema.parse({ pricingOverrides: [baseOverride] });
+    expect(parsed.pricingOverrides[0]).toEqual(baseOverride);
+  });
+
+  test.each(["cacheReadPer1M", "cacheWritePer1M"] as const)(
+    "LLMSchema rejects a negative %s",
+    (field) => {
+      const result = LLMSchema.safeParse({
+        pricingOverrides: [{ ...baseOverride, [field]: -1 }],
+      });
+      expect(result.success).toBe(false);
+    },
+  );
+
+  test("ModelPricingOverrideSchema parses optional cache rates", () => {
+    const parsed = ModelPricingOverrideSchema.parse({
+      ...baseOverride,
+      cacheReadPer1M: 1,
+      cacheWritePer1M: 12.5,
+    });
+    expect(parsed.cacheReadPer1M).toBe(1);
+    expect(parsed.cacheWritePer1M).toBe(12.5);
+  });
+
+  test("ModelPricingOverrideSchema leaves cache rates undefined when omitted", () => {
+    const parsed = ModelPricingOverrideSchema.parse(baseOverride);
+    expect(parsed.cacheReadPer1M).toBeUndefined();
+    expect(parsed.cacheWritePer1M).toBeUndefined();
+  });
+
+  test.each([
+    ["cacheReadPer1M", "pricingOverrides[].cacheReadPer1M"],
+    ["cacheWritePer1M", "pricingOverrides[].cacheWritePer1M"],
+  ])("ModelPricingOverrideSchema rejects a negative %s", (field, label) => {
+    const result = ModelPricingOverrideSchema.safeParse({
+      ...baseOverride,
+      [field]: -1,
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toBe(
+      `${label} must be a non-negative number`,
+    );
   });
 });

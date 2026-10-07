@@ -521,11 +521,22 @@ type ProfileSource = z.infer<typeof ProfileSource>;
 // Pricing overrides
 // ---------------------------------------------------------------------------
 
+/**
+ * `modelPattern` is a literal prefix, not a glob: an entry matches when the
+ * model name starts with it, and the longest matching prefix wins. A trailing
+ * `*` is matched literally, so `claude-opus-*` matches nothing.
+ *
+ * `cacheReadPer1M` / `cacheWritePer1M` are optional. When unset, providers
+ * billing under Anthropic's rules derive cache rates from `inputPer1M` and
+ * every other provider charges cached input at `inputPer1M`.
+ */
 const PricingOverrideSchema = z.object({
   provider: z.string(),
   modelPattern: z.string(),
   inputPer1M: z.number().nonnegative(),
   outputPer1M: z.number().nonnegative(),
+  cacheReadPer1M: z.number().nonnegative().optional(),
+  cacheWritePer1M: z.number().nonnegative().optional(),
 });
 
 // ---------------------------------------------------------------------------

@@ -145,7 +145,9 @@ export const ModelPricingOverrideSchema = z
       .string({
         error: "pricingOverrides[].modelPattern must be a string",
       })
-      .describe("Glob pattern to match model names against"),
+      .describe(
+        "Literal prefix matched against the model name, not a glob. 'claude-opus' matches 'claude-opus-4-6'; a trailing '*' is matched literally and so matches nothing. The longest matching prefix wins.",
+      ),
     inputPer1M: z
       .number({ error: "pricingOverrides[].inputPer1M must be a number" })
       .nonnegative(
@@ -158,6 +160,24 @@ export const ModelPricingOverrideSchema = z
         "pricingOverrides[].outputPer1M must be a non-negative number",
       )
       .describe("Cost per 1 million output tokens in USD"),
+    cacheReadPer1M: z
+      .number({ error: "pricingOverrides[].cacheReadPer1M must be a number" })
+      .nonnegative(
+        "pricingOverrides[].cacheReadPer1M must be a non-negative number",
+      )
+      .optional()
+      .describe(
+        "Cost per 1 million cache-read input tokens in USD. When unset, providers billing under Anthropic's rules derive it from inputPer1M and every other provider charges cache reads at inputPer1M.",
+      ),
+    cacheWritePer1M: z
+      .number({ error: "pricingOverrides[].cacheWritePer1M must be a number" })
+      .nonnegative(
+        "pricingOverrides[].cacheWritePer1M must be a non-negative number",
+      )
+      .optional()
+      .describe(
+        "Cost per 1 million cache-write input tokens in USD. Under Anthropic's rules this is the 5-minute TTL rate and the 1-hour rate scales from it. When unset, providers billing under Anthropic's rules derive it from inputPer1M and every other provider charges cache writes at inputPer1M.",
+      ),
   })
   .describe(
     "Custom pricing override for a specific provider/model combination",

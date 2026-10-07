@@ -401,6 +401,17 @@ function calculateUsageCost(
   const { ephemeral5mInputTokens, ephemeral1hInputTokens } =
     getAnthropicCacheWriteTokens(usage);
 
+  // Anthropic charges cache writes per TTL. An explicit `cacheWritePer1M` is
+  // the 5-minute rate, and the 1-hour rate holds the same ratio to it that the
+  // input-derived multipliers do.
+  const cacheWrite5mPer1M =
+    effectivePricing.cacheWritePer1M ??
+    effectivePricing.inputPer1M * ANTHROPIC_PROMPT_CACHE_MULTIPLIERS.write5m;
+  const cacheWrite1hPer1M =
+    cacheWrite5mPer1M *
+    (ANTHROPIC_PROMPT_CACHE_MULTIPLIERS.write1h /
+      ANTHROPIC_PROMPT_CACHE_MULTIPLIERS.write5m);
+
   return (
     directInputCost +
     outputCost +
@@ -409,14 +420,8 @@ function calculateUsageCost(
         effectivePricing.inputPer1M * ANTHROPIC_PROMPT_CACHE_MULTIPLIERS.read,
       usage.cacheReadInputTokens,
     ) +
-    calculateTokenCost(
-      effectivePricing.inputPer1M * ANTHROPIC_PROMPT_CACHE_MULTIPLIERS.write5m,
-      ephemeral5mInputTokens,
-    ) +
-    calculateTokenCost(
-      effectivePricing.inputPer1M * ANTHROPIC_PROMPT_CACHE_MULTIPLIERS.write1h,
-      ephemeral1hInputTokens,
-    )
+    calculateTokenCost(cacheWrite5mPer1M, ephemeral5mInputTokens) +
+    calculateTokenCost(cacheWrite1hPer1M, ephemeral1hInputTokens)
   );
 }
 
@@ -486,6 +491,8 @@ export function resolvePricingForUsageWithOverrides(
         {
           inputPer1M: bestOverride.inputPer1M,
           outputPer1M: bestOverride.outputPer1M,
+          cacheReadPer1M: bestOverride.cacheReadPer1M,
+          cacheWritePer1M: bestOverride.cacheWritePer1M,
         },
         usage,
       ),
