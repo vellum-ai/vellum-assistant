@@ -16,6 +16,7 @@ export type { SkillEntryConfig } from "./schemas/skills.js";
 // Imports for AssistantConfigSchema composition
 import { AcpConfigSchema } from "./acp-schema.js";
 import { ApiRateLimitConfigSchema } from "./schemas/api-rate-limit.js";
+import { AppsConfigSchema } from "./schemas/apps.js";
 import { BackupConfigSchema } from "./schemas/backup.js";
 import { CallsConfigSchema } from "./schemas/calls.js";
 import {
@@ -66,6 +67,7 @@ import { WorkflowsConfigSchema } from "./schemas/workflows.js";
 import { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
 export const AssistantConfigSchema = z.object({
+  apps: AppsConfigSchema.default(AppsConfigSchema.parse({})),
   services: ServicesSchema.default(ServicesSchema.parse({})),
   memory: MemoryConfigSchema.default(MemoryConfigSchema.parse({})),
   monitoring: MonitoringConfigSchema.default(MonitoringConfigSchema.parse({})),

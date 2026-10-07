@@ -1562,8 +1562,8 @@ paths:
   /v1/apps/{id}/publish:
     post:
       operationId: apps_by_id_publish_post
-      summary: Publish app to Vercel
-      description: Deploy the app's HTML to Vercel and store the deployment record.
+      summary: Publish app
+      description: Deploy the app's HTML through the configured publish provider and store the deployment record.
       tags:
         - apps
       parameters:
@@ -1580,6 +1580,12 @@ paths:
               schema:
                 type: object
                 properties:
+                  provider:
+                    description: Id of the configured publish provider
+                    type: string
+                  providerName:
+                    description: Display name of the configured publish provider
+                    type: string
                   success:
                     type: boolean
                   publicUrl:
@@ -1597,7 +1603,7 @@ paths:
     get:
       operationId: apps_by_id_publishstatus_get
       summary: Get app publish status
-      description: Return the current Vercel deployment state for an app.
+      description: Return the current deployment state for an app, plus the configured publish provider.
       tags:
         - apps
       parameters:
@@ -1614,6 +1620,12 @@ paths:
               schema:
                 type: object
                 properties:
+                  provider:
+                    description: Id of the configured publish provider
+                    type: string
+                  providerName:
+                    description: Display name of the configured publish provider
+                    type: string
                   published:
                     type: boolean
                   publicUrl:
@@ -1747,8 +1759,8 @@ paths:
   /v1/apps/{id}/unpublish:
     post:
       operationId: apps_by_id_unpublish_post
-      summary: Unpublish app from Vercel
-      description: Mark the active Vercel deployment as inactive.
+      summary: Unpublish app
+      description: Take the active deployment down at the publish provider and mark it inactive.
       tags:
         - apps
       parameters:
@@ -1765,6 +1777,12 @@ paths:
               schema:
                 type: object
                 properties:
+                  provider:
+                    description: Id of the configured publish provider
+                    type: string
+                  providerName:
+                    description: Display name of the configured publish provider
+                    type: string
                   success:
                     type: boolean
                   error:

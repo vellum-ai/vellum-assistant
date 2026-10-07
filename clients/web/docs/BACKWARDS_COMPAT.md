@@ -283,6 +283,27 @@ the bootstrap behaves exactly as it did before the field could be `null`, so
 there is no fallback that diverges from the old behavior and nothing to switch
 on a version.
 
+### Optional publish provider on the app publish responses
+
+`POST /v1/apps/{id}/publish`, `POST /v1/apps/{id}/unpublish`, and
+`GET /v1/apps/{id}/publish-status` carry optional `provider` and `providerName`
+fields naming the target an app deploys to. No gate, for three reasons.
+
+They ride existing endpoints, so an assistant without them answers 200 with the
+fields absent rather than 404. The request bodies are unchanged, so there is no
+old-shaped write to send to a new assistant. And the fallback is not an
+approximation of the right answer, it is the right answer: an assistant that
+names no provider only ever published to Vercel, so `publishProviderName()`
+reading an absent field as "Vercel" and `isVercelPublishProvider()` reading it
+as Vercel (which keeps the Vercel token dialog on credential failures) describe
+that assistant exactly.
+
+The `assistantSupports()` "version unknown reads as false" hazard does not
+apply either: the decision is taken from the response that just arrived, not
+from the asynchronously hydrating identity store, so there is no window in
+which a new assistant is misread as an old one. As with the last-activity
+order above, the response says which case it is in.
+
 ## The gates
 
 Each module owns one feature's old/new split. Current registry:

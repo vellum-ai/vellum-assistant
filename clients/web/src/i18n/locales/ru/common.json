@@ -138,7 +138,7 @@
   "deployStore": {
     "appExported": "Приложение экспортировано",
     "deployFailed": "Не удалось опубликовать",
-    "deployedToVercel": "Опубликовано на Vercel",
+    "deployedToProvider": "Опубликовано на {provider}",
     "open": "Открыть",
     "shareFailed": "Не удалось поделиться приложением"
   },

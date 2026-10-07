@@ -222,7 +222,12 @@ describe("AppNavBar desktop edit affordance", () => {
   test("swaps to an expand icon while the chat panel is open", () => {
     const onEdit = mock(() => {});
     render(
-      <AppNavBar appName="My App" onClose={() => {}} onEdit={onEdit} isEditing />,
+      <AppNavBar
+        appName="My App"
+        onClose={() => {}}
+        onEdit={onEdit}
+        isEditing
+      />,
     );
 
     expect(document.body.textContent).not.toContain("Close chat");
@@ -461,6 +466,34 @@ describe("AppNavBar deployed state", () => {
     fireEvent.click(copyButton as HTMLButtonElement);
     expect(onCopyDeployedLink).toHaveBeenCalledTimes(1);
     expect(onDeploy).not.toHaveBeenCalled();
+  });
+
+  test("names the configured publish target instead of Vercel", () => {
+    mockIsMobile = false;
+    const published = renderToStaticMarkup(
+      <AppNavBar
+        appName="My App"
+        onClose={() => {}}
+        onShare={() => {}}
+        onDeploy={() => {}}
+        deployProviderName="Coolify"
+        deployedUrl={DEPLOYED_URL}
+        onCopyDeployedLink={() => {}}
+      />,
+    );
+    expect(published).toContain(">Deployed to Coolify<");
+    expect(published).not.toContain("Vercel<");
+
+    const unpublished = renderToStaticMarkup(
+      <AppNavBar
+        appName="My App"
+        onClose={() => {}}
+        onShare={() => {}}
+        onDeploy={() => {}}
+        deployProviderName="Coolify"
+      />,
+    );
+    expect(unpublished).toContain(">Deploy to Coolify<");
   });
 
   test("the standalone deploy button still deploys when nothing is published", () => {

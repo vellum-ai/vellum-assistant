@@ -26,11 +26,11 @@
     "pin": "Fijar",
     "share": "Compartir",
     "shareSub": "Exportar como archivo .vellum",
-    "deployed": "Desplegada en Vercel",
+    "deployed": "Desplegada en {provider}",
     "copyLink": "Copiar el enlace",
     "redeploy": "Volver a desplegar",
     "redeploySub": "Publicar la versión actual",
-    "deploy": "Desplegar en Vercel",
+    "deploy": "Desplegar en {provider}",
     "deploySub": "Publicar como página estática",
     "delete": "Eliminar"
   },

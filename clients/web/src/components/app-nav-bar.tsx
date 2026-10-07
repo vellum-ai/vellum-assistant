@@ -16,6 +16,7 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { useTranslation } from "@/i18n";
 import { cn } from "@/utils/misc";
+import { DEFAULT_PUBLISH_PROVIDER_NAME } from "@/utils/publish-provider";
 import {
   BottomSheet,
   Button,
@@ -39,12 +40,16 @@ export interface AppNavBarProps {
   onDeploy?: () => void;
   isDeploying?: boolean;
   /**
-   * Live URL of the app's active Vercel deployment, when it has one. Turns
-   * the deploy affordance into "Deployed to Vercel" (which hands back the
-   * link) plus an explicit Redeploy, instead of offering a first-time deploy
-   * for an app that is already published.
+   * Live URL of the app's active deployment. Set, the deploy affordance is
+   * "Deployed to <provider>" (which hands back the link) plus an explicit
+   * Redeploy; unset, it offers a first-time deploy.
    */
   deployedUrl?: string | null;
+  /**
+   * Display name of the publish target, used wherever it is named. Falls back
+   * to {@link DEFAULT_PUBLISH_PROVIDER_NAME} until the status read answers.
+   */
+  deployProviderName?: string;
   /** Invoked by the deployed-state item; copies the link and shows it. */
   onCopyDeployedLink?: () => void;
   /** When provided, renders a fullscreen toggle button in the right group. */
@@ -61,6 +66,7 @@ export function AppNavBar({
   onDeploy,
   isDeploying,
   deployedUrl,
+  deployProviderName = DEFAULT_PUBLISH_PROVIDER_NAME,
   onCopyDeployedLink,
   onToggleFullscreen,
   onClose,
@@ -120,6 +126,7 @@ export function AppNavBar({
             onDeploy={onDeploy}
             isDeploying={isDeploying}
             deployedUrl={deployedUrl}
+            deployProviderName={deployProviderName}
             onCopyDeployedLink={onCopyDeployedLink}
           />
         ) : (
@@ -131,7 +138,9 @@ export function AppNavBar({
                   iconOnly={<Link2 />}
                   onClick={onCopyDeployedLink}
                   tooltip={t("appNavBar.deployedCopyLinkTooltip")}
-                  aria-label={t("appNavBar.deployedCopyLinkAria")}
+                  aria-label={t("appNavBar.deployedCopyLinkAria", {
+                    provider: deployProviderName,
+                  })}
                 />
               ) : (
                 <Button
@@ -204,7 +213,7 @@ export function AppNavBar({
 }
 
 // ---------------------------------------------------------------------------
-// Share + Deploy to Vercel dropdown
+// Share + Deploy dropdown
 //
 // Single trigger that opens a dropdown listing both actions. Used whenever
 // both `onShare` and `onDeploy` are provided to the nav bar — collapses two
@@ -218,6 +227,7 @@ interface ShareDeployMenuTriggerProps {
   onDeploy: () => void;
   isDeploying?: boolean;
   deployedUrl?: string | null;
+  deployProviderName: string;
   onCopyDeployedLink?: () => void;
 }
 
@@ -227,6 +237,7 @@ function ShareDeployMenuTrigger({
   onDeploy,
   isDeploying,
   deployedUrl,
+  deployProviderName,
   onCopyDeployedLink,
 }: ShareDeployMenuTriggerProps) {
   const { t } = useTranslation();
@@ -282,7 +293,11 @@ function ShareDeployMenuTrigger({
                   icon={Link2}
                   label={
                     <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
-                      <span>{t("appNavBar.deployedToVercel")}</span>
+                      <span>
+                        {t("appNavBar.deployedToProvider", {
+                          provider: deployProviderName,
+                        })}
+                      </span>
                       <span className="break-all text-body-small-default text-[var(--content-tertiary)]">
                         {deployedUrl}
                       </span>
@@ -314,9 +329,13 @@ function ShareDeployMenuTrigger({
                 icon={Globe}
                 label={
                   <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
-                    <span>{t("appNavBar.deployToVercel")}</span>
+                    <span>
+                      {t("appNavBar.deployToProvider", {
+                        provider: deployProviderName,
+                      })}
+                    </span>
                     <span className="text-body-small-default text-[var(--content-tertiary)]">
-                      {t("appNavBar.deployToVercelSubtitle")}
+                      {t("appNavBar.deployToProviderSubtitle")}
                     </span>
                   </span>
                 }
@@ -359,7 +378,9 @@ function ShareDeployMenuTrigger({
               onSelect={() => onCopyDeployedLink?.()}
               className="whitespace-nowrap"
             >
-              {t("appNavBar.deployedToVercel")}
+              {t("appNavBar.deployedToProvider", {
+                provider: deployProviderName,
+              })}
             </Menu.Item>
             <Menu.Item
               leftIcon={<RefreshCw size={14} />}
@@ -375,7 +396,9 @@ function ShareDeployMenuTrigger({
             onSelect={() => onDeploy()}
             className="whitespace-nowrap"
           >
-            {t("appNavBar.deployToVercel")}
+            {t("appNavBar.deployToProvider", {
+              provider: deployProviderName,
+            })}
           </Menu.Item>
         )}
       </Menu.Content>

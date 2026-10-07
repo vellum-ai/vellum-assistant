@@ -3,8 +3,9 @@
  *
  * Owns the in-flight UI state for two operations:
  * - **Share** — export an app to a `.vellum` bundle.
- * - **Deploy** — publish an app to Vercel (with an intermediate token
- *   dialog when the org doesn't yet have a Vercel token stored).
+ * - **Deploy**: publish an app through whichever target the assistant is
+ *   configured for (with an intermediate token dialog when that target is
+ *   Vercel and no Vercel token is stored yet).
  *
  * Used by both the chat-page app viewer and the library page — lives
  * in `stores/` because it is cross-domain shared state.
@@ -14,11 +15,14 @@
 
 import { create } from "zustand";
 
-import { integrationsVercelConfigGet } from "@/generated/daemon/sdk.gen";
 import type { AppsByIdPublishPostResponse } from "@/generated/daemon/types.gen";
 import { t } from "@/i18n";
 import { createSelectors } from "@/utils/create-selectors";
 import { publishApp } from "@/utils/publish-app";
+import {
+  isVercelPublishProvider,
+  publishProviderName,
+} from "@/utils/publish-provider";
 import { shareAppWithToast } from "@/utils/share-app-with-toast";
 import { toast } from "@vellumai/design-library";
 
@@ -68,6 +72,11 @@ export type DeployStore = DeployState & DeployActions;
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether the failure is one the Vercel token dialog can fix. Only consulted
+ * for the Vercel provider: every other target reports a missing credential (or
+ * a missing endpoint) as an ordinary error with a message that says what to do.
+ */
 function isCredentialError(result: AppsByIdPublishPostResponse): boolean {
   return (
     result.errorCode === "credentials_missing" ||
@@ -77,9 +86,20 @@ function isCredentialError(result: AppsByIdPublishPostResponse): boolean {
   );
 }
 
-function showPublishResultToast(result: AppsByIdPublishPostResponse): void {
+function handlePublishResult(result: AppsByIdPublishPostResponse): {
+  needsVercelToken: boolean;
+} {
+  if (!result.success) {
+    if (isVercelPublishProvider(result) && isCredentialError(result)) {
+      return { needsVercelToken: true };
+    }
+    toast.error(t("deployStore.deployFailed"), { description: result.error });
+    return { needsVercelToken: false };
+  }
+
+  const provider = publishProviderName(result);
   if (result.publicUrl) {
-    toast.success(t("deployStore.deployedToVercel"), {
+    toast.success(t("deployStore.deployedToProvider", { provider }), {
       description: result.publicUrl,
       action: {
         label: t("deployStore.open"),
@@ -87,8 +107,9 @@ function showPublishResultToast(result: AppsByIdPublishPostResponse): void {
       },
     });
   } else {
-    toast.success(t("deployStore.deployedToVercel"));
+    toast.success(t("deployStore.deployedToProvider", { provider }));
   }
+  return { needsVercelToken: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -144,33 +165,16 @@ const useDeployStoreBase = create<DeployStore>()((set, get) => ({
     }
     set({ isDeploying: true });
     try {
-      const { data: config } = await integrationsVercelConfigGet({
-        path: { assistant_id: assistantId },
-        throwOnError: true,
-      });
-      if (!config.hasToken) {
+      // The publish route answers a missing credential before it compiles the
+      // app, so asking it is the cheap way to learn both whether a credential
+      // is needed and which provider needs it.
+      const result = await publishApp(assistantId, appId);
+      if (handlePublishResult(result).needsVercelToken) {
         set({
           isTokenDialogOpen: true,
           pendingDeployAppId: appId,
           isDeploying: false,
         });
-        return;
-      }
-      const result = await publishApp(assistantId, appId);
-      if (!result.success) {
-        if (isCredentialError(result)) {
-          set({
-            isTokenDialogOpen: true,
-            pendingDeployAppId: appId,
-            isDeploying: false,
-          });
-        } else {
-          toast.error(t("deployStore.deployFailed"), {
-            description: result.error,
-          });
-        }
-      } else {
-        showPublishResultToast(result);
       }
     } catch (err) {
       toast.error(t("deployStore.deployFailed"), {
@@ -189,13 +193,13 @@ const useDeployStoreBase = create<DeployStore>()((set, get) => ({
     }
     set({ isDeploying: true });
     try {
+      // The token the user just saved is the one that failed, so a second
+      // credential error is reported rather than reopening the dialog.
       const result = await publishApp(assistantId, pendingDeployAppId);
-      if (!result.success) {
+      if (handlePublishResult(result).needsVercelToken) {
         toast.error(t("deployStore.deployFailed"), {
           description: result.error,
         });
-      } else {
-        showPublishResultToast(result);
       }
     } catch (err) {
       toast.error(t("deployStore.deployFailed"), {

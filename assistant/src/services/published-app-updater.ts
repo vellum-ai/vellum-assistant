@@ -15,9 +15,11 @@ import {
   getActivePublishedPageByAppId,
   updatePublishedPage,
 } from "../apps/published-pages-store.js";
-import { credentialBroker } from "../tools/credentials/broker.js";
 import { getLogger } from "../util/logger.js";
-import { deployHtmlToVercel } from "./vercel-deploy.js";
+import {
+  getPublishProvider,
+  withPublishCredential,
+} from "./publish/registry.js";
 
 const log = getLogger("published-app-updater");
 
@@ -59,22 +61,28 @@ export async function updatePublishedAppDeployment(
       return;
     } // No change
 
-    // 4. Get Vercel token — don't prompt, just skip if unavailable
+    // 4. Deploy through the configured provider, reusing the project slug the
+    // record already carries. Never prompts: an unavailable credential just
+    // skips this redeploy.
+    const provider = getPublishProvider();
     const slug = publishedPage.projectSlug ?? `vellum-app-${appId}`;
 
-    const useResult = await credentialBroker.serverUse({
-      service: "vercel",
-      field: "api_token",
-      toolName: "publish_page",
-      execute: async (token) => {
-        // 5. Deploy updated HTML using the same project slug
-        const result = await deployHtmlToVercel({
+    const outcome = await withPublishCredential(
+      provider,
+      "publish_page",
+      async (token) => {
+        const result = await provider.deploy(
           html,
-          name: slug,
+          {
+            appId,
+            name: app.name,
+            slug,
+            previousDeploymentId: publishedPage.deploymentId,
+          },
           token,
-        });
+        );
 
-        // 6. Update the published page record
+        // 5. Update the published page record
         updatePublishedPage(publishedPage.id, {
           deploymentId: result.deploymentId,
           publicUrl: result.url,
@@ -89,12 +97,12 @@ export async function updatePublishedAppDeployment(
 
         return result;
       },
-    });
+    );
 
-    if (!useResult.success) {
+    if (!outcome.success) {
       log.warn(
-        { appId, reason: useResult.reason },
-        "Could not auto-update published app — no Vercel credential available",
+        { appId, provider: provider.id, reason: outcome.reason },
+        "Could not auto-update published app deployment",
       );
     }
   } catch (err) {
