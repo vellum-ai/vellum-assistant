@@ -7,7 +7,7 @@
  */
 import { readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, win32 } from "node:path";
 
 import {
   pathListDelimiter,
@@ -350,6 +350,24 @@ export function buildSanitizedEnv(
   }
   if (!env.LC_ALL) {
     env.LC_ALL = utf8Locale;
+  }
+  // Windows: guarantee the system directories are reachable. The daemon can
+  // be spawned with a minimal PATH (app dirs + SystemRoot dirs) that omits
+  // `System32\WindowsPowerShell\v1.0` — the directory powershell.exe actually
+  // lives in — so bare-name spawns of the Windows shell fail with
+  // `Executable not found in $PATH: "powershell.exe"`. Unique-prepend is a
+  // no-op for entries already present, so this is safe to always run.
+  if (hostPlatform === "win32" && env.SystemRoot) {
+    const systemRoot = env.SystemRoot;
+    env.PATH = prependUniquePathEntries(
+      env.PATH,
+      [
+        win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0"),
+        win32.join(systemRoot, "System32"),
+        win32.join(systemRoot, "System32", "Wbem"),
+      ],
+      hostPlatform,
+    );
   }
   prependWindowsAssistantDir(
     env,
