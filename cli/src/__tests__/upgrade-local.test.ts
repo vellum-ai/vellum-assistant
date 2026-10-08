@@ -203,7 +203,7 @@ function makeLocalEntry(): AssistantEntry {
       gatewayPort: 7830,
       qdrantPort: 6333,
       cesPort: 7822,
-      signingKey: "existing-signing-key",
+      signingKey: "ab".repeat(32),
     },
     guardianBootstrapSecret: "existing-bootstrap-secret",
   };
@@ -308,6 +308,19 @@ afterAll(() => {
 });
 
 describe("vellum upgrade local", () => {
+  test("missing identity refuses without backup, installation, restart or repair", async () => {
+    const entry = findAssistantByNameMock("local-assistant")!;
+    delete entry.resources!.signingKey;
+    await expect(upgrade()).rejects.toThrow("process.exit(1)");
+    expect(createBackupMock).not.toHaveBeenCalled();
+    expect(ensureLocalRuntimeMock).not.toHaveBeenCalled();
+    expect(startLocalDaemonMock).not.toHaveBeenCalled();
+    expect(startGatewayMock).not.toHaveBeenCalled();
+    expect(generateLocalSigningKeyMock).not.toHaveBeenCalled();
+    expect(resetGuardianBootstrapMock).not.toHaveBeenCalled();
+    expect(saveAssistantEntryMock).not.toHaveBeenCalled();
+  });
+
   test("uses explicit target versions as-is", async () => {
     const resolveLatest = mock(async () => "v0.9.9");
 
@@ -395,7 +408,7 @@ describe("vellum upgrade local", () => {
         instanceDir: tempDir,
         runtimeVersion: cliPkg.version ? `v${cliPkg.version}` : "v0.8.12",
       }),
-      { signingKey: "existing-signing-key" },
+      { signingKey: "ab".repeat(32) },
     );
     expect(startGatewayMock).toHaveBeenCalledWith(
       false,
@@ -404,7 +417,7 @@ describe("vellum upgrade local", () => {
         runtimeVersion: cliPkg.version ? `v${cliPkg.version}` : "v0.8.12",
       }),
       {
-        signingKey: "existing-signing-key",
+        signingKey: "ab".repeat(32),
         bootstrapSecret: "existing-bootstrap-secret",
       },
     );

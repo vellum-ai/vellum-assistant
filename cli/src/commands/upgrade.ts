@@ -1,3 +1,4 @@
+import { resolveExistingLocalSigningKey } from "@vellumai/local-mode";
 import { spawnSync } from "child_process";
 import { writeFileSync } from "fs";
 import { join } from "path";
@@ -889,6 +890,12 @@ async function upgradeLocal(
     process.exit(1);
   }
 
+  const signingKey = resolveExistingLocalSigningKey(entry.resources);
+  if (entry.resources.signingKey !== signingKey) {
+    entry.resources.signingKey = signingKey;
+    saveAssistantEntry(entry);
+  }
+
   const targetVersion = await targetVersionFromCli(version);
   const adminUrl = localAdminUrl(entry);
   const { currentVersion, preMigrationState } = await fetchLocalUpgradeState(
@@ -963,14 +970,8 @@ async function upgradeLocal(
     console.warn("⚠️  Pre-upgrade backup failed (continuing with upgrade)\n");
   }
 
-  let signingKey = entry.resources.signingKey;
   let bootstrapSecret = entry.guardianBootstrapSecret;
   let entryChanged = false;
-  if (!signingKey) {
-    signingKey = generateLocalSigningKey();
-    entry.resources = { ...entry.resources, signingKey };
-    entryChanged = true;
-  }
   if (!bootstrapSecret) {
     bootstrapSecret = generateLocalSigningKey();
     entry.guardianBootstrapSecret = bootstrapSecret;

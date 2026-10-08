@@ -573,6 +573,84 @@ describe("lockfile writers under lock contention", () => {
 });
 
 describe("upsertRendererLockfileAssistant", () => {
+  test("a renderer read/select/save preserves host resources and credentials", () => {
+    const entry = {
+      assistantId: "local-1",
+      cloud: "local",
+      name: "Example Assistant",
+      runtimeUrl: "http://127.0.0.1:7830",
+      guardianBootstrapSecret: "bootstrap-secret",
+      resources: {
+        instanceDir: "/example/instance",
+        gatewayPort: 7830,
+        daemonPort: 7831,
+        signingKey: "ab".repeat(32),
+        cesPort: 7832,
+        futureHostField: "keep",
+      },
+    };
+    writeOnDisk({ assistants: [entry], activeAssistant: null });
+    const read = getLockfileData([lockfilePath]);
+    expect(read.ok).toBe(true);
+    if (!read.ok) {
+      throw new Error("fixture read failed");
+    }
+    const view = read.data.assistants[0]!;
+    expect(view.resources).not.toHaveProperty("signingKey");
+    const result = upsertRendererLockfileAssistant(
+      [lockfilePath],
+      { ...view },
+      "local-1",
+    );
+    expect(result.ok).toBe(true);
+    expect(readOnDisk()).toEqual({
+      assistants: [entry],
+      activeAssistant: "local-1",
+    });
+  });
+
+  test("stale or forged renderer resources cannot replace host state", () => {
+    const entry = {
+      assistantId: "local-1",
+      cloud: "local",
+      guardianBootstrapSecret: "keep",
+      resources: {
+        instanceDir: "/example/current",
+        signingKey: "ab".repeat(32),
+        gatewayPort: 7830,
+        daemonPort: 7831,
+      },
+    };
+    writeOnDisk({ assistants: [entry], activeAssistant: null });
+    const result = upsertRendererLockfileAssistant(
+      [lockfilePath],
+      {
+        assistantId: "local-1",
+        name: "Updated",
+        guardianBootstrapSecret: "replace",
+        resources: {
+          instanceDir: "/example/stale",
+          signingKey: "cd".repeat(32),
+        },
+      },
+      undefined,
+    );
+    expect(result.ok).toBe(true);
+    expect(readOnDisk().assistants).toEqual([{ ...entry, name: "Updated" }]);
+  });
+
+  test("a renderer save refuses an unreadable registry without replacing it", () => {
+    fs.writeFileSync(lockfilePath, "{ invalid");
+    expect(
+      upsertRendererLockfileAssistant(
+        [lockfilePath],
+        { assistantId: "local-1" },
+        "local-1",
+      ),
+    ).toMatchObject({ ok: false, status: 409 });
+    expect(fs.readFileSync(lockfilePath, "utf-8")).toBe("{ invalid");
+  });
+
   const paired = {
     assistantId: "paired-1",
     cloud: "paired",

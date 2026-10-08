@@ -3,7 +3,12 @@
 import { join } from "path";
 import { readFileSync } from "node:fs";
 
-import { resolveConfigDir } from "@vellumai/local-mode";
+import {
+  resolveConfigDir,
+  SigningKeyContinuityError,
+} from "@vellumai/local-mode";
+
+import { emitCliError } from "./lib/cli-error.js";
 
 import cliPkg from "../package.json";
 import { backup } from "./commands/backup";
@@ -285,6 +290,9 @@ async function main() {
   try {
     await command();
   } catch (error) {
+    if (error instanceof SigningKeyContinuityError) {
+      emitCliError("AUTH_IDENTITY_UNAVAILABLE", error.message, error.code);
+    }
     console.error("Error:", error instanceof Error ? error.message : error);
     process.exit(1);
   }

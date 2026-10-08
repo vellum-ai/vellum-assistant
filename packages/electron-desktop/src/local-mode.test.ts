@@ -475,17 +475,12 @@ describe("lockfile IPC handlers", () => {
   });
 
   test("saveLockfileAssistant persists the assistant and makes it active", () => {
-    // An unmodeled field pins the split between the two representations: the
-    // on-disk file preserves everything the caller wrote (so a newer writer's
-    // fields survive a round-trip through an older build), while the validated
-    // wire value the bridge returns carries only the modeled shape. The two are
-    // deliberately not equal.
     const result = saveLockfileAssistant(
       {
         assistantId: "asst-1",
         cloud: "local",
         runtimeUrl: "http://127.0.0.1:1",
-        futureField: "keep-me",
+        futureField: "renderer-only",
       },
       "asst-1",
     );
@@ -510,7 +505,38 @@ describe("lockfile IPC handlers", () => {
       assistantId: "asst-1",
       cloud: "local",
       runtimeUrl: "http://127.0.0.1:1",
+    });
+  });
+
+  test("saveLockfileAssistant preserves host identity and unknown stored fields", () => {
+    const stored = {
+      assistantId: "asst-1",
+      cloud: "local",
+      runtimeUrl: "http://127.0.0.1:1",
+      resources: { instanceDir: "/instances/example", signingKey: "ab".repeat(32) },
+      guardianBootstrapSecret: "host-bootstrap-secret",
       futureField: "keep-me",
+    };
+    fs.writeFileSync(
+      lockfilePath,
+      JSON.stringify({ assistants: [stored], activeAssistant: null }),
+    );
+
+    const result = saveLockfileAssistant(
+      {
+        assistantId: "asst-1",
+        name: "Renamed Assistant",
+        resources: { instanceDir: "/instances/example" },
+        guardianBootstrapSecret: "renderer-cannot-replace-this",
+        futureField: "renderer-cannot-replace-this",
+      },
+      "asst-1",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(JSON.parse(fs.readFileSync(lockfilePath, "utf-8"))).toEqual({
+      assistants: [{ ...stored, name: "Renamed Assistant" }],
+      activeAssistant: "asst-1",
     });
   });
 

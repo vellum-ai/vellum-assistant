@@ -1,3 +1,4 @@
+import { resolveLockfilePaths } from "@vellumai/local-mode";
 import {
   afterAll,
   afterEach,
@@ -13,11 +14,12 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  renameSync,
   rmSync,
+  readFileSync,
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
+import * as osModule from "node:os";
 import { basename, join } from "node:path";
 
 import type { AssistantEntry } from "../lib/assistant-config.js";
@@ -36,7 +38,9 @@ const realExec = stepRunnerModule.exec;
 
 // Prevent real daemon / gateway / CES from starting
 const startLocalDaemonMock = mock(async () => {});
-const startGatewayMock = mock(async () => {});
+const startGatewayMock = mock<typeof localModule.startGateway>(
+  async () => "http://127.0.0.1:7831",
+);
 const startCesMock = mock(async () => {});
 
 // Capture exec calls without running real tar
@@ -74,12 +78,14 @@ function makeEntry(assistantId: string, instanceDir: string): AssistantEntry {
     assistantId,
     runtimeUrl: "http://127.0.0.1:7831",
     cloud: "local",
+    guardianBootstrapSecret: "existing-bootstrap",
     resources: {
       instanceDir,
       daemonPort: 7801,
       gatewayPort: 7831,
       qdrantPort: 6334,
       cesPort: 7790,
+      signingKey: "ab".repeat(32),
     },
   };
 }
@@ -107,18 +113,21 @@ function writeArchiveFixtures(
   return { archivePath, metadataPath, extractedPath };
 }
 
+let homeSpy: ReturnType<typeof spyOn>;
 let consoleLogSpy: ReturnType<typeof spyOn>;
 let consoleErrorSpy: ReturnType<typeof spyOn>;
 let exitSpy: ReturnType<typeof spyOn>;
 
 beforeEach(() => {
+  homeSpy = spyOn(osModule, "homedir").mockReturnValue(join(testDir, "home"));
+  mkdirSync(homedir(), { recursive: true });
   // Route lockfile and retired archives to the temp directory
   process.env.VELLUM_LOCKFILE_DIR = testDir;
   process.env.XDG_DATA_HOME = testDir;
   // Write an empty lockfile so saveAssistantEntry has a dir to write to
   mkdirSync(testDir, { recursive: true });
   writeFileSync(
-    join(testDir, ".vellum.lock.json"),
+    resolveLockfilePaths(process.env)[0]!,
     JSON.stringify({ assistants: [] }) + "\n",
   );
 
@@ -135,6 +144,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  homeSpy.mockRestore();
   process.argv = [...originalArgv];
   process.env.VELLUM_LOCKFILE_DIR = originalLockfileDir;
   process.env.XDG_DATA_HOME = originalXdgData;
@@ -177,6 +187,99 @@ describe("recover --help", () => {
 });
 
 describe("recover error cases", () => {
+  for (const named of [true, false]) {
+    for (const failure of ["missing", "conflict"] as const) {
+      test(`${named ? "named" : "default"} recovery ${failure} leaves destination and registry untouched and permits retry`, async () => {
+        const name = `retry-${named}-${failure}`;
+        const instanceDir = named
+          ? join(testDir, "vellum", "assistants", name)
+          : homedir();
+        const target = named ? instanceDir : join(instanceDir, ".vellum");
+        const entry = makeEntry(name, instanceDir);
+        delete entry.resources!.signingKey;
+        const { archivePath, metadataPath, extractedPath } =
+          writeArchiveFixtures(name, entry);
+        if (failure === "conflict") {
+          const staged = named ? join(extractedPath, ".vellum") : extractedPath;
+          for (const [dir, hex] of [
+            ["protected", "ab"],
+            ["workspace/deprecated", "cd"],
+          ]) {
+            mkdirSync(join(staged, dir!), { recursive: true });
+            writeFileSync(
+              join(staged, dir!, "actor-token-signing-key"),
+              Buffer.from(hex!.repeat(32), "hex"),
+            );
+          }
+        }
+        const registry = resolveLockfilePaths(process.env)[0]!;
+        const before = readFileSync(registry, "utf8");
+        process.argv = ["bun", "vellum", "recover", name];
+        await expect(recover()).rejects.toThrow(`signing key ${failure}`);
+        expect(existsSync(target)).toBe(false);
+        expect(readFileSync(registry, "utf8")).toBe(before);
+        expect(existsSync(archivePath)).toBe(true);
+        expect(existsSync(metadataPath)).toBe(true);
+        expect(startLocalDaemonMock).not.toHaveBeenCalled();
+        expect(startGatewayMock).not.toHaveBeenCalled();
+        // Restore the authoritative identity in the archive metadata and retry.
+        entry.resources!.signingKey = "ab".repeat(32);
+        writeFileSync(metadataPath, JSON.stringify(entry));
+        await recover();
+        expect(existsSync(target)).toBe(true);
+        expect(existsSync(archivePath)).toBe(false);
+        expect(startGatewayMock).toHaveBeenCalledTimes(1);
+        rmSync(target, { recursive: true, force: true });
+      });
+    }
+  }
+
+  for (const named of [true, false]) {
+    test(`recovers ${named ? "named" : "default"} archived legacy identity from staging`, async () => {
+      const name = `legacy-${named}`;
+      const entry = makeEntry(
+        name,
+        named ? join(testDir, "vellum", "assistants", name) : homedir(),
+      );
+      delete entry.resources!.signingKey;
+      const { extractedPath } = writeArchiveFixtures(name, entry);
+      const dir = join(
+        named ? join(extractedPath, ".vellum") : extractedPath,
+        "workspace",
+        "deprecated",
+      );
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "actor-token-signing-key"),
+        Buffer.from("cd".repeat(32), "hex"),
+      );
+      process.argv = ["bun", "vellum", "recover", name];
+      await recover();
+      expect(startGatewayMock).toHaveBeenCalledWith(
+        false,
+        expect.objectContaining({ signingKey: "cd".repeat(32) }),
+        { signingKey: "cd".repeat(32), bootstrapSecret: "existing-bootstrap" },
+      );
+      rmSync(
+        named ? entry.resources!.instanceDir : join(homedir(), ".vellum"),
+        { recursive: true, force: true },
+      );
+    });
+  }
+
+  test("missing identity preserves the archive and starts no processes", async () => {
+    const name = "missing-key";
+    const entry = makeEntry(name, join(testDir, "vellum", "assistants", name));
+    delete entry.resources!.signingKey;
+    const { archivePath, metadataPath } = writeArchiveFixtures(name, entry);
+    process.argv = ["bun", "vellum", "recover", name];
+    await expect(recover()).rejects.toThrow("signing key missing");
+    expect(existsSync(archivePath)).toBe(true);
+    expect(existsSync(metadataPath)).toBe(true);
+    expect(startLocalDaemonMock).not.toHaveBeenCalled();
+    expect(startGatewayMock).not.toHaveBeenCalled();
+  });
+
   test("exits 1 when no name is given", async () => {
     process.argv = ["bun", "vellum", "recover"];
     await expect(recover()).rejects.toThrow("process.exit(1)");
@@ -229,11 +332,6 @@ describe("recover extraction path — default instance (instanceDir === homedir(
     const { archivePath, extractedPath } = writeArchiveFixtures(name, entry);
 
     const expectedTargetDir = join(homedir(), ".vellum");
-    // If a real ~/.vellum exists (e.g. the machine runs a live assistant),
-    // temporarily move it aside so the collision guard doesn't fire.
-    const backupDir = join(homedir(), ".vellum-recover-test-bak");
-    const hadExisting = existsSync(expectedTargetDir);
-    if (hadExisting) renameSync(expectedTargetDir, backupDir);
 
     try {
       process.argv = ["bun", "vellum", "recover", name];
@@ -258,9 +356,13 @@ describe("recover extraction path — default instance (instanceDir === homedir(
       // Daemon and gateway were started
       expect(startLocalDaemonMock).toHaveBeenCalledTimes(1);
       expect(startGatewayMock).toHaveBeenCalledTimes(1);
+      expect(startGatewayMock.mock.calls[0]).toEqual([
+        false,
+        expect.objectContaining({ signingKey: "ab".repeat(32) }),
+        { signingKey: "ab".repeat(32), bootstrapSecret: "existing-bootstrap" },
+      ]);
     } finally {
       rmSync(expectedTargetDir, { recursive: true, force: true });
-      if (hadExisting) renameSync(backupDir, expectedTargetDir);
     }
   });
 });
@@ -297,6 +399,11 @@ describe("recover extraction path — named instance (instanceDir !== homedir())
     // Daemon and gateway were started
     expect(startLocalDaemonMock).toHaveBeenCalledTimes(1);
     expect(startGatewayMock).toHaveBeenCalledTimes(1);
+    expect(startGatewayMock.mock.calls[0]).toEqual([
+      false,
+      expect.objectContaining({ signingKey: "ab".repeat(32) }),
+      { signingKey: "ab".repeat(32), bootstrapSecret: "existing-bootstrap" },
+    ]);
   });
 
   test("creates parent directories of instanceDir when they do not exist", async () => {

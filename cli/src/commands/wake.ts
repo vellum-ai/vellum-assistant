@@ -1,4 +1,8 @@
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import {
+  SigningKeyContinuityError,
+  resolveExistingLocalSigningKey,
+} from "@vellumai/local-mode";
+import { writeFileSync } from "fs";
 import { join } from "path";
 
 import {
@@ -16,6 +20,7 @@ import {
   probeDaemonReadinessWithRetry,
   waitForDaemonMigrationsReady,
 } from "../lib/http-client.js";
+import { findOpenPort } from "../lib/port-allocator.js";
 import {
   DAEMON_STOP_TIMEOUT_MS,
   isProcessAlive,
@@ -58,7 +63,8 @@ export async function wake(): Promise<void> {
     console.log(
       "  --repair-guardian  Force-re-provision the guardian token (resets the\n" +
         "                     gateway bootstrap and re-leases — REVOKES other device-bound\n" +
-        "                     tokens, so only use deliberately, never from auto-repair)",
+        "                     tokens; replaces an unrecoverable signing key and restarts services only then.\n" +
+        "                     Clients may need to authenticate again. Use deliberately.)",
     );
     process.exit(0);
   }
@@ -120,6 +126,61 @@ export async function wake(): Promise<void> {
     process.exit(1);
   }
   const resources = entry.resources;
+  let signingKey: string;
+  let replacingSigningKey = false;
+  try {
+    signingKey = resolveExistingLocalSigningKey(resources);
+  } catch (error) {
+    if (!(error instanceof SigningKeyContinuityError)) {
+      throw error;
+    }
+    if (!repairGuardian) {
+      error.message += ` Run vellum wake ${JSON.stringify(entry.assistantId)} --repair-guardian to recover access. Repair may replace the signing key and require all clients to authenticate again.`;
+      throw error;
+    }
+    console.warn(
+      `Repairing authentication for ${entry.assistantId}: signing key ${error.code}. Replacing the signing key; all clients must authenticate again.`,
+    );
+    signingKey = generateLocalSigningKey();
+    replacingSigningKey = true;
+  }
+
+  // A replacement must reach both processes. Stop them before saving it so
+  // retries cannot attach to a surviving process that still uses the old key.
+  if (replacingSigningKey) {
+    for (const [file, label, port] of [
+      [
+        join(resources.instanceDir, ".vellum", "gateway.pid"),
+        "gateway",
+        resources.gatewayPort,
+      ],
+      [getDaemonPidPath(resources), "assistant", resources.daemonPort],
+    ] as const) {
+      const stopped = await stopProcessByPidFile(
+        file,
+        label,
+        undefined,
+        DAEMON_STOP_TIMEOUT_MS,
+      );
+      if (!stopped && isProcessAlive(file).alive) {
+        throw new Error(
+          `Cannot repair authentication: ${label} could not be stopped. Stop it and retry the same repair command; no replacement key was saved.`,
+        );
+      }
+      // A missing PID file does not prove the service has released its port.
+      try {
+        await findOpenPort(port, { maxAttempts: 1, host: "127.0.0.1" });
+      } catch {
+        throw new Error(
+          `Cannot repair authentication: could not confirm that ${label} port ${port} is free. Stop any process using it, then retry the same repair command; no replacement key was saved.`,
+        );
+      }
+    }
+  }
+  if (replacingSigningKey || signingKey !== resources.signingKey) {
+    resources.signingKey = signingKey;
+    saveAssistantEntry(entry);
+  }
 
   const pidFile = getDaemonPidPath(resources);
 
@@ -183,40 +244,6 @@ export async function wake(): Promise<void> {
         console.log(`Assistant already running (pid ${daemonState.pid}).`);
       }
     }
-  }
-
-  // Resolve the signing key. The gateway persists its own copy to disk at
-  // <instanceDir>/.vellum/protected/actor-token-signing-key. That on-disk key
-  // is the source of truth because it is what the gateway actually used to sign
-  // existing actor tokens. Prefer it over the lockfile value so that tokens
-  // survive upgrades and any scenario where the two diverge.
-  //
-  // NOTE: Removal of this legacy key path read is blocked on removing all use
-  // of the signing key from the assistant daemon. Until then, the on-disk key
-  // must remain the authoritative source.
-  const legacyKeyPath = join(
-    resources.instanceDir,
-    ".vellum",
-    "protected",
-    "actor-token-signing-key",
-  );
-  let signingKey: string | undefined;
-  if (existsSync(legacyKeyPath)) {
-    try {
-      const raw = readFileSync(legacyKeyPath);
-      if (raw.length === 32) {
-        signingKey = raw.toString("hex");
-      }
-    } catch {
-      // Ignore — fall through to lockfile or generate.
-    }
-  }
-  if (!signingKey) {
-    signingKey = resources.signingKey ?? generateLocalSigningKey();
-  }
-  if (signingKey !== resources.signingKey) {
-    entry.resources = { ...resources, signingKey };
-    saveAssistantEntry(entry);
   }
 
   let bootstrapSecret = entry.guardianBootstrapSecret;

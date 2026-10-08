@@ -1,3 +1,5 @@
+import { SigningKeyContinuityError } from "@vellumai/local-mode";
+
 /**
  * Structured CLI error reporting for upgrade/rollback commands.
  *
@@ -17,6 +19,7 @@ export type CliErrorCategory =
   | "ROLLBACK_FAILED"
   | "ROLLBACK_NO_STATE"
   | "VERSION_DIRECTION"
+  | "AUTH_IDENTITY_UNAVAILABLE"
   | "AUTH_FAILED"
   | "NETWORK_ERROR"
   | "UNSUPPORTED_TOPOLOGY"
@@ -52,6 +55,8 @@ export function emitCliError(
  * {@link CliErrorCategory} for common upgrade/rollback failures.
  */
 export function categorizeUpgradeError(err: unknown): CliErrorCategory {
+  if (err instanceof SigningKeyContinuityError)
+    return "AUTH_IDENTITY_UNAVAILABLE";
   const msg = String(err).toLowerCase();
 
   if (

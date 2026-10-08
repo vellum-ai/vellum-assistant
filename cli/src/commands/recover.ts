@@ -1,3 +1,4 @@
+import { resolveExistingLocalSigningKey } from "@vellumai/local-mode";
 import {
   existsSync,
   mkdirSync,
@@ -101,24 +102,21 @@ export async function recover(): Promise<void> {
   const extractedPath = join(retiredDir, basename(archivePath) + ".staging");
 
   await exec("tar", ["xzf", archivePath, "-C", retiredDir]);
-  mkdirSync(dirname(targetDir), { recursive: true });
-  renameSync(extractedPath, targetDir);
-
-  // 5. Restore lockfile entry
-  saveAssistantEntry(entry);
-
-  // 6. Clean up archive
-  unlinkSync(archivePath);
-  unlinkSync(metadataPath);
-
-  // 7. Persist signing key and bootstrap secret so they survive daemon/gateway restarts
-  const signingKey = generateLocalSigningKey();
-  const bootstrapSecret = generateLocalSigningKey();
+  // Validate the staged identity before occupying the destination or updating
+  // the registry. A failed validation leaves the archive available for retry.
+  const signingKey = resolveExistingLocalSigningKey(
+    entry.resources,
+    isNamedInstance ? join(extractedPath, ".vellum") : extractedPath,
+  );
+  const bootstrapSecret =
+    entry.guardianBootstrapSecret ?? generateLocalSigningKey();
   entry.resources = { ...entry.resources, signingKey };
   entry.guardianBootstrapSecret = bootstrapSecret;
+  mkdirSync(dirname(targetDir), { recursive: true });
+  renameSync(extractedPath, targetDir);
   saveAssistantEntry(entry);
 
-  // 8. Start CES sibling + daemon + gateway in parallel, the way the
+  // 7. Start CES sibling + daemon + gateway in parallel, the way the
   // Docker topology brings its sibling processes up together. startCes
   // always launches the CES sibling.
   await Promise.all([
@@ -126,6 +124,9 @@ export async function recover(): Promise<void> {
     startLocalDaemon(false, entry.resources, { signingKey }),
     startGateway(false, entry.resources, { signingKey, bootstrapSecret }),
   ]);
+
+  unlinkSync(archivePath);
+  unlinkSync(metadataPath);
 
   console.log(`✅ Recovered assistant '${name}'.`);
 }
