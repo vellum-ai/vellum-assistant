@@ -124,13 +124,11 @@ async function handleConfirm({ body, headers }: RouteHandlerArgs) {
         : { originConversationId: interaction.conversationId }),
       emissionContext: { source: "button" },
     });
-    if (
-      decisionResult.applied ||
-      (decisionResult.reason !== "not_found" &&
-        decisionResult.reason !== "already_resolved")
-    ) {
+    if (decisionResult.applied && !decisionResult.resolverFailed) {
       return { accepted: true };
     }
+    // Non-applied results (not_found, already_resolved, etc.) and resolver
+    // failures (gateway unreachable, resolver threw mid-run): fall through.
     // Fall through to the legacy in-memory path below.
   }
 
