@@ -951,3 +951,104 @@ describe("subscribeEvents reconnect cursor (resumable stream)", () => {
     expect(urls[1]).not.toContain("lastSeenSeq");
   });
 });
+
+describe("subscribeEvents — probe()", () => {
+  test("probe shortens the idle deadline on an established stream and the watchdog fires early", async () => {
+    // GIVEN a stream that delivers one heartbeat and then goes silent —
+    // the shape of a socket iOS killed during a background: no error, no
+    // bytes, the fetch just never resolves another chunk.
+    const encoder = new TextEncoder();
+    let fetchCallCount = 0;
+    const capturedSignals: AbortSignal[] = [];
+    globalThis.fetch = mock(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        fetchCallCount++;
+        const signal = input instanceof Request ? input.signal : init?.signal;
+        if (signal) {
+          capturedSignals.push(signal);
+        }
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(encoder.encode(": keepalive\n\n"));
+              // Then stall forever.
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "text/event-stream" } },
+        );
+      },
+    ) as unknown as typeof fetch;
+
+    const sub = subscribeEvents(
+      "asst-probe",
+      () => {},
+      () => {},
+      // Steady-state idle window far beyond the test's horizon, so only
+      // the probe can trip the watchdog.
+      { idleTimeoutMs: 60_000, reconnectBaseDelayMs: 10 },
+    );
+
+    try {
+      // Let the first heartbeat land (establishes the stream).
+      await new Promise((r) => setTimeout(r, 50));
+      expect(fetchCallCount).toBe(1);
+      expect(capturedSignals[0]?.aborted).toBe(false);
+
+      // WHEN the caller distrusts the socket and demands proof of life
+      sub.probe(50);
+
+      // THEN the watchdog fires on the probe clock, not the 60s one, and
+      // the ordinary reconnect path opens a fresh fetch
+      await new Promise((r) => setTimeout(r, 200));
+      expect(capturedSignals[0]?.aborted).toBe(true);
+      expect(fetchCallCount).toBeGreaterThanOrEqual(2);
+    } finally {
+      sub.cancel();
+    }
+  });
+
+  test("probe is a no-op before the stream has established", async () => {
+    // GIVEN a fetch that is still handshaking — no bytes yet
+    let fetchCallCount = 0;
+    const capturedSignals: AbortSignal[] = [];
+    globalThis.fetch = mock(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        fetchCallCount++;
+        const signal = input instanceof Request ? input.signal : init?.signal;
+        if (signal) {
+          capturedSignals.push(signal);
+        }
+        return new Response(
+          new ReadableStream({
+            start() {
+              // Never enqueue: the connection never proves itself.
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "text/event-stream" } },
+        );
+      },
+    ) as unknown as typeof fetch;
+
+    const sub = subscribeEvents(
+      "asst-probe-cold",
+      () => {},
+      () => {},
+      { idleTimeoutMs: 60_000, reconnectBaseDelayMs: 10 },
+    );
+
+    try {
+      await new Promise((r) => setTimeout(r, 50));
+      // WHEN a probe arrives during the initial connect
+      sub.probe(20);
+      await new Promise((r) => setTimeout(r, 100));
+
+      // THEN the in-flight attempt is left alone: shortening the deadline
+      // on a fetch that has not opened would abort a slow but healthy
+      // handshake. The steady-state watchdog still owns this attempt.
+      expect(capturedSignals[0]?.aborted).toBe(false);
+      expect(fetchCallCount).toBe(1);
+    } finally {
+      sub.cancel();
+    }
+  });
+});
