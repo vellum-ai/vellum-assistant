@@ -1,5 +1,5 @@
 import { toast } from "@vellumai/design-library";
-import { useCallback, useEffect, useRef } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import {
   isPickerDismissal,
@@ -12,6 +12,17 @@ import {
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAttachmentFilePicker } from "@/domains/chat/components/chat-attachments/use-attachment-file-picker";
 import { useTranslation } from "@/i18n";
+import { hideNativeKeyboard } from "@/runtime/native-keyboard";
+import { isNativeIOS } from "@/runtime/platform-detection";
+
+// Loaded only when the iOS camera row opens. A static import pulls the voice
+// camera module into every composer test, including ones whose platform mock
+// does not cover that graph.
+const QuietCameraOverlay = lazy(() =>
+  import("@/domains/chat/components/chat-attachments/camera-capture-overlay").then(
+    (mod) => ({ default: mod.CameraCaptureOverlay }),
+  ),
+);
 
 const RESTORE_FOCUS = { alwaysRestoreFocus: true } as const;
 
@@ -98,6 +109,17 @@ export function useComposerAttachmentPickers({
     openPicker();
   };
 
+  // iOS camera is the app viewfinder, not `<input capture>`. The system camera
+  // records audio for a still photo and moves Bluetooth onto the headset
+  // profile. The overlay asks for video only. Loaded lazily so a shell that
+  // never opens it does not pay for the camera module.
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const openQuietCamera = useCallback(() => {
+    onOpenChange(false);
+    void hideNativeKeyboard();
+    setCameraOpen(true);
+  }, [onOpenChange]);
+
   /**
    * The shells' photo and document rows, which open a native surface instead
    * of an `<input type="file">`.
@@ -169,13 +191,38 @@ export function useComposerAttachmentPickers({
 
   return {
     inputs: (
-      <div className="relative h-0 w-0">
-        {camera.inputNode}
-        {gallery.inputNode}
-        {files.inputNode}
-      </div>
+      <>
+        <div className="relative h-0 w-0">
+          {camera.inputNode}
+          {gallery.inputNode}
+          {files.inputNode}
+        </div>
+        {cameraOpen ? (
+          <Suspense fallback={null}>
+            <QuietCameraOverlay
+              onCapture={(files) => {
+                if (!mountedRef.current) {
+                  return;
+                }
+                onAttachFilesRef.current(files);
+              }}
+              onClose={() => {
+                setCameraOpen(false);
+              }}
+              // After the dialog releases focus. Unmounting the focused
+              // surface moves focus to the document, and the dialog
+              // restores focus on a later turn.
+              onClosed={() => {
+                if (mountedRef.current) {
+                  requestComposerFocus();
+                }
+              }}
+            />
+          </Suspense>
+        ) : null}
+      </>
     ),
-    camera: closeThenPick(camera.openPicker),
+    camera: isNativeIOS() ? openQuietCamera : closeThenPick(camera.openPicker),
     photos: native
       ? closeThenPickNative(pickMediaNative)
       : closeThenPick(gallery.openPicker),

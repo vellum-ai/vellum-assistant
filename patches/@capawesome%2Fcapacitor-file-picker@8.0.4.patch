@@ -1,0 +1,54 @@
+diff --git a/ios/Plugin/FilePicker.swift b/ios/Plugin/FilePicker.swift
+--- a/ios/Plugin/FilePicker.swift
++++ b/ios/Plugin/FilePicker.swift
+@@ -1,6 +1,5 @@
+ import Foundation
+ import PhotosUI
+-import Photos
+ import Capacitor
+ import UIKit
+ import MobileCoreServices
+@@ -86,7 +85,7 @@
+     public func openImagePicker(limit: Int, skipTranscoding: Bool, ordered: Bool) {
+         DispatchQueue.main.async {
+             if #available(iOS 14, *) {
+-                var configuration = PHPickerConfiguration(photoLibrary: PHPhotoLibrary.shared())
++                var configuration = self.photoPickerConfiguration()
+                 configuration.selectionLimit = limit
+ 
+                 if #available(iOS 15, *) {
+@@ -112,7 +111,7 @@
+     public func openMediaPicker(limit: Int, skipTranscoding: Bool, ordered: Bool) {
+         DispatchQueue.main.async {
+             if #available(iOS 14, *) {
+-                var configuration = PHPickerConfiguration(photoLibrary: PHPhotoLibrary.shared())
++                var configuration = self.photoPickerConfiguration()
+                 configuration.selectionLimit = limit
+ 
+                 if #available(iOS 15, *) {
+@@ -137,7 +136,7 @@
+     public func openVideoPicker(limit: Int, skipTranscoding: Bool, ordered: Bool) {
+         DispatchQueue.main.async {
+             if #available(iOS 14, *) {
+-                var configuration = PHPickerConfiguration(photoLibrary: PHPhotoLibrary.shared())
++                var configuration = self.photoPickerConfiguration()
+                 configuration.selectionLimit = limit
+ 
+                 if #available(iOS 15, *) {
+@@ -253,6 +252,16 @@
+         }
+     }
+ 
++    /// Photo picker that leaves this app's audio session alone.
++    ///
++    /// `PHPickerConfiguration()` runs out of process. Passing the shared photo
++    /// library runs the picker in process, which shares the session and routes
++    /// Bluetooth through the headset profile.
++    @available(iOS 14, *)
++    private func photoPickerConfiguration() -> PHPickerConfiguration {
++        return PHPickerConfiguration()
++    }
++
+     private func presentViewController(_ viewControllerToPresent: UIViewController) {
+         self.plugin?.bridge?.viewController?.present(viewControllerToPresent, animated: true, completion: nil)
+     }

@@ -220,6 +220,8 @@ Three things follow from the rule:
 
 The camera call has one hard audio rule: `disableAudio: true` is mandatory. Live voice already owns microphone capture, and the viewfinder must not add an audio input or reconfigure the session underneath it. `enableHighResolution: true` requests the iOS high-resolution photo path, `toBack: true` keeps the HTML controls above the preview, and `storeToFile: false` returns captured JPEG bytes directly to the existing attachment pipeline.
 
+On iOS that flag is not sufficient by itself. `AVCaptureSession.automaticallyConfiguresApplicationAudioSession` defaults to true, and `startRunning()` then adopts `playAndRecord` for a video-only session, which moves Bluetooth onto the headset profile. The camera-preview patch sets the flag false before `startRunning` whenever `disableAudio` is set. The composer camera on iOS uses this same preview: `UIImagePickerController` records audio even for a still.
+
 Camera permission is declared in both shells: `NSCameraUsageDescription` on iOS and `android.permission.CAMERA` on Android. Android marks camera hardware optional so devices without a camera remain installable and fail through the existing no-device path.
 
 The skew rule applies to every camera call through `callNativeVoice`. `startNativeVoiceCamera()` resolving `false` is the availability result. Do not add a separate probe. When the plugin is missing from an older installed shell, `voice-camera.ts` falls through to video-only `getUserMedia` with ideal 1920 by 1080 constraints and logs the negotiated non-identifying track settings. Desktop web and Electron use that same fallback. The native path renders no `<video>`, so it has no browser playback state or media-element play affordance.

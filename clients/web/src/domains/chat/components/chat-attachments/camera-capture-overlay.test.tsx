@@ -319,6 +319,29 @@ describe("CameraCaptureOverlay", () => {
     opener.remove();
   });
 
+  test("hands focus to the caller when the caller restores it", async () => {
+    const opener = document.createElement("button");
+    document.body.append(opener);
+    opener.focus();
+    const onClosed = mock(() => {});
+    const onCapture = mock((_files: File[]) => {});
+    const onClose = mock(() => {});
+    const { unmount } = render(
+      <CameraCaptureOverlay
+        onCapture={onCapture}
+        onClose={onClose}
+        onClosed={onClosed}
+      />,
+    );
+
+    unmount();
+    await flushFocusRestore();
+
+    expect(onClosed).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).not.toBe(opener);
+    opener.remove();
+  });
+
   test("takes the app behind it out of the accessibility tree", () => {
     // The `getUserMedia` path leaves `#root` on screen behind a full-screen
     // viewfinder, so the composer under it has to stop being reachable.

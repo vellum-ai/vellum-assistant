@@ -14,6 +14,11 @@
  * command exists for. The bridge has no such requirement, so the camera is
  * opened through it instead and the input is gone from this path.
  *
+ * The composer camera row on iOS uses the same surface for a second reason. A
+ * tap there does carry user activation, and the capture input would present
+ * the system camera, which records audio even for a still and moves Bluetooth
+ * onto the headset profile. This viewfinder asks for video only.
+ *
  * ## What actually opens
  *
  * {@link useVoiceCamera}, the same acquisition the voice room runs on: the
@@ -82,11 +87,19 @@ interface CameraCaptureOverlayProps {
   onCapture: (files: File[]) => void;
   /** Take the surface down. Unmounting is what releases the camera. */
   onClose: () => void;
+  /**
+   * Runs once the dialog has released focus, in place of moving it back to
+   * the element that held it when the surface opened. The composer passes
+   * this so the caret returns to the textarea: the sampled element is a sheet
+   * row that has already gone, and restoring it lands focus nowhere.
+   */
+  onClosed?: () => void;
 }
 
 export function CameraCaptureOverlay({
   onCapture,
   onClose,
+  onClosed,
 }: CameraCaptureOverlayProps) {
   const { t } = useTranslation("chat");
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -217,6 +230,10 @@ export function CameraCaptureOverlay({
         // since the composer can unmount underneath the surface.
         onCloseAutoFocus={(event) => {
           event.preventDefault();
+          if (onClosed) {
+            onClosed();
+            return;
+          }
           if (focusOnClose?.isConnected) {
             focusOnClose.focus();
           }

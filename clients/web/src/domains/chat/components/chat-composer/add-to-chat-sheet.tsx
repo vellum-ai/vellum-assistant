@@ -52,8 +52,10 @@ interface AddToChatSheetProps {
  * In the Capacitor shells the photo and document rows open the native pickers
  * instead, because WebKit answers a file input with its own action sheet and
  * neither surface is reachable through it (see `native-attachment-pickers`).
- * Camera keeps the input everywhere: `capture` already forces the camera
- * rather than that sheet.
+ * On iOS the camera row opens the app viewfinder. The system camera takes the
+ * microphone for a still photo and moves Bluetooth onto the headset profile.
+ * Other platforms keep an input with `capture`, which already forces the
+ * camera rather than that sheet.
  *
  * The three inputs render as siblings of `BottomSheet.Root`, outside the
  * dialog portal. A row tap closes the sheet before opening the native picker,
