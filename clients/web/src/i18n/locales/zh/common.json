@@ -852,6 +852,8 @@
   "ttsProviderForm": {
     "apiKey": "API 密钥",
     "apiKeyRequired": "测试前请为此提供商保存 API 密钥。",
+    "fishVoiceIdRequired": "测试 Fish Audio 前请输入语音 ID。",
+    "xaiPreviewUnsupported": "这里暂时无法预览 xAI 文本转语音。请使用 ElevenLabs 或 Deepgram 测试语音。",
     "chooseFromCatalog": "从目录中选择",
     "customVoiceIdAriaLabel": "自定义语音 ID",
     "noManagedVoices": "目前没有可用的托管语音。",

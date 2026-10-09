@@ -7,6 +7,13 @@ import { getLogger } from "../util/logger.js";
 const log = getLogger("fish-audio-client");
 
 /**
+ * Fish Audio selects the TTS model with the `model` request header.
+ * Omitting it, or sending a name the API does not recognize, falls back to
+ * the API default (`s2.1-pro`) instead of s2-pro.
+ */
+const FISH_AUDIO_TTS_MODEL = "s2-pro";
+
+/**
  * Config accepted by the synthesis client. Widens the user-facing format
  * union with `"pcm"` (raw 16-bit LE, no container), which PCM-requesting
  * callers substitute internally — it is not part of the config schema.
@@ -51,7 +58,6 @@ export async function synthesizeWithFishAudio(
   const body = {
     text,
     reference_id: config.referenceId || undefined,
-    model: "s2-pro",
     format: config.format,
     sample_rate: options?.sampleRate,
     mp3_bitrate: 192,
@@ -76,6 +82,7 @@ export async function synthesizeWithFishAudio(
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
+      model: FISH_AUDIO_TTS_MODEL,
     },
     body: JSON.stringify(body),
     signal: options?.signal,
