@@ -622,3 +622,20 @@ index aa18ca78d0d73ceceeae4eee2d23a83a802bab03..965390b69654778a5d6f84042e6ffd5e
                  }
 
                  if self.storeToFile == false {
+diff --git a/ios/Sources/CameraPreviewPlugin/CameraController.swift b/ios/Sources/CameraPreviewPlugin/CameraController.swift
+--- a/ios/Sources/CameraPreviewPlugin/CameraController.swift
++++ b/ios/Sources/CameraPreviewPlugin/CameraController.swift
+@@ -42,6 +42,13 @@
+     func prepare(cameraPosition: String, disableAudio: Bool, completionHandler: @escaping (Error?) -> Void) {
+         func createCaptureSession() {
+             self.captureSession = AVCaptureSession()
++            // A video-only session still adopts playAndRecord while this stays
++            // at its default, which moves Bluetooth onto the headset profile.
++            // The preview records no audio, so it leaves the application
++            // session alone.
++            if disableAudio {
++                self.captureSession?.automaticallyConfiguresApplicationAudioSession = false
++            }
+         }
+ 
+         func configureCaptureDevices() throws {

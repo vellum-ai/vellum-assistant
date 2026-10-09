@@ -5,8 +5,10 @@
  * `<input type="file">` cannot reach either surface: WebKit answers every
  * click with its own action sheet (Photo Library / Take Photo / Choose File)
  * and offers no way to skip or narrow it, so rows built on inputs can only
- * raise that same list a second time. `capture` is the one exception, which
- * is why the camera row stays an input and these two do not.
+ * raise that same list a second time. On iOS the camera row is the app's own
+ * viewfinder, because the system camera takes the microphone even for a still
+ * and moves Bluetooth onto the headset profile. Elsewhere `capture` is what
+ * opens the camera, which is why that row stays an input.
  *
  * `PHPickerViewController` and `UIDocumentPickerViewController` are what the
  * plugin reaches, which is also why neither row costs a permission prompt.
@@ -19,8 +21,12 @@
  * WebKit transcodes HEIC for a file input, the native picker hands back the
  * original, and the store converts it either way.
  *
- * Neither picker needs a permission grant. Both run out of process, so iOS
- * shows no prompt and `Info.plist` needs no new usage description.
+ * Neither picker needs a permission grant. The photo picker is built with
+ * `PHPickerConfiguration()` and no photo library, so it runs out of process
+ * and leaves this app's audio session alone. The `photoLibrary:` initializer
+ * runs in process, shares that session, and routes Bluetooth through the
+ * headset profile. The document picker runs out of process as well. iOS shows
+ * no prompt and `Info.plist` needs no new usage description.
  */
 
 import { Capacitor } from "@capacitor/core";

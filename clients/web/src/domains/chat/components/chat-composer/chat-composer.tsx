@@ -1,4 +1,4 @@
-import { ArrowUp, Square } from "lucide-react";
+import { ArrowUp, Paperclip, Square } from "lucide-react";
 import {
   type FormEvent,
   type ReactNode,
@@ -84,7 +84,10 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import { useIsNativeAndroid } from "@/runtime/platform-detection";
+import {
+  isNativeIOS,
+  useIsNativeAndroid,
+} from "@/runtime/platform-detection";
 import { isPointerCoarse, usePointerCoarse } from "@/utils/pointer";
 import { routes } from "@/utils/routes";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
@@ -915,8 +918,16 @@ export function ChatComposer({
   // Read rather than subscribed: neither the shell a session runs in nor the
   // plugins its build links can change mid-session.
   const isNativeAndroidShell = useIsNativeAndroid();
+  const nativePickers = nativeAttachmentPickersAvailable();
+  // iOS with the native pickers uses the sheet at every width. A bare file
+  // input is what a wide layout would otherwise open, and WebKit's menu for
+  // one includes Take Photo or Video, which takes the microphone and moves
+  // Bluetooth onto the headset profile. A shell without the plugin keeps that
+  // menu: the web bundle cannot add a photo picker the binary lacks.
+  const iosNativeAttach = isNativeIOS() && nativePickers;
   const usesAddSheet =
-    isMobile && (isNativeAndroidShell || nativeAttachmentPickersAvailable());
+    iosNativeAttach ||
+    (isMobile && (isNativeAndroidShell || nativePickers));
 
   // Touch presses keep the textarea focused while activating a control.
   const holdsFocusOnPress = isMobile && pointerCoarseNow;
@@ -1060,8 +1071,9 @@ export function ChatComposer({
   }, [isMobile]);
 
   // Mobile hands the attach flow to a plus, which opens the same native picker
-  // the desktop paperclip does, or the sheet on the one shell whose own menu
-  // cannot offer a camera. Attachment controls share the same availability gate.
+  // the desktop paperclip does, or the sheet where that menu cannot offer a
+  // camera without taking the microphone. Attachment controls share the same
+  // availability gate.
   const attachDisabled = typingDisabled || !assistantId;
   const configurationPickers = useComposerAttachmentPickers({
     onOpenChange: configuration?.setOpen ?? handleAddSheetOpenChange,
@@ -1073,6 +1085,18 @@ export function ChatComposer({
       disabled={attachDisabled}
       pickers={configurationPickers}
       onMouseDown={rowPressGuard}
+    />
+  ) : !isMobile && iosNativeAttach ? (
+    // Paperclip chrome, sheet behind it. AttachFileButton's input is the
+    // WebKit menu, and that menu's camera takes the microphone.
+    <Button
+      variant="ghost"
+      iconOnly={<Paperclip />}
+      onClick={() => handleAddSheetOpenChange(true)}
+      disabled={attachDisabled}
+      aria-label={t("chatAttachments.attachFileAria")}
+      title={t("chatAttachments.attachFileAria")}
+      className="[--vbtn-fg:var(--content-tertiary)] touch-mobile:[--vbtn-fg:var(--content-tertiary)]"
     />
   ) : !isMobile ? (
     <AttachFileButton

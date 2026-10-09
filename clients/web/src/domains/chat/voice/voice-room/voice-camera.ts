@@ -15,8 +15,11 @@
  * modal and one-shot, so every photo costs a full open/aim/expose cycle; it
  * covers the room, so the call it belongs to disappears while you use it; and
  * it puts the OS in charge of an audio session that a call is currently
- * holding. The room therefore owns a persistent preview: a native Capacitor
- * camera layer on mobile and a `<video>` stream as the browser fallback.
+ * holding. The same system camera takes the microphone for a still with no
+ * call in progress, and moves Bluetooth onto the headset profile, which is
+ * why the composer's camera row on iOS uses this preview too. The room
+ * therefore owns a persistent preview: a native Capacitor camera layer on
+ * mobile and a `<video>` stream as the browser fallback.
  *
  * ## The one hard rule: never renegotiate the call's audio
  *

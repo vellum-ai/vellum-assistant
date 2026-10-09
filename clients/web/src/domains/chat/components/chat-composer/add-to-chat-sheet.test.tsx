@@ -87,6 +87,55 @@ mock.module("@/domains/chat/composer-focus", () => ({
   requestComposerFocus: requestComposerFocusSpy,
 }));
 
+// iOS opens the app viewfinder instead of clicking `<input capture>`. Defaults
+// to false so the other cases keep the capture input.
+let mockIsNativeIOS = false;
+mock.module("@/runtime/platform-detection", () => ({
+  isNativeIOS: () => mockIsNativeIOS,
+  isNativeMobile: () => false,
+  useIsNativeMobile: () => false,
+  useIsNativeAndroid: () => false,
+}));
+
+mock.module(
+  "@/domains/chat/components/chat-attachments/camera-capture-overlay",
+  () => ({
+    CameraCaptureOverlay: ({
+      onCapture,
+      onClose,
+      onClosed,
+    }: {
+      onCapture: (files: File[]) => void;
+      onClose: () => void;
+      onClosed?: () => void;
+    }) =>
+      createElement(
+        "div",
+        { "data-testid": "quiet-camera" },
+        createElement(
+          "button",
+          {
+            type: "button",
+            onClick: () =>
+              onCapture([new File(["x"], "shot.jpg", { type: "image/jpeg" })]),
+          },
+          "shutter",
+        ),
+        createElement(
+          "button",
+          {
+            type: "button",
+            onClick: () => {
+              onClose();
+              onClosed?.();
+            },
+          },
+          "close-camera",
+        ),
+      ),
+  }),
+);
+
 import { selectFiles } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
 import { AddToChatSheet } from "@/domains/chat/components/chat-composer/add-to-chat-sheet";
 
@@ -96,6 +145,7 @@ afterAll(() => {
 afterEach(() => {
   cleanup();
   mockNativePickersAvailable = false;
+  mockIsNativeIOS = false;
   mockPickMedia = async () => EMPTY_PICK;
   mockPickFiles = async () => EMPTY_PICK;
   requestComposerFocusSpy.mockClear();
@@ -177,6 +227,41 @@ describe("AddToChatSheet", () => {
     expect(camera.getAttribute("accept")).toBe("image/*");
     expect(camera.getAttribute("capture")).toBe("environment");
     expect(camera.multiple).toBe(false);
+  });
+
+  test("camera outside iOS closes the sheet and opens the capture input", () => {
+    const { onOpenChange, camera } = renderSheet();
+    const clicked = mock(() => {});
+    camera.addEventListener("click", clicked);
+
+    fireEvent.click(screen.getByText("Camera"));
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(clicked).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("quiet-camera")).toBeNull();
+  });
+
+  test("iOS camera opens the quiet viewfinder and leaves the capture input alone", async () => {
+    mockIsNativeIOS = true;
+    const { onOpenChange, onAttachFiles, camera } = renderSheet();
+    const clicked = mock(() => {});
+    camera.addEventListener("click", clicked);
+
+    fireEvent.click(screen.getByText("Camera"));
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(clicked).not.toHaveBeenCalled();
+    expect(await screen.findByTestId("quiet-camera")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("shutter"));
+    expect(onAttachFiles).toHaveBeenCalledTimes(1);
+    const delivered = onAttachFiles.mock.calls[0]?.[0];
+    expect(delivered).toBeInstanceOf(Array);
+    expect((delivered as File[])[0]?.name).toBe("shot.jpg");
+
+    fireEvent.click(screen.getByText("close-camera"));
+    expect(requestComposerFocusSpy).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("quiet-camera")).toBeNull();
   });
 
   test("gallery input takes multiple images, files input mirrors the paperclip", () => {

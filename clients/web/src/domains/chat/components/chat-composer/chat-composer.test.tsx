@@ -1703,6 +1703,27 @@ describe("ChatComposer: single-row mobile composer", () => {
     expect(fileInput(container)).not.toBeNull();
   });
 
+  test("a native iOS tablet opens the sheet instead of the file menu", () => {
+    // GIVEN an iPad, or an iPhone in landscape, whose build linked the native
+    // pickers. A bare file input here is WebKit's menu, and that menu's camera
+    // takes the microphone.
+    mockIsNativeIOS = true;
+    mockNativePickersAvailable = true;
+    const { container } = renderTouchTabletComposer();
+    const input = fileInput(container);
+    let opened = 0;
+    input?.addEventListener("click", () => {
+      opened += 1;
+    });
+
+    // WHEN the paperclip is tapped
+    fireEvent.click(control(container, "Attach file")!);
+
+    // THEN the sheet comes up, and the file input is never asked to
+    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
+    expect(opened).toBe(0);
+  });
+
   test("the Android shell keeps a sheet, since its chooser has no camera", () => {
     // GIVEN the Capacitor Android shell, whose `BridgeWebChromeClient` reaches
     // a camera intent only for an input carrying `capture` and an image accept
