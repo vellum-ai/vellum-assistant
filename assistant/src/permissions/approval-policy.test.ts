@@ -12,6 +12,7 @@ function makeContext(overrides: Partial<ApprovalContext>): ApprovalContext {
   return {
     riskLevel: RiskLevel.Low,
     toolName: "bash",
+    toolOrigin: "default",
     isContainerized: false,
     isWorkspaceScoped: false,
     ...overrides,
@@ -483,11 +484,35 @@ describe("edge cases", () => {
       hasManifestOverride: true,
     });
     // toolOrigin is "mcp", which is not extension-class (skill/plugin), so
-    // the third-party skill check doesn't trigger. The hasManifestOverride
-    // sub-check requires !toolOrigin, but toolOrigin is set. Falls through
-    // to risk-based: Low → allow (within default "low" threshold).
+    // the third-party skill check doesn't trigger on the extension-owned arm.
+    // The hasManifestOverride arm only fires on "default" origin, not "mcp".
+    // Falls through to risk-based: Low → allow (within default "low" threshold).
     expect(result.decision).toBe("allow");
     expect(result.reason).toContain("low risk");
+  });
+
+  test("toolOrigin=undefined (unregistered tool) is treated as third-party", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.Low,
+      toolName: "unknown_tool",
+      toolOrigin: undefined,
+      autoApproveUpTo: "none",
+    });
+    // An unregistered tool has no trusted origin — treat it as third-party.
+    expect(result.decision).toBe("prompt");
+    expect(result.reason).toContain("Skill tool");
+  });
+
+  test("toolOrigin=undefined respects autoApproveUpTo threshold for third-party path", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.Low,
+      toolName: "unknown_tool",
+      toolOrigin: undefined,
+      autoApproveUpTo: "low",
+    });
+    // Unknown origin routes through the third-party path; low risk within
+    // the "low" threshold is auto-allowed.
+    expect(result.decision).toBe("allow");
   });
 });
 

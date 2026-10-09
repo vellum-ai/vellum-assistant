@@ -156,13 +156,14 @@ mock.module("./workspace-policy.js", () => ({
   isPathWithinWorkspaceRoot: () => mockIsPathWithinWorkspaceRoot,
 }));
 
-// Mock tool registry — no tools by default. `getToolOwner` backs
-// `buildPolicyContext` (used by the integration test below); core tools have no
-// owner, so it returns undefined.
+// Mock tool registry. `getToolOwner` backs `buildPolicyContext` (used by the
+// integration tests below). Core tools registered via `registerTool` carry
+// `kind: "default"` — that is what the real registry returns for built-in
+// tools; `undefined` means truly unregistered (unknown).
 mock.module("../tools/registry.js", () => ({
   getTool: () => undefined,
   resolveTool: async () => undefined,
-  getToolOwner: () => undefined,
+  getToolOwner: () => ({ kind: "default" }),
 }));
 
 // Mock URL safety helpers.
