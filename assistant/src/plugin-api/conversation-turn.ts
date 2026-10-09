@@ -299,6 +299,17 @@ export async function runConversationTurn(
     ? await resolvePluginChannelTurnTrust(options.channel)
     : INTERNAL_GUARDIAN_TRUST_CONTEXT;
 
+  // Presence matches gateway channel inbound (`promptWaitingAllowed`): a
+  // guardian, or a contact with a guardian who can answer, can approve tools
+  // and drive host tools on a connected desktop client. An internal plugin
+  // job has no one waiting on a channel, so it stays non-interactive and
+  // approval-gated tools are denied instead of parking on a prompt.
+  const { resolveRoutingState } =
+    await import("../runtime/trust-context-resolver.js");
+  const isInteractive = options.channel
+    ? resolveRoutingState(trustContext).promptWaitingAllowed
+    : false;
+
   // A channel address resolves through the same binding an inbound message
   // uses, so a turn addressed by chat lands in that chat's conversation
   // rather than a private one only this caller can find.
@@ -427,7 +438,7 @@ export async function runConversationTurn(
       attachments,
       onEvent,
       requestId,
-      isInteractive: false,
+      isInteractive,
       metadata,
       trustContext,
       ...(displayContent ? { displayContent } : {}),
@@ -452,7 +463,7 @@ export async function runConversationTurn(
     content: text,
     attachments,
     onEvent,
-    isInteractive: false,
+    isInteractive,
     metadata,
     trustContext,
     ...(displayContent ? { displayContent } : {}),
