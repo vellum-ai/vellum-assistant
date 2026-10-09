@@ -896,6 +896,7 @@ export async function orchestrate(
           needleHits: needled,
           denseHits: liveDensed,
           config: deps.gateConfig,
+          corpusSectionCount: deps.sectionIndex.sections?.length,
         });
       } catch (err) {
         log.warn(

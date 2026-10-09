@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { MemoryV3GateSchema } from "../../../../../config/schemas/memory-v3.js";
 import type { DenseHitScored } from "../dense.js";
 import {
+  calibrateBm25NormK,
   checkV3Gate,
   DEFAULT_BM25_NORM_K,
   type V3GateConfig,
@@ -30,6 +31,23 @@ function mkNeedle(score: number, article?: string): SectionNeedleScoredHit {
 function mkDense(score: number, article?: string): DenseHitScored {
   return { article: article ?? `dense-${articleSeq++}`, section: 0, score };
 }
+
+describe("calibrateBm25NormK", () => {
+  test("anchored: ~200 sections reproduces DEFAULT_BM25_NORM_K", () => {
+    expect(calibrateBm25NormK(200)).toBeCloseTo(DEFAULT_BM25_NORM_K, 0);
+  });
+
+  test("clamps to 1.0 for empty or very small corpora", () => {
+    expect(calibrateBm25NormK(0)).toBe(1.0);
+    expect(calibrateBm25NormK(1)).toBe(1.0);
+  });
+
+  test("grows monotonically with section count", () => {
+    expect(calibrateBm25NormK(50)).toBeLessThan(calibrateBm25NormK(200));
+    expect(calibrateBm25NormK(200)).toBeLessThan(calibrateBm25NormK(500));
+    expect(calibrateBm25NormK(500)).toBeLessThan(calibrateBm25NormK(2000));
+  });
+});
 
 describe("checkV3Gate", () => {
   test("dense_pass: top-1 dense clears the dense threshold", () => {
@@ -163,6 +181,48 @@ describe("checkV3Gate", () => {
       withDefault.topNormSparseScore!,
       6,
     );
+  });
+
+  test("corpusSectionCount drives auto-calibration when bm25NormK is null", () => {
+    const params = {
+      needleHits: [mkNeedle(9)],
+      denseHits: [mkDense(0.3)],
+    };
+    // null + no corpusSectionCount → DEFAULT_BM25_NORM_K
+    const withDefault = checkV3Gate({
+      ...params,
+      config: baseConfig({ bm25NormK: null }),
+    });
+    // null + corpusSectionCount=200 → calibrated ≈ 9.13
+    const withCalibrated = checkV3Gate({
+      ...params,
+      config: baseConfig({ bm25NormK: null }),
+      corpusSectionCount: 200,
+    });
+    // explicit bm25NormK wins over corpusSectionCount
+    const withExplicit = checkV3Gate({
+      ...params,
+      config: baseConfig({ bm25NormK: 1 }),
+      corpusSectionCount: 200,
+    });
+
+    expect(withDefault.topNormSparseScore).toBeCloseTo(
+      9 / (9 + DEFAULT_BM25_NORM_K),
+      10,
+    );
+    // calibrateBm25NormK(200) ≈ 9.13; score should be close to the default
+    // but not equal — corpus size shifts the normalization slightly
+    const calibratedK = Math.log(200 / 10 + 1) * 3;
+    expect(withCalibrated.topNormSparseScore).toBeCloseTo(
+      9 / (9 + calibratedK),
+      6,
+    );
+    expect(withCalibrated.topNormSparseScore).not.toBeCloseTo(
+      withDefault.topNormSparseScore!,
+      6,
+    );
+    // explicit config.bm25NormK=1 always wins: 9/(9+1)=0.9
+    expect(withExplicit.topNormSparseScore).toBeCloseTo(0.9, 10);
   });
 
   test("purity: bypassForCore is not read by checkV3Gate", () => {
