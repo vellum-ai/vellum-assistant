@@ -89,8 +89,8 @@ export interface ApprovalPolicy {
  *    (Path resolution is baked into `hasSandboxAutoApprove` upstream: containerized
  *    environments skip path checks; non-containerized environments validate all
  *    path arguments against the workspace root.)
- * 2. Third-party skill tool + risk > autoApproveUpTo → prompt
- *    Third-party skill tool + risk ≤ autoApproveUpTo → allow (threshold overrides)
+ * 2. Third-party or unknown-origin tool + risk > autoApproveUpTo → prompt
+ *    Third-party or unknown-origin tool + risk ≤ autoApproveUpTo → allow (threshold overrides)
  * 3. Low + workspace-scoped + within threshold → allow
  * 4. Low + bundled skill + within threshold → allow
  * 5. Risk ≤ autoApproveUpTo threshold → allow
@@ -134,17 +134,19 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
     // Plugin- and skill-owned tools are both treated as extension-class
     // for approval purposes: external by default, prompt unless bundled.
     // MCP-owned tools fall through to the core risk-based path.
+    // A tool whose origin is undefined (not in the registry at all) is also
+    // treated as untrusted — if the tool has no registry entry it cannot be
+    // trusted as a core tool. Built-in tools are always registered with
+    // kind "default" by registerTool(), so undefined means genuinely unknown.
     const isExtensionOwned = toolOrigin === "skill" || toolOrigin === "plugin";
-    // A manifest override on a built-in tool (`default` owner, or an as-yet
-    // unowned/unknown origin) is treated as third-party — the override supplies
-    // side-effecting behavior the built-in name would not otherwise carry.
-    // TODO: treat an undefined (unknown) origin as untrusted third-party on its
-    // own once callers stop modeling built-ins as an undefined origin.
-    const isBuiltinOrigin =
-      toolOrigin === undefined || toolOrigin === "default";
+    // A manifest override on a known built-in (`default` owner) is treated as
+    // third-party — the override supplies side-effecting behavior the built-in
+    // name would not otherwise carry.
+    const isBuiltinOrigin = toolOrigin === "default";
     const isThirdPartySkill =
       (isExtensionOwned && !isSkillBundled) ||
-      (hasManifestOverride && isBuiltinOrigin);
+      (hasManifestOverride && isBuiltinOrigin) ||
+      toolOrigin === undefined;
     if (isThirdPartySkill) {
       if (isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)) {
         return {

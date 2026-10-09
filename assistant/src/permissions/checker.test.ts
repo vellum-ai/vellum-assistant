@@ -90,6 +90,24 @@ mock.module("../config/env-registry.js", () => ({
   getIsContainerized: () => mockIsContainerized,
 }));
 
+// Mock tool registry — no tools by default. `getToolOwner` backs
+// `buildPolicyContext` (used by the integration test below). Built-in tools
+// are registered with kind "default" by `registerTool`, so the mock returns
+// the same sentinel to represent core tools (bash, file_read, etc.).
+// Placed before the first top-level await so Bun hoists this mock before
+// any static imports of registry.js are resolved.
+mock.module("../tools/registry.js", () => ({
+  getTool: () => undefined,
+  resolveTool: async () => undefined,
+  getToolOwner: () => ({ kind: "default", id: "default" }),
+}));
+
+// Mock URL safety helpers.
+mock.module("../tools/network/url-safety.js", () => ({
+  looksLikeHostPortShorthand: () => false,
+  looksLikePathOnlyInput: () => false,
+}));
+
 // Mock platform utilities. Spread the real module so the config loader's own
 // path helpers keep resolving to the real per-test workspace: `getConfig()`
 // runs for real here (via `buildPolicyContext`/`buildFileContext`), and
@@ -154,21 +172,6 @@ mock.module("./workspace-policy.js", () => ({
   isWorkspaceScopedInvocation: () => false,
   isOutOfWorkspaceFileInvocation: () => false,
   isPathWithinWorkspaceRoot: () => mockIsPathWithinWorkspaceRoot,
-}));
-
-// Mock tool registry — no tools by default. `getToolOwner` backs
-// `buildPolicyContext` (used by the integration test below); core tools have no
-// owner, so it returns undefined.
-mock.module("../tools/registry.js", () => ({
-  getTool: () => undefined,
-  resolveTool: async () => undefined,
-  getToolOwner: () => undefined,
-}));
-
-// Mock URL safety helpers.
-mock.module("../tools/network/url-safety.js", () => ({
-  looksLikeHostPortShorthand: () => false,
-  looksLikePathOnlyInput: () => false,
 }));
 
 // ── ipcClassifyRisk mock ─────────────────────────────────────────────────────
