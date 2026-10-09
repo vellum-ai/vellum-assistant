@@ -17,8 +17,8 @@ import {
 } from "bun:test";
 
 import type { AssistantEvent } from "../api/index.js";
-import { clearAllActiveConversations } from "../daemon/conversation-store.js";
 import { findConversation } from "../daemon/conversation-registry.js";
+import { clearAllActiveConversations } from "../daemon/conversation-store.js";
 import {
   conversationMetadataSyncTag,
   SYNC_TAGS,
