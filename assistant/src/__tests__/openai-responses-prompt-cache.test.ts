@@ -1,7 +1,8 @@
 /**
  * Prompt caching on the OpenAI Responses transport: request-wide
  * `prompt_cache_key` emission for every Responses model (routing affinity for
- * implicit-mode models, including the Codex subscription endpoint; opt-in
+ * implicit-mode models, including the Codex subscription endpoint, which also
+ * sends that key as `session-id` and `thread-id`; opt-in
  * explicit mode for breakpoint-capable direct-API models), explicit
  * `prompt_cache_options` and block-level `prompt_cache_breakpoint` anchor
  * placement for GPT-5.6+ (turn-start / previous-turn / advancing tail,
@@ -25,12 +26,17 @@ interface FakeStreamEvent {
 
 let fakeStreamEvents: FakeStreamEvent[] = [];
 let lastStreamParams: Record<string, unknown> | null = null;
+let lastStreamOptions: Record<string, unknown> | null = null;
 
 mock.module("openai", () => ({
   default: class MockOpenAI {
     responses = {
-      create: async (params: Record<string, unknown>) => {
+      create: async (
+        params: Record<string, unknown>,
+        options?: Record<string, unknown>,
+      ) => {
         lastStreamParams = params;
+        lastStreamOptions = options ?? null;
         return {
           [Symbol.asyncIterator]: async function* () {
             for (const event of fakeStreamEvents) {
@@ -131,7 +137,12 @@ function makeProvider(model: string, codexSubscription = false) {
 beforeEach(() => {
   fakeStreamEvents = [textDeltaEvent("ok"), completedEvent()];
   lastStreamParams = null;
+  lastStreamOptions = null;
 });
+
+function sentHeaders(): Record<string, string> | undefined {
+  return lastStreamOptions?.headers as Record<string, string> | undefined;
+}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -149,6 +160,10 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
     });
     expect(lastStreamParams?.prompt_cache_key).toBe("conv-1");
     expect(breakpointedItemIndexes()).toEqual([0]);
+    // Direct API routing uses the body key. Codex sticky-routing headers
+    // stay off this transport.
+    expect(sentHeaders()?.["session-id"]).toBeUndefined();
+    expect(sentHeaders()?.["thread-id"]).toBeUndefined();
   });
 
   test("multi-turn: every user message is marked (the anchor ladder)", async () => {
@@ -396,12 +411,19 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
       config: { promptCacheKey: "conv-1" },
     });
 
-    // Codex uses implicit prefix caching. The key is a supported routing
-    // field (same as the official Codex client); prompt_cache_options,
-    // breakpoints, and prompt_cache_retention are not.
+    // Codex uses implicit prefix caching. The body key is a supported
+    // routing field; the endpoint pins the cache replica from session-id
+    // and thread-id, both set to that same key. prompt_cache_options,
+    // breakpoints, and prompt_cache_retention are not sent.
     expect(lastStreamParams?.prompt_cache_key).toBe("conv-1");
     expect(lastStreamParams?.prompt_cache_options).toBeUndefined();
     expect(lastStreamParams?.prompt_cache_retention).toBeUndefined();
+    expect(lastStreamParams).not.toHaveProperty("session-id");
+    expect(lastStreamParams).not.toHaveProperty("thread-id");
+    expect(sentHeaders()).toEqual({
+      "session-id": "conv-1",
+      "thread-id": "conv-1",
+    });
     expect(JSON.stringify(lastStreamParams?.input)).not.toContain(
       "prompt_cache_breakpoint",
     );
@@ -413,6 +435,8 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
       config: { promptCacheKey: "conv-1" },
     });
     expect(lastStreamParams?.prompt_cache_key).toBe("conv-1");
+    expect(sentHeaders()?.["session-id"]).toBe("conv-1");
+    expect(sentHeaders()?.["thread-id"]).toBe("conv-1");
 
     await provider.sendMessage(
       [userMsg("hi"), assistantMsg("ok"), userMsg("again")],
@@ -420,6 +444,8 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
     );
 
     expect(lastStreamParams?.prompt_cache_key).toBe("conv-1");
+    expect(sentHeaders()?.["session-id"]).toBe("conv-1");
+    expect(sentHeaders()?.["thread-id"]).toBe("conv-1");
     expect(lastStreamParams?.prompt_cache_options).toBeUndefined();
     expect(lastStreamParams?.prompt_cache_retention).toBeUndefined();
     expect(JSON.stringify(lastStreamParams?.input)).not.toContain(
@@ -434,6 +460,39 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
     expect(lastStreamParams?.prompt_cache_key).toBeUndefined();
     expect(lastStreamParams?.prompt_cache_options).toBeUndefined();
     expect(lastStreamParams?.prompt_cache_retention).toBeUndefined();
+    expect(sentHeaders()?.["session-id"]).toBeUndefined();
+    expect(sentHeaders()?.["thread-id"]).toBeUndefined();
+  });
+
+  test("codex sticky-routing headers match the cache key and win over caller headers", async () => {
+    const provider = makeProvider("gpt-5.6-sol", true);
+    await provider.sendMessage([userMsg("hi")], {
+      config: {
+        promptCacheKey: "conv-1",
+        requestHeaders: {
+          "session-id": "other-session",
+          "thread-id": "other-thread",
+          "x-extra": "kept",
+        },
+      },
+    });
+
+    expect(sentHeaders()).toEqual({
+      "session-id": "conv-1",
+      "thread-id": "conv-1",
+      "x-extra": "kept",
+    });
+  });
+
+  test("codex omits sticky-routing headers when the cache key is not a header value", async () => {
+    const provider = makeProvider("gpt-5.6-sol", true);
+    await provider.sendMessage([userMsg("hi")], {
+      config: { promptCacheKey: "conv 1\n" },
+    });
+
+    expect(lastStreamParams?.prompt_cache_key).toBe("conv 1\n");
+    expect(sentHeaders()?.["session-id"]).toBeUndefined();
+    expect(sentHeaders()?.["thread-id"]).toBeUndefined();
   });
 
   test("never mutates the caller's messages", async () => {

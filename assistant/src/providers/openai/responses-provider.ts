@@ -40,6 +40,32 @@ import { serializeToolResult } from "./orphaned-tool-result.js";
 
 const log = getLogger("openai-responses");
 
+/**
+ * Codex subscription sticky-routing headers. The endpoint pins a conversation
+ * to one prompt-cache replica from these headers. Both carry the same
+ * per-conversation key the body sends as `prompt_cache_key`, so the replica
+ * pin and the cache key name one conversation.
+ */
+const CODEX_SESSION_HEADER = "session-id";
+const CODEX_THREAD_HEADER = "thread-id";
+
+/**
+ * Headers for one Codex subscription request. Omitted unless `promptCacheKey`
+ * is visible ASCII: a header the endpoint rejects would fail the request,
+ * while the body key still provides routing affinity on its own.
+ */
+function codexPromptCacheHeaders(
+  promptCacheKey: string | undefined,
+): Record<string, string> {
+  if (promptCacheKey === undefined || !/^[\x21-\x7e]+$/.test(promptCacheKey)) {
+    return {};
+  }
+  return {
+    [CODEX_SESSION_HEADER]: promptCacheKey,
+    [CODEX_THREAD_HEADER]: promptCacheKey,
+  };
+}
+
 export interface OpenAIResponsesProviderOptions {
   baseURL?: string;
   providerName?: string;
@@ -337,8 +363,9 @@ export class OpenAIResponsesProvider implements Provider {
       // which is exactly the opt-out `disableCache` wants (omitting the param
       // would re-enable implicit mode). The Codex subscription endpoint
       // rejects `prompt_cache_options` and block-level breakpoints, so those
-      // stay off there. Codex runs in implicit prefix-cache mode and relies
-      // on `prompt_cache_key` above for routing affinity.
+      // stay off there. Codex runs in implicit prefix-cache mode. Replica
+      // affinity comes from the `session-id` and `thread-id` headers, which
+      // repeat this same key.
       if (
         !this.codexSubscription &&
         PROMPT_CACHE_BREAKPOINT_MODEL_IDS.has(effectiveModel)
@@ -472,6 +499,11 @@ export class OpenAIResponsesProvider implements Provider {
           ...this.requestHeaders,
           ...(usageAttributionHeaders ?? {}),
           ...(perRequestHeaders ?? {}),
+          // Spread last so a caller-supplied header cannot split the replica
+          // pin away from `prompt_cache_key`.
+          ...(this.codexSubscription
+            ? codexPromptCacheHeaders(promptCacheKey)
+            : {}),
         };
         const stream = await responsesApi.create(
           { ...params, stream: true },
