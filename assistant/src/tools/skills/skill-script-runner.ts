@@ -1,4 +1,4 @@
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import { isAbortLikeError } from "../shared/abort.js";
@@ -70,7 +70,7 @@ export async function runSkillToolScript(
   }
 
   const scriptPath = resolve(join(skillDir, executorPath));
-  const resolvedSkillDir = resolve(skillDir) + "/";
+  const resolvedSkillDir = resolve(skillDir) + sep;
   if (!scriptPath.startsWith(resolvedSkillDir)) {
     return {
       content: `Skill tool script path "${executorPath}" escapes the skill directory`,

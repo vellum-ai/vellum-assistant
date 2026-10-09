@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 
 import { PLUGIN_NAME_ENV } from "../../plugin-api/plugin-name-env.js";
 import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
@@ -79,7 +79,7 @@ export async function runSkillToolScriptSandbox(
   },
 ): Promise<ToolExecutionResult> {
   const scriptPath = resolve(join(skillDir, executorPath));
-  const resolvedSkillDir = resolve(skillDir) + "/";
+  const resolvedSkillDir = resolve(skillDir) + sep;
   if (!scriptPath.startsWith(resolvedSkillDir)) {
     return {
       content: `Skill tool script path "${executorPath}" escapes the skill directory`,

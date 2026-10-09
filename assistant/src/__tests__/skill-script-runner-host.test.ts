@@ -1,6 +1,6 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import type { RunSkillToolScriptOptions } from "../tools/skills/skill-script-runner.js";
@@ -338,9 +338,9 @@ describe("runSkillToolScript — host hash guard", () => {
       skillDirHashResolver: resolver,
     });
 
-    // The resolver should receive the resolved skill directory with trailing slash.
+    // The resolver should receive the resolved skill directory with trailing path separator.
     expect(receivedDir).toBeDefined();
-    expect(receivedDir!.endsWith("/")).toBe(true);
+    expect(receivedDir!.endsWith(sep)).toBe(true);
   });
 
   test("returns structured error when hash resolver throws", async () => {
