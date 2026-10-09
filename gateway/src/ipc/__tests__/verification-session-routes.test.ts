@@ -131,6 +131,7 @@ describe("verification_sessions_create_outbound", () => {
     const result = CreateOutboundSessionIpcResponseSchema.parse(
       await call(METHODS.createOutbound, {
         channel: "telegram",
+        verificationPurpose: "guardian",
         expectedExternalUserId: "tg-user-1",
         expectedChatId: "tg-chat-1",
         destinationAddress: "@guardian",
@@ -152,6 +153,7 @@ describe("verification_sessions_create_outbound", () => {
     const result = CreateOutboundSessionIpcResponseSchema.parse(
       await call(METHODS.createOutbound, {
         channel: "phone",
+        verificationPurpose: "guardian",
         expectedPhoneE164: "+15555550123",
         codeDigits: 4,
       }),
@@ -164,6 +166,7 @@ describe("verification_sessions_create_outbound", () => {
     const result = CreateOutboundSessionIpcResponseSchema.parse(
       await call(METHODS.createOutbound, {
         channel: "telegram",
+        verificationPurpose: "guardian",
         identityBindingStatus: "pending_bootstrap",
         bootstrapTokenHash: hashVerificationSecret("raw-bootstrap-token"),
       }),
@@ -180,6 +183,7 @@ describe("verification_sessions_create_outbound", () => {
     const result = CreateOutboundSessionIpcResponseSchema.parse(
       await call(METHODS.createOutbound, {
         channel: "telegram",
+        verificationPurpose: "guardian",
         sessionId: "pre-minted-id",
       }),
     );
@@ -192,6 +196,7 @@ describe("verification_sessions_create_outbound", () => {
     const bootstrap = CreateOutboundSessionIpcResponseSchema.parse(
       await call(METHODS.createOutbound, {
         channel: "telegram",
+        verificationPurpose: "guardian",
         identityBindingStatus: "pending_bootstrap",
         bootstrapTokenHash: hashVerificationSecret("deep-link-token"),
       }),
@@ -202,6 +207,7 @@ describe("verification_sessions_create_outbound", () => {
     const winner = CreateOutboundSessionIpcResponseSchema.parse(
       await call(METHODS.createOutbound, {
         channel: "telegram",
+        verificationPurpose: "guardian",
         expectedExternalUserId: "tg-user-1",
         expectedChatId: "tg-chat-1",
         identityBindingStatus: "bound",
@@ -219,6 +225,7 @@ describe("verification_sessions_create_outbound", () => {
       .all().length;
     const loser = await call(METHODS.createOutbound, {
       channel: "telegram",
+      verificationPurpose: "guardian",
       expectedExternalUserId: "tg-user-1",
       expectedChatId: "tg-chat-1",
       identityBindingStatus: "bound",
@@ -242,6 +249,7 @@ describe("verification_sessions_create_outbound", () => {
     const bootstrap = CreateOutboundSessionIpcResponseSchema.parse(
       await call(METHODS.createOutbound, {
         channel: "telegram",
+        verificationPurpose: "guardian",
         identityBindingStatus: "pending_bootstrap",
         bootstrapTokenHash: hashVerificationSecret("shared-deep-link"),
       }),
@@ -261,6 +269,7 @@ describe("verification_sessions_create_outbound", () => {
     const first = CreateOutboundSessionIpcResponseSchema.parse(
       await call(METHODS.createOutbound, {
         channel: "telegram",
+        verificationPurpose: "guardian",
         expectedExternalUserId: "tg-user-A",
         expectedChatId: "tg-chat-A",
         identityBindingStatus: "bound",
@@ -271,6 +280,7 @@ describe("verification_sessions_create_outbound", () => {
 
     const second = await call(METHODS.createOutbound, {
       channel: "telegram",
+      verificationPurpose: "guardian",
       expectedExternalUserId: "tg-user-B",
       expectedChatId: "tg-chat-B",
       identityBindingStatus: "bound",
@@ -287,6 +297,7 @@ describe("verification_sessions_create_outbound", () => {
     expect(
       await call(METHODS.createOutbound, {
         channel: "telegram",
+        verificationPurpose: "guardian",
         requireSourceSessionPending: "no-such-session",
       }),
     ).toEqual({ conflict: true, reason: "source_session_not_pending" });
@@ -294,12 +305,14 @@ describe("verification_sessions_create_outbound", () => {
     const other = CreateOutboundSessionIpcResponseSchema.parse(
       await call(METHODS.createOutbound, {
         channel: "slack",
+        verificationPurpose: "guardian",
         identityBindingStatus: "pending_bootstrap",
       }),
     );
     expect(
       await call(METHODS.createOutbound, {
         channel: "telegram",
+        verificationPurpose: "guardian",
         requireSourceSessionPending: other.sessionId,
       }),
     ).toEqual({ conflict: true, reason: "source_session_not_pending" });
@@ -309,6 +322,7 @@ describe("verification_sessions_create_outbound", () => {
     const first = CreateOutboundSessionIpcResponseSchema.parse(
       await call(METHODS.createOutbound, {
         channel: "slack",
+        verificationPurpose: "guardian",
         expectedExternalUserId: "slack-user-1",
         expectedChatId: "slack-user-1",
       }),
@@ -318,6 +332,7 @@ describe("verification_sessions_create_outbound", () => {
     expect(
       await call(METHODS.createOutbound, {
         channel: "slack",
+        verificationPurpose: "guardian",
         expectedExternalUserId: "slack-user-1",
         expectedChatId: "slack-user-1",
         ifNoneActiveForExternalUserId: "slack-user-1",
@@ -330,6 +345,7 @@ describe("verification_sessions_create_outbound", () => {
     const second = CreateOutboundSessionIpcResponseSchema.parse(
       await call(METHODS.createOutbound, {
         channel: "slack",
+        verificationPurpose: "guardian",
         expectedExternalUserId: "slack-user-2",
         expectedChatId: "slack-user-2",
         ifNoneActiveForExternalUserId: "slack-user-2",
@@ -388,6 +404,7 @@ describe("read routes: get_pending / find_active / resolve_bootstrap", () => {
     const created = CreateOutboundSessionIpcResponseSchema.parse(
       await call(METHODS.createOutbound, {
         channel: "telegram",
+        verificationPurpose: "guardian",
         expectedChatId: "chat-1",
       }),
     );
@@ -406,6 +423,7 @@ describe("read routes: get_pending / find_active / resolve_bootstrap", () => {
     const created = CreateOutboundSessionIpcResponseSchema.parse(
       await call(METHODS.createOutbound, {
         channel: "telegram",
+        verificationPurpose: "guardian",
         identityBindingStatus: "pending_bootstrap",
         bootstrapTokenHash: hashVerificationSecret(rawToken),
       }),
@@ -433,6 +451,7 @@ describe("mutation routes: bind / update_status / update_delivery / revoke", () 
     const created = CreateOutboundSessionIpcResponseSchema.parse(
       await call(METHODS.createOutbound, {
         channel: "telegram",
+        verificationPurpose: "guardian",
         identityBindingStatus: "pending_bootstrap",
       }),
     );
@@ -452,7 +471,10 @@ describe("mutation routes: bind / update_status / update_delivery / revoke", () 
 
   test("update_status transitions the session and records the consumer", async () => {
     const created = CreateOutboundSessionIpcResponseSchema.parse(
-      await call(METHODS.createOutbound, { channel: "telegram" }),
+      await call(METHODS.createOutbound, {
+        channel: "telegram",
+        verificationPurpose: "guardian",
+      }),
     );
 
     const ack = await call(METHODS.updateStatus, {
@@ -473,6 +495,7 @@ describe("mutation routes: bind / update_status / update_delivery / revoke", () 
     const created = CreateOutboundSessionIpcResponseSchema.parse(
       await call(METHODS.createOutbound, {
         channel: "phone",
+        verificationPurpose: "guardian",
         expectedPhoneE164: "+15555550142",
         destinationAddress: "+15555550142",
       }),
@@ -527,6 +550,7 @@ describe("verification_sessions_validate_consume", () => {
     const created = CreateOutboundSessionIpcResponseSchema.parse(
       await call(METHODS.createOutbound, {
         channel: "telegram",
+        verificationPurpose: "guardian",
         expectedExternalUserId: "tg-user-1",
         expectedChatId: "tg-chat-1",
       }),
@@ -563,8 +587,17 @@ describe("schema rejection", () => {
   test("malformed params → 400 BAD_REQUEST without touching the store", async () => {
     const badCalls: Array<[string, Record<string, unknown>]> = [
       [METHODS.createInbound, {}], // channel required
-      [METHODS.createOutbound, { channel: "" }], // non-empty channel
-      [METHODS.createOutbound, { channel: "telegram", codeDigits: 0 }],
+      [
+        METHODS.createOutbound,
+        { channel: "", verificationPurpose: "guardian" },
+      ], // non-empty channel
+      [
+        METHODS.createOutbound,
+        { channel: "telegram", verificationPurpose: "guardian", codeDigits: 0 },
+      ],
+      // A mint that does not say what its code grants is refused outright:
+      // nothing becomes a guardian code by omission.
+      [METHODS.createOutbound, { channel: "telegram" }],
       [METHODS.getPending, {}],
       [METHODS.resolveBootstrap, { channel: "telegram", token: "" }],
       [METHODS.bindIdentity, { sessionId: "s-1", externalUserId: "u" }],

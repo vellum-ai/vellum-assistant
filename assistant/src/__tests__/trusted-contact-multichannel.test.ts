@@ -362,6 +362,7 @@ describe("voice identity binding with E.164 phone numbers", () => {
 
     const session = createOutboundSession({
       channel: "phone",
+      verificationPurpose: "guardian",
       expectedExternalUserId: expectedPhone,
       expectedPhoneE164: expectedPhone,
       expectedChatId: expectedPhone,
@@ -393,6 +394,7 @@ describe("cross-channel isolation", () => {
     // Create sessions on both channels
     const telegramSession = createOutboundSession({
       channel: "telegram",
+      verificationPurpose: "guardian",
       expectedExternalUserId: "user-123",
       expectedChatId: "chat-123",
       identityBindingStatus: "bound",
@@ -401,6 +403,7 @@ describe("cross-channel isolation", () => {
 
     const slackSession = createOutboundSession({
       channel: "slack",
+      verificationPurpose: "guardian",
       expectedExternalUserId: "U0123ABCDEF",
       expectedChatId: "C0123ABCDEF",
       identityBindingStatus: "bound",

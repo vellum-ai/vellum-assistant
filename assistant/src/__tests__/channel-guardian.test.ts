@@ -1403,6 +1403,7 @@ describe("outbound verification sessions", () => {
   test("createOutboundSession creates a session with expected identity fields", async () => {
     const result = await createOutboundSession({
       channel: "phone",
+      verificationPurpose: "guardian",
       expectedPhoneE164: "+15551234567",
       destinationAddress: "+15551234567",
     });
@@ -1424,6 +1425,7 @@ describe("outbound verification sessions", () => {
   test("createOutboundSession for telegram with pending_bootstrap status", async () => {
     const result = await createOutboundSession({
       channel: "telegram",
+      verificationPurpose: "guardian",
       identityBindingStatus: "pending_bootstrap",
       destinationAddress: "@some_handle",
     });
@@ -1443,6 +1445,7 @@ describe("outbound verification sessions", () => {
   test("validateAndConsumeVerification succeeds with correct secret and matching identity (voice)", async () => {
     const { secret } = await createOutboundSession({
       channel: "phone",
+      verificationPurpose: "guardian",
       expectedPhoneE164: "+15551234567",
       expectedExternalUserId: "+15551234567",
       destinationAddress: "+15551234567",
@@ -1461,6 +1464,7 @@ describe("outbound verification sessions", () => {
   test("validateAndConsumeVerification succeeds with correct secret and matching identity (Telegram)", async () => {
     const { secret } = await createOutboundSession({
       channel: "telegram",
+      verificationPurpose: "guardian",
       expectedExternalUserId: "tg-user-42",
       expectedChatId: "tg-chat-42",
       destinationAddress: "tg-chat-42",
@@ -1481,6 +1485,7 @@ describe("outbound verification sessions", () => {
   test("validateAndConsumeVerification rejects correct secret with wrong identity (anti-oracle)", async () => {
     const { secret } = await createOutboundSession({
       channel: "phone",
+      verificationPurpose: "guardian",
       expectedPhoneE164: "+15551234567",
       expectedExternalUserId: "+15551234567",
       destinationAddress: "+15551234567",
@@ -1505,6 +1510,7 @@ describe("outbound verification sessions", () => {
   test("validateAndConsumeVerification rejects correct secret with wrong Telegram identity", async () => {
     const { secret } = await createOutboundSession({
       channel: "telegram",
+      verificationPurpose: "guardian",
       expectedExternalUserId: "tg-user-42",
       expectedChatId: "tg-chat-42",
       destinationAddress: "tg-chat-42",
@@ -1551,6 +1557,7 @@ describe("outbound verification sessions", () => {
   test("revoked outbound session is rejected", async () => {
     const { secret, sessionId } = await createOutboundSession({
       channel: "phone",
+      verificationPurpose: "guardian",
       expectedPhoneE164: "+15551234567",
       destinationAddress: "+15551234567",
     });
@@ -1573,6 +1580,7 @@ describe("outbound verification sessions", () => {
   test("outbound session cannot be consumed twice (replay prevention)", async () => {
     const { secret } = await createOutboundSession({
       channel: "phone",
+      verificationPurpose: "guardian",
       expectedPhoneE164: "+15551234567",
       expectedExternalUserId: "+15551234567",
       destinationAddress: "+15551234567",
@@ -1618,6 +1626,7 @@ describe("outbound verification sessions", () => {
   test("session state transitions (pending_bootstrap → awaiting_response → verified)", async () => {
     const { sessionId } = await createOutboundSession({
       channel: "telegram",
+      verificationPurpose: "guardian",
       identityBindingStatus: "pending_bootstrap",
       destinationAddress: "@some_handle",
     });
@@ -1644,11 +1653,13 @@ describe("outbound verification sessions", () => {
   test("a second code for the same number revokes the first", async () => {
     const { sessionId: firstId } = await createOutboundSession({
       channel: "phone",
+      verificationPurpose: "guardian",
       expectedPhoneE164: "+15555550101",
       destinationAddress: "+15555550101",
     });
     const { sessionId: secondId } = await createOutboundSession({
       channel: "phone",
+      verificationPurpose: "guardian",
       expectedPhoneE164: "+15555550101",
       destinationAddress: "+15555550101",
     });
@@ -1666,11 +1677,13 @@ describe("outbound verification sessions", () => {
     // and being told it is "invalid or has expired".
     const { sessionId: firstId } = await createOutboundSession({
       channel: "phone",
+      verificationPurpose: "guardian",
       expectedPhoneE164: "+15555550101",
       destinationAddress: "+15555550101",
     });
     const { sessionId: secondId } = await createOutboundSession({
       channel: "phone",
+      verificationPurpose: "guardian",
       expectedPhoneE164: "+15555550102",
       destinationAddress: "+15555550102",
     });
@@ -1684,6 +1697,7 @@ describe("outbound verification sessions", () => {
   test("findActiveSession returns the most recent active session", async () => {
     await createOutboundSession({
       channel: "phone",
+      verificationPurpose: "guardian",
       expectedPhoneE164: "+15551234567",
       destinationAddress: "+15551234567",
     });
@@ -1704,6 +1718,7 @@ describe("outbound verification sessions", () => {
   test("bindSessionIdentity transitions from pending_bootstrap to bound", async () => {
     const { sessionId } = await createOutboundSession({
       channel: "telegram",
+      verificationPurpose: "guardian",
       identityBindingStatus: "pending_bootstrap",
       destinationAddress: "@some_handle",
     });
@@ -1729,6 +1744,7 @@ describe("outbound verification sessions", () => {
   test("pending_bootstrap session allows consumption without identity check", async () => {
     const { secret } = await createOutboundSession({
       channel: "telegram",
+      verificationPurpose: "guardian",
       identityBindingStatus: "pending_bootstrap",
       destinationAddress: "@some_handle",
     });
@@ -1749,6 +1765,7 @@ describe("outbound verification sessions", () => {
   test("updateSessionDelivery updates delivery tracking fields", async () => {
     const { sessionId } = await createOutboundSession({
       channel: "phone",
+      verificationPurpose: "guardian",
       expectedPhoneE164: "+15551234567",
       destinationAddress: "+15551234567",
     });
@@ -1768,6 +1785,7 @@ describe("outbound verification sessions", () => {
   test("Telegram identity match succeeds via chatId alone", async () => {
     const { secret } = await createOutboundSession({
       channel: "telegram",
+      verificationPurpose: "guardian",
       expectedChatId: "tg-chat-42",
       destinationAddress: "tg-chat-42",
     });
@@ -1791,6 +1809,7 @@ describe("outbound verification sessions", () => {
     // identity columns, and either way the session is bound to the number.
     const { secret } = await createOutboundSession({
       channel: "phone",
+      verificationPurpose: "guardian",
       expectedExternalUserId: "+15555550101",
       expectedPhoneE164: "+15555550101",
       destinationAddress: "+15555550101",
@@ -1809,6 +1828,7 @@ describe("outbound verification sessions", () => {
   test("a voice session refuses a caller on a different number", async () => {
     const { secret } = await createOutboundSession({
       channel: "phone",
+      verificationPurpose: "guardian",
       expectedExternalUserId: "+15555550101",
       expectedPhoneE164: "+15555550101",
       destinationAddress: "+15555550101",
@@ -1972,6 +1992,7 @@ describe("outbound voice verification", () => {
     // Create an outbound session
     const { secret } = await createOutboundSession({
       channel: "phone",
+      verificationPurpose: "guardian",
       expectedPhoneE164: "+15551234567",
       expectedExternalUserId: "+15551234567",
       destinationAddress: "+15551234567",
@@ -1995,6 +2016,7 @@ describe("outbound voice verification", () => {
     // Create an outbound session with expected identity +15551234567
     const { secret } = await createOutboundSession({
       channel: "phone",
+      verificationPurpose: "guardian",
       expectedPhoneE164: "+15551234567",
       expectedExternalUserId: "+15551234567",
       destinationAddress: "+15551234567",
@@ -2253,6 +2275,7 @@ describe("outbound Telegram verification", () => {
     // Create an awaiting_response session with expected identity
     const sessionResult = await createOutboundSession({
       channel: "telegram",
+      verificationPurpose: "guardian",
       expectedExternalUserId: "user-42",
       expectedChatId: "chat-42",
       identityBindingStatus: "bound",
@@ -2272,6 +2295,7 @@ describe("outbound Telegram verification", () => {
   test("identity mismatch: wrong chat_id + right code rejects", async () => {
     const sessionResult = await createOutboundSession({
       channel: "telegram",
+      verificationPurpose: "guardian",
       expectedExternalUserId: "user-42",
       expectedChatId: "chat-42",
       identityBindingStatus: "bound",
@@ -2291,6 +2315,7 @@ describe("outbound Telegram verification", () => {
   test("revoked session rejects verification", async () => {
     const sessionResult = await createOutboundSession({
       channel: "telegram",
+      verificationPurpose: "guardian",
       expectedExternalUserId: "user-42",
       expectedChatId: "chat-42",
       identityBindingStatus: "bound",
@@ -2671,6 +2696,7 @@ describe("M1–M4 hardening coverage", () => {
   test("bootstrap (pending_bootstrap) sessions use high-entropy hex secrets, identity-bound use 6-digit numeric", async () => {
     const bootstrapResult = await createOutboundSession({
       channel: "telegram",
+      verificationPurpose: "guardian",
       identityBindingStatus: "pending_bootstrap",
       destinationAddress: "@testuser",
     });
@@ -2683,6 +2709,7 @@ describe("M1–M4 hardening coverage", () => {
     // Identity-bound: 6-digit numeric code
     const boundResult = await createOutboundSession({
       channel: "phone",
+      verificationPurpose: "guardian",
       expectedPhoneE164: "+15551234567",
       destinationAddress: "+15551234567",
       identityBindingStatus: "bound",
@@ -2697,6 +2724,7 @@ describe("M1–M4 hardening coverage", () => {
     // Voice (phone E.164)
     const voicePhoneResult = await createOutboundSession({
       channel: "phone",
+      verificationPurpose: "guardian",
       expectedPhoneE164: "+15551234567",
       destinationAddress: "+15551234567",
     });
@@ -2707,6 +2735,7 @@ describe("M1–M4 hardening coverage", () => {
     // Telegram (bound via chat ID)
     const tgResult = await createOutboundSession({
       channel: "telegram",
+      verificationPurpose: "guardian",
       expectedChatId: "123456789",
       identityBindingStatus: "bound",
       destinationAddress: "123456789",
@@ -2718,6 +2747,7 @@ describe("M1–M4 hardening coverage", () => {
     // Voice (explicit codeDigits)
     const voiceResult = await createOutboundSession({
       channel: "phone",
+      verificationPurpose: "guardian",
       expectedPhoneE164: "+15551234567",
       destinationAddress: "+15551234567",
       codeDigits: 6,
