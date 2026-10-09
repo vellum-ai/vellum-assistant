@@ -125,7 +125,7 @@ interface BucketAcc {
   total: number;
   scored: number;
   passed: number;
-  /** Passes that came from scored runs — the numerator for scoredPassRate. */
+  /** Passes from scored runs only: the numerator for scoredPassRate. */
   scoredPassed: number;
   reasons: Record<string, number>;
 }
@@ -149,7 +149,7 @@ interface GatePayloadDetail {
 const GateStatsBucketSchema = z.object({
   pageCountRange: z
     .string()
-    .describe("Concept page count range (e.g. '10–49')"),
+    .describe("Concept page count range (e.g. '10-49' or '200+')"),
   total: z
     .number()
     .describe("All gate runs in this bucket (scored + pass-open)"),
@@ -165,7 +165,9 @@ const GateStatsBucketSchema = z.object({
     ),
   reasons: z
     .record(z.string(), z.number())
-    .describe("Gate reason code → run count (dense_pass, fail_no_signal, …)"),
+    .describe(
+      "Gate reason code to run count (dense_pass, fail_no_signal, ...)",
+    ),
 });
 
 export const GateStatsResponseSchema = z.object({
@@ -173,7 +175,7 @@ export const GateStatsResponseSchema = z.object({
   totalRuns: z.number().describe("Total gate runs found in the window"),
   buckets: z
     .array(GateStatsBucketSchema)
-    .describe("Stats by concept page count range, lean→large"),
+    .describe("Stats by concept page count range, lean to large"),
   unknownPageCount: z
     .object({
       total: z.number(),
@@ -190,10 +192,14 @@ export type GateStatsResponse = z.infer<typeof GateStatsResponseSchema>;
  * given lookback window. Groups runs by concept page count bucket and computes
  * pass rates and reason distributions per bucket.
  *
+ * Coverage is limited to gate runs still pending platform flush. In a healthy
+ * system the outbox holds only the last few minutes to hours of events, so
+ * lookbackDays is an upper bound, not a guarantee. Long-window aggregation
+ * lives on the platform side on top of flushed watchdog events.
+ *
  * Pass-open shortcuts (dense disabled/unavailable, gate threw) are included in
  * `total` but not in `scored`, so `scoredPassRate` reflects only contested gate
- * decisions — the signal that actually reveals whether the gate thresholds are
- * calibrated correctly.
+ * decisions: the signal that reveals whether the gate thresholds are calibrated.
  */
 export function handleMemoryV3GateStats(
   lookbackDays: number = DEFAULT_LOOKBACK_DAYS,
@@ -229,6 +235,7 @@ export function handleMemoryV3GateStats(
       SELECT payload FROM telemetry_events
       WHERE name = 'watchdog'
         AND created_at >= ?
+        AND json_valid(payload)
         AND json_extract(payload, '$.check_name') = ?
     `,
     )
@@ -329,5 +336,36 @@ export const ROUTES: RouteDefinition[] = [
       "One-time: embed every page's sections (incl synthetic skill/CLI rows) into the dense store",
     tags: ["memory"],
     responseBody: MemoryV3BackfillSectionsResultSchema,
+  },
+  {
+    operationId: "memory_v3_gate_stats",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    endpoint: "memory/v3/gate-stats",
+    queryParams: [
+      {
+        name: "lookbackDays",
+        required: false,
+        description: `Days of telemetry to aggregate (1–${MAX_LOOKBACK_DAYS}, default ${DEFAULT_LOOKBACK_DAYS})`,
+      },
+    ],
+    handler: ({ queryParams = {} }) => {
+      const raw = queryParams["lookbackDays"];
+      const parsed = raw !== undefined ? Number(raw) : DEFAULT_LOOKBACK_DAYS;
+      return handleMemoryV3GateStats(
+        Number.isFinite(parsed) ? parsed : DEFAULT_LOOKBACK_DAYS,
+      );
+    },
+    summary: "Gate fire-rate stats bucketed by corpus size",
+    description:
+      "Reads the memory v3 injection gate telemetry outbox and returns pass rates and " +
+      "reason distributions grouped by concept page count bucket. Coverage is limited to " +
+      "runs still pending platform flush (typically minutes to hours in a healthy system). " +
+      "Useful for spot-checking gate behavior; long-window aggregation lives on the platform.",
+    tags: ["memory"],
+    responseBody: GateStatsResponseSchema,
   },
 ];
