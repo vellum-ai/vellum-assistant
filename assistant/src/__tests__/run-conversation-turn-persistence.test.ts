@@ -18,6 +18,7 @@ import {
 
 import type { AssistantEvent } from "../api/index.js";
 import { clearAllActiveConversations } from "../daemon/conversation-store.js";
+import { findConversation } from "../daemon/conversation-registry.js";
 import {
   conversationMetadataSyncTag,
   SYNC_TAGS,
@@ -90,6 +91,7 @@ type InboundTrustReadResult =
         canonicalSenderId: string | null;
         contactId?: string;
         status?: string;
+        guardianExternalUserId?: string;
       };
       admissionPolicy: string | null;
     }
@@ -145,14 +147,42 @@ function holdTheTurnOpen(): void {
 
 // A test that fails before releasing must not leave the next one parked on a
 // gate it never opened.
-afterEach(() => releaseGate?.());
+afterEach(() => {
+  releaseGate?.();
+  onProviderSend = undefined;
+});
 
 const providerCalls: { tools?: { name: string }[] }[] = [];
+
+/** Runs inside the provider call, while the turn's presence flag is set. */
+let onProviderSend: (() => void) | undefined;
+
+/**
+ * Record `hasNoClient` while the provider call is in flight. Pass a known id
+ * when the turn is addressed by conversation id; otherwise the sole row this
+ * test created is the one in flight.
+ */
+function watchTurnPresence(seen: boolean[], conversationId?: string): void {
+  onProviderSend = () => {
+    const id =
+      conversationId ??
+      (
+        getSqlite()
+          .query("SELECT id FROM conversations LIMIT 1")
+          .get() as { id: string } | null
+      )?.id;
+    const conversation = findConversation(id);
+    if (conversation) {
+      seen.push(conversation.hasNoClient);
+    }
+  };
+}
 
 const provider: Provider = {
   name: "scripted",
   async sendMessage(messages, options): Promise<ProviderResponse> {
     providerCalls.push({ tools: options?.tools });
+    onProviderSend?.();
     await gate;
     return scriptedProvider.sendMessage(messages, options);
   },
@@ -467,11 +497,10 @@ describe("runConversationTurn channel binding", () => {
   });
 
   test("puts core tools on the wire for a plugin-channel turn", async () => {
-    // Plugin-driven iMessage turns are non-interactive, so host tools stay
-    // off, but sandbox tools (bash, web_search, ...) have to remain on the
-    // request. Missing them is what makes the model dump `to=bash code:`
-    // into the SMS as prose. The create path initializes the registry
-    // before constructing the Conversation that snapshots it.
+    // Sandbox tools (bash, web_search, ...) have to remain on the request.
+    // Missing them is what makes the model dump `to=bash code:` into the SMS
+    // as prose. The create path initializes the registry before constructing
+    // the Conversation that snapshots it.
     await runConversationTurn({
       channel: CHANNEL,
       content: [{ type: "text", text: "hello" }],
@@ -481,6 +510,105 @@ describe("runConversationTurn channel binding", () => {
     expect(names.length).toBeGreaterThan(0);
     expect(names).toContain("bash");
   });
+
+  test("a guardian plugin-channel turn is present for tool approval", async () => {
+    // Same presence rule as Slack/Telegram inbound: the guardian is the
+    // person on the other end of the text, so host_bash and approval-gated
+    // sandbox bash run instead of being refused as a background job.
+    const seen: boolean[] = [];
+    watchTurnPresence(seen);
+
+    await runConversationTurn({
+      channel: CHANNEL,
+      content: [{ type: "text", text: "mark the task done" }],
+    });
+
+    expect(seen).toEqual([false]);
+  });
+
+  test("a contact with a guardian route is present for tool approval", async () => {
+    inboundTrustResult = {
+      ok: true,
+      verdict: {
+        trustClass: "trusted_contact",
+        canonicalSenderId: "imessage:+12025550142",
+        guardianExternalUserId: "imessage:+12025550100",
+      },
+      admissionPolicy: "trusted_contacts",
+    };
+    const seen: boolean[] = [];
+    watchTurnPresence(seen);
+
+    await runConversationTurn({
+      channel: CHANNEL,
+      content: [{ type: "text", text: "mark the task done" }],
+    });
+
+    expect(seen).toEqual([false]);
+  });
+
+  test("a contact with no guardian route stays non-interactive", async () => {
+    inboundTrustResult = {
+      ok: true,
+      verdict: {
+        trustClass: "trusted_contact",
+        canonicalSenderId: "imessage:+12025550142",
+      },
+      admissionPolicy: "trusted_contacts",
+    };
+    const seen: boolean[] = [];
+    watchTurnPresence(seen);
+
+    await runConversationTurn({
+      channel: CHANNEL,
+      content: [{ type: "text", text: "mark the task done" }],
+    });
+
+    expect(seen).toEqual([true]);
+  });
+
+  test("an internal plugin job stays non-interactive", async () => {
+    const seen: boolean[] = [];
+    watchTurnPresence(seen);
+
+    await runConversationTurn({
+      content: [{ type: "text", text: "flush the transcript" }],
+    });
+
+    expect(seen).toEqual([true]);
+  });
+
+  test("a queued guardian channel turn stays present when it drains", async () => {
+    const conversationId = "2b3c4d5e-6f7a-8b9c-0d1e-2f3a4b5c6d7e";
+    const seen: boolean[] = [];
+    watchTurnPresence(seen, conversationId);
+    holdTheTurnOpen();
+
+    const inFlight = runConversationTurn({
+      conversationId,
+      content: [{ type: "text", text: "native turn" }],
+    });
+    await waitFor(() => seen.length === 1, {
+      timeoutMs: 5_000,
+      message: "the first turn never reached the provider",
+    });
+
+    const result = await runConversationTurn({
+      conversationId,
+      channel: CHANNEL,
+      content: [{ type: "text", text: "mark the task done" }],
+    });
+    expect(result.queued).toBe(true);
+
+    releaseGate?.();
+    await inFlight;
+    await waitFor(() => seen.length === 2, {
+      timeoutMs: 5_000,
+      message: "the queued turn never reached the provider",
+    });
+
+    expect(seen).toEqual([true, false]);
+  }, 20_000);
 
   test("a queued turn carries its own channel rather than inheriting one", async () => {
     // The drain happens after this call returns and reads the channel off the
