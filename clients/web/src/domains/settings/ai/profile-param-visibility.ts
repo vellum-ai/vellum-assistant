@@ -173,6 +173,9 @@ function supportsEffort(
   if (provider === "openai") {
     return isOpenAIGptReasoningFamily(modelId);
   }
+  if (provider === "openai-compatible") {
+    return true;
+  }
   if (provider === "openrouter" || provider === "vercel-ai-gateway") {
     if (isVendorPrefixedAnthropicModel(modelId)) {
       return !modelId.includes("haiku") && supportsThinking;
