@@ -10,7 +10,18 @@ export interface LaunchAtLoginStore {
   write: (enabled: boolean) => void;
 }
 
+/**
+ * Platform hook for systems where Electron's login-item API is a no-op.
+ * Linux supplies an XDG autostart implementation; macOS and Windows omit it
+ * and keep using `app.get/setLoginItemSettings`.
+ */
+export interface LoginItemBackend {
+  read: () => boolean;
+  write: (enabled: boolean) => boolean;
+}
+
 export interface LoginItemRuntime {
+  backend?: LoginItemBackend;
   handle: IpcHandle;
   identity?: { path: string; args: string[] };
   store?: LaunchAtLoginStore;
@@ -38,25 +49,57 @@ const requireRuntime = (): LoginItemRuntime => {
   return runtime;
 };
 
-const readLaunchAtLogin = (): boolean => {
-  const stored = runtime?.store?.read();
-  return stored ?? app.getLoginItemSettings(runtime?.identity).openAtLogin;
+/** Current operating-system state, ignoring the persisted setting. */
+const readOpenAtLogin = (): boolean => {
+  const backend = runtime?.backend;
+  return backend
+    ? backend.read()
+    : app.getLoginItemSettings(runtime?.identity).openAtLogin;
 };
+
+const applyOpenAtLogin = (enabled: boolean): boolean => {
+  const backend = runtime?.backend;
+  if (backend) {
+    return backend.write(enabled);
+  }
+  app.setLoginItemSettings({ openAtLogin: enabled, ...runtime?.identity });
+  return true;
+};
+
+const readLaunchAtLogin = (): boolean =>
+  runtime?.store?.read() ?? readOpenAtLogin();
 
 const writeLaunchAtLogin = (enabled: boolean): void => {
   const store = runtime?.store;
+  if (runtime?.backend && !applyOpenAtLogin(enabled)) {
+    throw new Error("Could not update launch at login");
+  }
   if (store) {
     store.write(enabled);
     return;
   }
-  app.setLoginItemSettings({ openAtLogin: enabled, ...runtime?.identity });
+  if (!runtime?.backend) {
+    applyOpenAtLogin(enabled);
+  }
 };
 
+let syncing = false;
 const syncLoginItem = (): void => {
-  app.setLoginItemSettings({
-    openAtLogin: readLaunchAtLogin(),
-    ...runtime?.identity,
-  });
+  if (syncing) {
+    return;
+  }
+  syncing = true;
+  try {
+    const enabled = readLaunchAtLogin();
+    if (runtime?.backend && readOpenAtLogin() === enabled) {
+      return;
+    }
+    if (!applyOpenAtLogin(enabled)) {
+      runtime?.store?.write(readOpenAtLogin());
+    }
+  } finally {
+    syncing = false;
+  }
 };
 
 export const installLoginItemIpc = (): void => {
@@ -68,13 +111,12 @@ export const installLoginItemIpc = (): void => {
 };
 
 export const installLoginItem = (): void => {
-  const configured = requireRuntime();
-  const { store } = configured;
+  const { store } = requireRuntime();
   if (!store || teardown) {
     return;
   }
   if (store.read() === null) {
-    store.write(app.getLoginItemSettings(configured.identity).openAtLogin);
+    store.write(readOpenAtLogin());
   }
   syncLoginItem();
   teardown = store.subscribe(syncLoginItem);

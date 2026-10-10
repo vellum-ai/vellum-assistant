@@ -95,3 +95,114 @@ test("keeps a persisted setting synchronized with the login item", () => {
   expect(write).toHaveBeenLastCalledWith(true);
   expect(setLoginItemSettings).toHaveBeenLastCalledWith({ openAtLogin: true });
 });
+
+test("routes reads and writes through a platform backend", () => {
+  let entryEnabled = true;
+  const backend = {
+    read: () => entryEnabled,
+    write: mock((enabled: boolean) => {
+      entryEnabled = enabled;
+      return true;
+    }),
+  };
+
+  configureLoginItem({ backend, handle });
+  installLoginItemIpc();
+
+  expect(handlers.get("vellum:launchAtLogin:get")?.([])).toBe(true);
+  handlers.get("vellum:launchAtLogin:set")?.([false]);
+
+  expect(backend.write).toHaveBeenCalledWith(false);
+  expect(handlers.get("vellum:launchAtLogin:get")?.([])).toBe(false);
+  expect(setLoginItemSettings).not.toHaveBeenCalled();
+  expect(getLoginItemSettings).not.toHaveBeenCalled();
+});
+
+test("seeds and synchronizes a persisted setting through the backend", () => {
+  let stored: boolean | null = null;
+  let notify = (): void => undefined;
+  let entryEnabled = true;
+  const backend = {
+    read: () => entryEnabled,
+    write: mock((enabled: boolean) => {
+      entryEnabled = enabled;
+      return true;
+    }),
+  };
+
+  configureLoginItem({
+    backend,
+    handle,
+    store: {
+      read: () => stored,
+      subscribe: (next) => {
+        notify = next;
+        return () => {
+          notify = () => undefined;
+        };
+      },
+      write: (enabled) => {
+        stored = enabled;
+      },
+    },
+  });
+
+  installLoginItem();
+  installLoginItemIpc();
+
+  // The pre-existing autostart entry seeds the empty setting.
+  expect<boolean | null>(stored).toBe(true);
+
+  handlers.get("vellum:launchAtLogin:set")?.([false]);
+  notify();
+
+  expect(backend.write).toHaveBeenLastCalledWith(false);
+  expect(setLoginItemSettings).not.toHaveBeenCalled();
+});
+
+test("a rejected backend write leaves the persisted preference unchanged", () => {
+  let stored = false;
+  configureLoginItem({
+    handle,
+    backend: { read: () => false, write: () => false },
+    store: {
+      read: () => stored,
+      write: (value) => {
+        stored = value;
+      },
+      subscribe: () => () => {},
+    },
+  });
+  installLoginItem();
+  installLoginItemIpc();
+  expect(() => handlers.get("vellum:launchAtLogin:set")?.([true])).toThrow(
+    "Could not update",
+  );
+  expect(stored).toBe(false);
+  expect(handlers.get("vellum:launchAtLogin:get")?.([])).toBe(false);
+});
+
+test("failed subscription updates roll back without recursive writes", () => {
+  let stored = false;
+  let notify = () => {};
+  const write = mock((value: boolean) => {
+    stored = value;
+    notify();
+  });
+  configureLoginItem({
+    handle,
+    backend: { read: () => false, write: () => false },
+    store: {
+      read: () => stored,
+      write,
+      subscribe: (listener) => {
+        notify = listener;
+        return () => {};
+      },
+    },
+  });
+  installLoginItem();
+  write(true);
+  expect(stored).toBe(false);
+  expect(write).toHaveBeenCalledTimes(2);
+});
