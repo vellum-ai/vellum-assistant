@@ -6,9 +6,9 @@ mock.module("./ipc.client", () => ({
   on: () => undefined,
 }));
 
-await runBundleFeatureSuite("Windows", () => import("./features/bundles"), {
-  appData: "C:\\Vellum",
-  config: "C:\\Vellum\\config",
-  bundleFile: "C:\\bundle.vellum",
-  command: "vellum.exe",
+await runBundleFeatureSuite("Linux", () => import("./features/bundles"), {
+  appData: "/home/user/.config/Vellum",
+  config: "/home/user/.config/vellum",
+  bundleFile: "/home/user/bundle.vellum",
+  command: "/opt/vellum/bun",
 });
