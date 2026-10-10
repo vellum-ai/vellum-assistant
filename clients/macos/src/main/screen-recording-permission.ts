@@ -1,12 +1,10 @@
 /**
  * Screen Recording, as the process that captures holds it.
  *
- * Every capture this app takes on macOS is the mac helper's: a shared call's
- * frames, the picker's previews, a computer-use screenshot. The helper
- * disclaims TCC responsibility, so macOS checks the helper's own grant, and
- * the app's grant (what `systemPreferences.getMediaAccessStatus("screen")`
- * reads) says nothing about it. They are separate rows in System Settings,
- * and the app can be allowed while every capture is refused.
+ * Every capture this app takes on macOS runs in the mac helper: a shared call's
+ * frames, the picker's previews, and computer-use screenshots. The permission
+ * probe launches that executable the same way as a capture. The app can have
+ * a separate Screen Recording row; this probe reports the helper's status.
  */
 
 import {
