@@ -15,6 +15,7 @@ import {
   isUnsendableImageSource,
   mediaSourceDescriptor,
   resolveMediaReferences,
+  UNREDUCIBLE_IMAGE_NOTE,
   UNSENDABLE_IMAGE_FORMAT_NOTE,
 } from "../providers/media-resolve.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -166,6 +167,29 @@ describe("resolveMediaReferences image validation", () => {
     expect(resolved.content[0]).toEqual({
       type: "text",
       text: UNSENDABLE_IMAGE_FORMAT_NOTE,
+    });
+  });
+
+  test("drops a stored image the send path cannot reduce under the transport cap", async () => {
+    // GIVEN a persisted attachment whose bytes carry a PNG signature but no
+    // decodable image, large enough that transport optimization must rescale
+    // it and cannot
+    const head = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const undecodable = Buffer.concat([head, Buffer.alloc(4 * 1024 * 1024, 7)]);
+    const block = await storedImageRef(
+      "render.png",
+      "image/png",
+      undecodable.toString("base64"),
+    );
+
+    // WHEN the send boundary resolves the reference
+    const [resolved] = await resolveMediaReferences([userMessage([block])]);
+
+    // THEN the full-size original is not shipped; the note stands in, so the
+    // request never carries bytes the payload budget did not account for
+    expect(resolved.content[0]).toEqual({
+      type: "text",
+      text: UNREDUCIBLE_IMAGE_NOTE,
     });
   });
 
@@ -451,7 +475,9 @@ describe("resolveMediaReferences file workspace_ref stay-on-disk", () => {
     }
     expect(block.source.type).toBe("workspace_ref");
     expect(block.extracted_text).toBeUndefined();
-    expect(JSON.stringify(resolved)).not.toContain("this dump must not be resent");
+    expect(JSON.stringify(resolved)).not.toContain(
+      "this dump must not be resent",
+    );
     expect(JSON.stringify(resolved)).not.toContain("hello-over-cap");
   });
 

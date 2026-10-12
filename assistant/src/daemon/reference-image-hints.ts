@@ -22,8 +22,9 @@ export interface StoredImageReferenceHints {
   dimensions: { width: number; height: number } | null;
   /**
    * Decoded byte length of what the send path puts on the wire: the
-   * transport-optimized image, or 0 when the stored bytes are a format no
-   * provider reads and the resolver substitutes a text note instead.
+   * transport-optimized image, or 0 when the resolver substitutes a text note
+   * instead, because the stored bytes are a format no provider reads or could
+   * not be reduced under the transport cap.
    */
   transportSizeBytes: number;
 }
@@ -42,6 +43,9 @@ export async function storedImageReferenceHints(
     return { dimensions: null, transportSizeBytes: 0 };
   }
   const optimized = await optimizeImageForTransport(dataBase64, mediaType);
+  if (optimized.exceedsTransportCap) {
+    return { dimensions: null, transportSizeBytes: 0 };
+  }
   return {
     dimensions: parseImageDimensions(optimized.data, optimized.mediaType),
     transportSizeBytes: Buffer.byteLength(optimized.data, "base64"),

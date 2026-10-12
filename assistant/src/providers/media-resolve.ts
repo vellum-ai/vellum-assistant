@@ -193,6 +193,16 @@ export const UNSENDABLE_IMAGE_FORMAT_NOTE =
   "[Image omitted: its format is not one the model can read (PNG, JPEG, GIF, and WebP are)]";
 
 /**
+ * Stands in for a stored image the send path could not reduce under the
+ * transport cap, because conversion was unavailable or failed. Shipping the
+ * full-size original instead would carry bytes the outbound payload budget
+ * never accounted for (its hint was measured from a successful conversion)
+ * and risk the provider's per-image and per-request limits.
+ */
+export const UNREDUCIBLE_IMAGE_NOTE =
+  "[Image omitted: it could not be reduced to a size the model accepts]";
+
+/**
  * Resolve an image block into one the provider can accept, keyed on the bytes
  * rather than on the declared media type.
  *
@@ -255,10 +265,15 @@ async function resolveImageBlock(
   }
   // Apply the same transport optimization the inline-base64 path used, so a
   // reloaded (reference) turn sends the model the same bytes a live turn would.
-  const { data, mediaType } = await optimizeImageForTransport(
-    bytes.toString("base64"),
-    sniffed,
-  );
+  const { data, mediaType, exceedsTransportCap } =
+    await optimizeImageForTransport(bytes.toString("base64"), sniffed);
+  if (exceedsTransportCap) {
+    log.warn(
+      { attachmentId: block.source.attachmentId, mediaType: sniffed },
+      "Referenced image could not be reduced under the transport cap; substituting a text note",
+    );
+    return { type: "text", text: UNREDUCIBLE_IMAGE_NOTE };
+  }
   return {
     type: "image",
     source: { type: "base64", media_type: mediaType, data },

@@ -144,15 +144,28 @@ export async function upscaleImageToMinimum(
  * Conversion (and its content-addressed disk cache) is shared with attachment
  * storage normalization — see `util/image-conversion.ts`.
  */
+export interface TransportImage {
+  data: string;
+  mediaType: string;
+  /**
+   * True when `data` is still over the transport byte cap: conversion was
+   * unavailable or failed and the original is being returned, or the
+   * re-encoded JPEG itself came out over the cap. The send path treats such a
+   * payload as unsendable rather than shipping bytes a budget computed from
+   * a successful conversion never accounted for.
+   */
+  exceedsTransportCap: boolean;
+}
+
 export async function optimizeImageForTransport(
   base64Data: string,
   mediaType: string,
-): Promise<{ data: string; mediaType: string }> {
+): Promise<TransportImage> {
   const rawBytes = Buffer.from(base64Data, "base64");
   const dims = parseImageDimensions(base64Data, mediaType);
 
   if (!shouldRescaleImage(dims, rawBytes.length)) {
-    return { data: base64Data, mediaType };
+    return { data: base64Data, mediaType, exceedsTransportCap: false };
   }
 
   const optimized = await convertImageToJpeg(rawBytes, {
@@ -160,8 +173,16 @@ export async function optimizeImageForTransport(
     quality: JPEG_QUALITY,
   });
   if (!optimized) {
-    return { data: base64Data, mediaType };
+    return {
+      data: base64Data,
+      mediaType,
+      exceedsTransportCap: rawBytes.length > MAX_TRANSPORT_BYTES,
+    };
   }
 
-  return { data: optimized.toString("base64"), mediaType: "image/jpeg" };
+  return {
+    data: optimized.toString("base64"),
+    mediaType: "image/jpeg",
+    exceedsTransportCap: optimized.length > MAX_TRANSPORT_BYTES,
+  };
 }

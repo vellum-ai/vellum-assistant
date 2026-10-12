@@ -134,6 +134,23 @@ describe("optimizeImageForTransport", () => {
     expect(await optimizeImageForTransport(tiny, "image/png")).toEqual({
       data: tiny,
       mediaType: "image/png",
+      exceedsTransportCap: false,
     });
+  });
+
+  it("reports an over-cap payload it could not convert so the send path can refuse it", async () => {
+    // Bytes with a PNG signature but no decodable image: the size gate asks
+    // for a rescale, the converter cannot decode them, and the original comes
+    // back. Flagging it is what lets the resolver substitute a note instead
+    // of shipping 4 MB a budget measured from a successful conversion never
+    // accounted for.
+    const head = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const garbage = Buffer.concat([head, Buffer.alloc(4 * 1024 * 1024, 7)]);
+    const result = await optimizeImageForTransport(
+      garbage.toString("base64"),
+      "image/png",
+    );
+    expect(result.exceedsTransportCap).toBe(true);
+    expect(result.data.length).toBe(garbage.toString("base64").length);
   });
 });

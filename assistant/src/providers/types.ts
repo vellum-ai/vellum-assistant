@@ -82,8 +82,9 @@ export interface WorkspaceRefMediaSource {
    * reference, recorded at persist time from the stored bytes by running the
    * same transport optimization `resolveMediaReferences` applies. A stored
    * upload keeps its full-resolution master, so this can be far below
-   * `sizeBytes`. 0 when the stored bytes are a format no provider reads: the
-   * resolver substitutes a text note, so the image puts nothing on the wire.
+   * `sizeBytes`. 0 when the resolver will substitute a text note, because the
+   * stored bytes are a format no provider reads or cannot be reduced under the
+   * transport cap, so the image puts nothing on the wire.
    * Absent on rows persisted before it was recorded; size-only consumers fall
    * back to `sizeBytes`.
    */
