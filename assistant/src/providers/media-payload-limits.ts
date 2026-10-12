@@ -44,7 +44,12 @@
  *
  * Per-image limits are enforced when the media is read, so only the aggregate
  * is governed here.
+ *
+ * An installation that knows its transport can raise the byte marks through
+ * `media.payloadCap` in the workspace config ({@link mediaPayloadLimitsFromConfig}).
  */
+
+import type { MediaConfig } from "../config/schemas/media.js";
 
 export interface MediaPayloadLimits {
   /** Wire bytes (base64) of media above which eviction starts. */
@@ -65,3 +70,22 @@ export const MEDIA_PAYLOAD_LIMITS: MediaPayloadLimits = {
   highImages: 60,
   lowImages: 40,
 };
+
+/**
+ * The marks in force: the shipped band, with the byte marks replaced by the
+ * workspace's `media.payloadCap` when one is set. The image-count marks are
+ * not configurable; bytes bind long before counts do for any real image.
+ */
+export function mediaPayloadLimitsFromConfig(
+  media: MediaConfig | undefined,
+): MediaPayloadLimits {
+  const cap = media?.payloadCap;
+  if (!cap) {
+    return MEDIA_PAYLOAD_LIMITS;
+  }
+  return {
+    ...MEDIA_PAYLOAD_LIMITS,
+    highBytes: Math.round(cap.highMb * MB),
+    lowBytes: Math.round(cap.lowMb * MB),
+  };
+}

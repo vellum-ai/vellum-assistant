@@ -887,6 +887,43 @@ describe("AssistantConfigSchema", () => {
     ).toBe(false);
   });
 
+  // ── media config ─────────────────────────────────────────────────────
+
+  test("applies media defaults: no payload cap override", () => {
+    expect(AssistantConfigSchema.parse({}).media).toEqual({});
+  });
+
+  test("accepts a media.payloadCap with the low mark below the high mark", () => {
+    const result = AssistantConfigSchema.parse({
+      media: { payloadCap: { highMb: 22, lowMb: 14 } },
+    });
+    expect(result.media.payloadCap).toEqual({ highMb: 22, lowMb: 14 });
+  });
+
+  test("rejects a media.payloadCap whose low mark is not below its high mark", () => {
+    for (const payloadCap of [
+      { highMb: 10, lowMb: 10 },
+      { highMb: 6, lowMb: 10 },
+    ]) {
+      expect(
+        AssistantConfigSchema.safeParse({ media: { payloadCap } }).success,
+      ).toBe(false);
+    }
+  });
+
+  test("rejects a media.payloadCap missing a mark or with a non-positive one", () => {
+    for (const payloadCap of [
+      { highMb: 22 },
+      { lowMb: 14 },
+      { highMb: 0, lowMb: -1 },
+      { highMb: "22", lowMb: 14 },
+    ]) {
+      expect(
+        AssistantConfigSchema.safeParse({ media: { payloadCap } }).success,
+      ).toBe(false);
+    }
+  });
+
   // ── commitMessageLLM config ──────────────────────────────────────────
 
   test("default commitMessageLLM values are correct", () => {

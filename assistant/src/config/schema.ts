@@ -41,6 +41,7 @@ import {
   AuditLogConfigSchema,
   LogFileConfigSchema,
 } from "./schemas/logging.js";
+import { MediaConfigSchema } from "./schemas/media.js";
 import { MemoryConfigSchema } from "./schemas/memory.js";
 import { MigrationsConfigSchema } from "./schemas/migrations.js";
 import { MonitoringConfigSchema } from "./schemas/monitoring.js";
@@ -120,6 +121,7 @@ export const AssistantConfigSchema = z.object({
   liveVoice: LiveVoiceConfigSchema.default(LiveVoiceConfigSchema.parse({})),
   voice: VoiceConfigSchema.default(VoiceConfigSchema.parse({})),
   sight: SightConfigSchema.default(SightConfigSchema.parse({})),
+  media: MediaConfigSchema.default(MediaConfigSchema.parse({})),
   whatsapp: WhatsAppConfigSchema.default(WhatsAppConfigSchema.parse({})),
   telegram: TelegramConfigSchema.default(TelegramConfigSchema.parse({})),
   slack: SlackConfigSchema.default(SlackConfigSchema.parse({})),

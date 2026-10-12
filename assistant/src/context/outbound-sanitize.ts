@@ -6,11 +6,12 @@
  * transform is idempotent so each send re-derives the same projection.
  */
 
+import { getConfig } from "../config/loader.js";
 import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
 import { fileSourceMayBeInlined } from "../providers/inline-file-eligibility.js";
 import {
-  MEDIA_PAYLOAD_LIMITS,
   type MediaPayloadLimits,
+  mediaPayloadLimitsFromConfig,
 } from "../providers/media-payload-limits.js";
 import {
   mediaSourceByteLength,
@@ -328,7 +329,8 @@ function documentMediaPlaceholder(media: MediaBlock[]): string {
  *   reads. Retained across steps and turns until the payload cap retires the
  *   oldest.
  *
- * The cap ({@link MEDIA_PAYLOAD_LIMITS}) is a hysteresis band over the media
+ * The cap (`MEDIA_PAYLOAD_LIMITS`, byte marks overridable through the
+ * workspace's `media.payloadCap`) is a hysteresis band over the media
  * the request carries: retained documents plus the user's own attachments,
  * which count toward the total but are never evicted here (the reactive
  * overflow path owns those). Walking the
@@ -354,7 +356,7 @@ function documentMediaPlaceholder(media: MediaBlock[]): string {
  */
 function planMediaRetention(
   history: Message[],
-  limits: MediaPayloadLimits = MEDIA_PAYLOAD_LIMITS,
+  limits: MediaPayloadLimits = mediaPayloadLimitsFromConfig(getConfig().media),
 ): {
   evicted: Map<string, MediaRetention>;
   retained: Set<string>;

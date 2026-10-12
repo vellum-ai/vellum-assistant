@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   preModelCallSanitize,
@@ -11,6 +11,7 @@ import type {
   Message,
   ToolResultContent,
 } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const MB = 1024 * 1024;
 
@@ -531,5 +532,24 @@ describe("tool-result media retention", () => {
     expect(retainedToolResultMediaKeys(history)).toEqual(
       new Set(["3:0", "5:0"]),
     );
+  });
+});
+
+describe("media.payloadCap override", () => {
+  afterEach(() => {
+    setConfig("media", {});
+  });
+
+  test("raises the byte marks for an installation that knows its transport", () => {
+    // GIVEN five 3 MB reads, which the shipped 10 MB / 6 MB band thins to three
+    const reads = documentSteps(5, 3 * MB);
+    expect(retainedToolResultMediaKeys(reads).size).toBe(3);
+
+    // WHEN the workspace config raises the band to Anthropic-sized marks
+    setConfig("media", { payloadCap: { highMb: 22, lowMb: 14 } });
+
+    // THEN every read stays in view on the next send
+    expect(retainedToolResultMediaKeys(reads).size).toBe(5);
+    expect(preModelCallSanitize(reads)).toEqual(reads);
   });
 });
