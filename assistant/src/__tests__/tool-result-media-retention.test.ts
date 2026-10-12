@@ -128,6 +128,19 @@ describe("tool-result media retention", () => {
     expect(hasMedia(toolResult(history, 2))).toBe(true);
   });
 
+  test("anything but an explicit document class is treated as a frame", () => {
+    // GIVEN an older result whose class is not one the policy knows
+    const history = [
+      ...toolStep("x1", "forever" as unknown as MediaRetention, [
+        inlineImage(100),
+      ]),
+      ...toolStep("s2", undefined, [inlineImage(100)]),
+    ];
+
+    // THEN it follows the frame rule and is dropped behind the current step
+    expect(hasMedia(toolResult(preModelCallSanitize(history), 1))).toBe(false);
+  });
+
   test("document media is kept across steps and across user turns", () => {
     // GIVEN file reads on two steps of one turn, a new user turn, then another read
     const history = [

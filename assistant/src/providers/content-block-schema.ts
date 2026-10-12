@@ -20,7 +20,7 @@
 
 import { z } from "zod";
 
-import type { ContentBlock } from "./types.js";
+import { type ContentBlock, MEDIA_RETENTION_VALUES } from "./types.js";
 
 const base64MediaSourceSchema = z
   .object({
@@ -112,6 +112,11 @@ const toolResultContentSchema = z
     content: z.string(),
     is_error: z.boolean().optional(),
     contentBlocks: z.lazy(() => z.array(contentBlockSchema)).optional(),
+    // Read back off the stored row by the outbound sanitizer, so it is
+    // validated rather than passed through. A value outside the enum (an
+    // imported or hand-edited blob) degrades to absent, the frame default,
+    // instead of failing the whole block into legacy repair.
+    mediaRetention: z.enum(MEDIA_RETENTION_VALUES).optional().catch(undefined),
   })
   .passthrough();
 

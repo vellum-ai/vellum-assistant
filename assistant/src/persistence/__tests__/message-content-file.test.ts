@@ -170,6 +170,39 @@ describe("resolveMessageContentBlocks", () => {
     expect(resolveMessageContentBlocks(JSON.stringify(blocks))).toEqual(blocks);
   });
 
+  test("round-trips a tool_result's media retention class and drops an unknown one", () => {
+    // The outbound sanitizer reads `mediaRetention` off the stored block, so
+    // the schema validates it instead of passing it through.
+    const tagged: ContentBlock[] = [
+      {
+        type: "tool_result",
+        tool_use_id: "tu-1",
+        content: "Image loaded",
+        contentBlocks: [textBlock("nested")],
+        mediaRetention: "document",
+      },
+    ];
+    const taggedJson = JSON.stringify(tagged);
+    const parsed = resolveMessageContentBlocks(taggedJson);
+    expect(parsed).toEqual(tagged);
+    expect(JSON.stringify(parsed)).toBe(taggedJson);
+
+    // A value outside the enum (an imported or hand-edited blob) degrades to
+    // absent, the frame default, and the block is otherwise intact rather
+    // than failing into legacy repair.
+    const bogus = JSON.stringify([{ ...tagged[0], mediaRetention: "forever" }]);
+    const repaired = resolveMessageContentBlocks(bogus);
+    expect(repaired).toHaveLength(1);
+    expect(repaired[0]).toMatchObject({
+      type: "tool_result",
+      tool_use_id: "tu-1",
+      content: "Image loaded",
+    });
+    expect(
+      (repaired[0] as { mediaRetention?: unknown }).mediaRetention,
+    ).toBeUndefined();
+  });
+
   test("passes typed blocks outside the union through untouched", () => {
     // A persisted kind the union does not model still passes through: its
     // renderer owns the shape, so repair must not rewrite it.

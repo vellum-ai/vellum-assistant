@@ -337,7 +337,10 @@ function planMediaRetention(
         continue;
       }
       const key = `${msgIdx}:${blockIdx}`;
-      if ((block.mediaRetention ?? "frame") === "frame") {
+      // Anything but an explicit `document` is a frame: the default for
+      // untagged results, and the safe reading of a value the persisted
+      // content schema did not recognize.
+      if (block.mediaRetention !== "document") {
         if (msgIdx === currentStepIdx) {
           retained.add(key);
         } else {
