@@ -76,9 +76,10 @@ describe("referenceMediaBlocksForPersist", () => {
     const linked = getAttachmentsForMessage(msg.id);
     expect(linked.map((a) => a.id)).toEqual([nested.source.attachmentId]);
     expect(mediaSourceBytes(nested.source)?.toString()).toBe("hello");
-    // The reference hints what the send path puts on the wire; these bytes
-    // need no optimization, so that is their stored size.
-    expect(nested.source.transportSizeBytes).toBe(5);
+    // The reference hints what the send path puts on the wire. These bytes
+    // are not an image any provider reads, so the resolver would substitute a
+    // text note and the hint says nothing goes out.
+    expect(nested.source.transportSizeBytes).toBe(0);
   });
 
   test("normalizes a tool image's declared type to its sniffed format", async () => {
@@ -129,6 +130,55 @@ describe("referenceMediaBlocksForPersist", () => {
     expect(nested.source.transportSizeBytes).toBe(
       Buffer.byteLength(pngBytesDeclaredSvg, "base64"),
     );
+  });
+
+  test("records a zero transport size for stored bytes no provider reads", async () => {
+    // Normalization can only correct a declared type the sniffer recognizes;
+    // SVG bytes declared as PNG keep the PNG label. The hint is derived from
+    // the stored bytes, so it still says nothing goes on the wire, and the
+    // outbound sanitizer's payload cap costs the reference as nothing.
+    const conv = createConversation();
+    const msg = await addMessage(conv.id, "user", "tool results");
+    const svgDeclaredPng = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"/>',
+    ).toString("base64");
+
+    const referenced = await referenceMediaBlocksForPersist(
+      conv.id,
+      conv.createdAt,
+      msg.id,
+      [
+        {
+          type: "tool_result",
+          tool_use_id: "tool-svg",
+          content: "rendered",
+          contentBlocks: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: "image/png",
+                data: svgDeclaredPng,
+              },
+            },
+          ],
+        },
+      ],
+    );
+
+    const toolResult = referenced[0] as Extract<
+      ContentBlock,
+      { type: "tool_result" }
+    >;
+    const nested = toolResult.contentBlocks![0] as Extract<
+      ContentBlock,
+      { type: "image" }
+    >;
+    if (nested.source.type !== "workspace_ref") {
+      throw new Error("expected ref");
+    }
+    expect(nested.source.media_type).toBe("image/png");
+    expect(nested.source.transportSizeBytes).toBe(0);
   });
 
   test("leaves an already-referenced block untouched and creates no row", async () => {

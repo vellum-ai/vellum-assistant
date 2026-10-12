@@ -244,16 +244,16 @@ function isMediaBlock(block: ContentBlock): block is MediaBlock {
 /**
  * What a media block costs the request, which carries media as base64: wire
  * bytes and whether it counts as an image.
- * - An image whose bytes or declared format no provider reads is replaced by a
- *   text note at send ({@link isProviderReadableImageData} for inline bytes,
- *   {@link isProviderReadableImageMimeType} for a reference, whose declared
- *   type the attachment store has normalized to the sniffed format for both
- *   uploads and persisted tool results) and costs nothing.
- * - An inline image is already transport-optimized and is sent as is.
- * - An image reference is costed at the size the send path produces
- *   (`transportSizeBytes`, recorded at persist time by running the same
- *   transport optimization), falling back to its stored size on rows written
- *   before that hint existed.
+ * - An inline image whose bytes no provider reads is replaced by a text note
+ *   at send ({@link isProviderReadableImageData}) and costs nothing; otherwise
+ *   it is already transport-optimized and is sent as is.
+ * - An image reference is costed by `transportSizeBytes`, which the persist
+ *   path derived from the stored bytes: the size the send path produces, or 0
+ *   when the resolver will substitute a text note, in which case the image
+ *   contributes neither bytes nor a slot. Rows written before that hint
+ *   existed are judged by their declared type
+ *   ({@link isProviderReadableImageMimeType}, which storage normalizes to the
+ *   sniffed format when it recognizes the bytes) and costed at stored size.
  * - A file costs nothing unless some adapter would inline it
  *   ({@link fileSourceMayBeInlined}: video, over-cap text, and audio outside
  *   every adapter's inline set put no payload on the wire).
@@ -267,18 +267,17 @@ function mediaWireCost(block: MediaBlock): { bytes: number; images: number } {
       }
       return { bytes: base64Bytes(storedBytes), images: 1 };
     }
+    const transportBytes = block.source.transportSizeBytes;
+    if (transportBytes !== undefined) {
+      const sentBytes = usableByteLength(transportBytes);
+      return sentBytes === 0
+        ? NO_WIRE_COST
+        : { bytes: base64Bytes(sentBytes), images: 1 };
+    }
     if (!isProviderReadableImageMimeType(block.source.media_type)) {
       return NO_WIRE_COST;
     }
-    const transportBytes = block.source.transportSizeBytes;
-    return {
-      bytes: base64Bytes(
-        transportBytes === undefined
-          ? storedBytes
-          : usableByteLength(transportBytes),
-      ),
-      images: 1,
-    };
+    return { bytes: base64Bytes(storedBytes), images: 1 };
   }
   if (!fileSourceMayBeInlined(block.source, storedBytes)) {
     return NO_WIRE_COST;

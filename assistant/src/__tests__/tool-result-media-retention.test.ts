@@ -378,6 +378,23 @@ describe("tool-result media retention", () => {
     expect(preModelCallSanitize(history)).toEqual(history);
   });
 
+  test("a reference whose stored bytes no provider reads adds nothing, whatever its declared type", () => {
+    // GIVEN a reference declared PNG whose persist-time hint says the send
+    // path puts nothing on the wire (the stored bytes were, say, an SVG the
+    // sniffer could not correct), followed by two 3 MB reads
+    const history = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "here" }, refImage(20 * MB, 0)],
+      } as Message,
+      ...toolStep("d1", "document", [inlineImage(3 * MB)]),
+      ...toolStep("d2", "document", [inlineImage(3 * MB)]),
+    ];
+
+    // THEN neither read is evicted and the reference counts as no image
+    expect(preModelCallSanitize(history)).toEqual(history);
+  });
+
   test("an inline image no provider reads adds nothing to the total", () => {
     // GIVEN a 20 MB inline SVG, which the send path replaces with a text note
     // after sniffing its bytes, followed by two 3 MB reads
