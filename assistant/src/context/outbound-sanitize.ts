@@ -7,7 +7,10 @@
  */
 
 import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
-import { MEDIA_PAYLOAD_LIMITS } from "../providers/media-payload-limits.js";
+import {
+  MEDIA_PAYLOAD_LIMITS,
+  type MediaPayloadLimits,
+} from "../providers/media-payload-limits.js";
 import {
   mediaSourceByteLength,
   mediaSourceDescriptor,
@@ -277,12 +280,21 @@ function documentMediaPlaceholder(media: MediaBlock[]): string {
  * history with no shared state. Frames stay out of the running total for the
  * same reason: which frames go out depends on which step is current, which
  * changes every send.
+ *
+ * That stability assumes history only grows between sends. A pass that
+ * rewrites old messages in place (captioning images for a text-only model)
+ * changes the totals, and a recomputation over the rewritten history can keep
+ * documents this pass evicted. Such a pass must cover every block the policy
+ * can keep, not just the ones one request carried: see
+ * {@link retainedToolResultMediaKeysBeforeCap}.
  */
-function planMediaRetention(history: Message[]): {
+function planMediaRetention(
+  history: Message[],
+  limits: MediaPayloadLimits = MEDIA_PAYLOAD_LIMITS,
+): {
   evicted: Map<string, MediaRetention>;
   retained: Set<string>;
 } {
-  const limits = MEDIA_PAYLOAD_LIMITS;
   const evicted = new Map<string, MediaRetention>();
   const retained = new Set<string>();
   const currentStepIdx = lastToolResultUserMessageIndex(history);
@@ -392,12 +404,33 @@ function applyMediaRetention(history: Message[]): Message[] {
 
 /**
  * Keys (`${messageIndex}:${blockIndex}`) of the `tool_result` blocks whose
- * media {@link preModelCallSanitize} sends rather than replacing with a marker,
- * for consumers that mirror the outbound projection on the raw history (the
- * image-fallback plugin captions exactly the images a request carries).
+ * media {@link preModelCallSanitize} sends on this history rather than
+ * replacing with a marker: the current step's frames plus the documents the
+ * payload cap keeps.
  */
 export function retainedToolResultMediaKeys(history: Message[]): Set<string> {
   return planMediaRetention(history).retained;
+}
+
+const UNCAPPED_MEDIA_PAYLOAD_LIMITS: MediaPayloadLimits = {
+  highBytes: Infinity,
+  lowBytes: Infinity,
+  highImages: Infinity,
+  lowImages: Infinity,
+};
+
+/**
+ * Keys of the `tool_result` blocks the retention policy can keep before the
+ * payload cap is applied: the current step's frames plus every document. A
+ * superset of {@link retainedToolResultMediaKeys} for a pass that rewrites
+ * media in place (the image-fallback plugin captioning for a text-only
+ * model): rewriting changes the totals the cap is computed from, so the cap's
+ * own picks are not stable across the rewrite, while this set is.
+ */
+export function retainedToolResultMediaKeysBeforeCap(
+  history: Message[],
+): Set<string> {
+  return planMediaRetention(history, UNCAPPED_MEDIA_PAYLOAD_LIMITS).retained;
 }
 
 /**

@@ -42,7 +42,7 @@ import {
   type Message,
   type PluginLogger,
   resolveMediaSourceData,
-  retainedToolResultMediaKeys,
+  retainedToolResultMediaKeysBeforeCap,
 } from "@vellumai/plugin-api";
 
 import { persistImage } from "./image-persist.js";
@@ -250,13 +250,19 @@ export async function captionImagesInMessages(
 }
 
 /**
- * Caption only the image blocks a rejected model call would still carry after
- * the host's outbound media retention: every top-level image block (the
- * sanitizer never strips those) plus the tool_result media the sanitizer keeps
- * ({@link retainedToolResultMediaKeys}: the current step's screenshots and
- * retained file reads). Tool_result media the sanitizer drops is left raw so
- * the retry replaces it with the compact removed-media marker rather than a
- * full caption: captioning it would waste vision calls and balloon context.
+ * Caption the image blocks a rejected model call, or its retry, can carry
+ * after the host's outbound media retention: every top-level image block (the
+ * sanitizer never strips those) plus the tool_result media the retention
+ * policy keeps before its payload cap ({@link retainedToolResultMediaKeysBeforeCap}:
+ * the current step's screenshots and every file read). Stale screenshots are
+ * left raw so the retry replaces them with the compact removed-media marker
+ * rather than a full caption.
+ *
+ * File reads the cap had thinned from the rejected request are captioned too,
+ * not left for the marker: captioning removes media bytes from history, the
+ * retry recomputes the cap over the lighter history, and documents it had
+ * evicted come back into the request as raw images, which the text-only
+ * provider rejects again with the one-shot recovery already spent.
  *
  * Text-only user content is then merged via {@link flattenTextOnlyBlocks}.
  */
@@ -266,7 +272,7 @@ export async function captionOutboundImagesInMessages(
   visionProfileKey: string | null,
   logger: PluginLogger,
 ): Promise<number> {
-  const retained = retainedToolResultMediaKeys(messages);
+  const retained = retainedToolResultMediaKeysBeforeCap(messages);
   let replaced = 0;
   for (let i = 0; i < messages.length; i++) {
     replaced += await captionImageBlocks(

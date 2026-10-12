@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   preModelCallSanitize,
   retainedToolResultMediaKeys,
+  retainedToolResultMediaKeysBeforeCap,
 } from "../context/outbound-sanitize.js";
 import type {
   ContentBlock,
@@ -272,6 +273,47 @@ describe("tool-result media retention", () => {
 
     // THEN nothing changes
     expect(twice).toEqual(once);
+  });
+
+  test("the before-cap key set covers evicted documents but not stale frames", () => {
+    // GIVEN an old frame and five 3 MB reads, of which the cap keeps three
+    const history = [
+      ...toolStep("s1", undefined, [inlineImage(10)]),
+      ...documentSteps(5, 3 * MB),
+    ];
+    expect(retainedToolResultMediaKeys(history)).toEqual(
+      new Set(["7:0", "9:0", "11:0"]),
+    );
+
+    // THEN the before-cap set has every read and still omits the stale frame
+    expect(retainedToolResultMediaKeysBeforeCap(history)).toEqual(
+      new Set(["3:0", "5:0", "7:0", "9:0", "11:0"]),
+    );
+  });
+
+  test("rewriting kept media in place shifts the cap's picks, which is why rewriters use the before-cap set", () => {
+    // GIVEN five 3 MB reads with the newest three kept
+    const history = documentSteps(5, 3 * MB);
+    const kept = retainedToolResultMediaKeys(history);
+    expect(kept).toEqual(new Set(["5:0", "7:0", "9:0"]));
+
+    // WHEN the kept images are replaced by text, as captioning does
+    const rewritten = history.map((msg, msgIdx) => ({
+      ...msg,
+      content: msg.content.map((block, blockIdx) =>
+        block.type === "tool_result" && kept.has(`${msgIdx}:${blockIdx}`)
+          ? {
+              ...block,
+              contentBlocks: [{ type: "text" as const, text: "[caption]" }],
+            }
+          : block,
+      ),
+    }));
+
+    // THEN a recomputation keeps the two older reads the first pass evicted
+    expect(retainedToolResultMediaKeys(rewritten)).toEqual(
+      new Set(["1:0", "3:0"]),
+    );
   });
 
   test("retained keys cover the current step's frames and kept documents only", () => {

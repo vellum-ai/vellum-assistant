@@ -25,7 +25,10 @@ import type {
 // hook reaches through `@vellumai/plugin-api`; wire them into the mock so the
 // tests exercise the shipped behavior (broad rejection patterns, media scope)
 // rather than a stand-in.
-import { retainedToolResultMediaKeys } from "../../../../context/outbound-sanitize.js";
+import {
+  retainedToolResultMediaKeys,
+  retainedToolResultMediaKeysBeforeCap,
+} from "../../../../context/outbound-sanitize.js";
 import { isVisionNotSupportedError } from "../../../../util/provider-error-patterns.js";
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
@@ -52,7 +55,7 @@ mock.module("@vellumai/plugin-api", () => ({
   resolveMediaSourceData: mockResolveMediaSourceData,
   getConfiguredProvider: async () => fakeProvider,
   isVisionNotSupportedError,
-  retainedToolResultMediaKeys,
+  retainedToolResultMediaKeysBeforeCap,
   // The module registry is process-wide, so this surface covers every
   // plugin-api export the plugin's hooks import, including the transcript
   // notice only the sibling test file exercises.
@@ -240,6 +243,45 @@ describe("image-fallback post-model-call vision recovery", () => {
     const fresh = (ctx.messages[1].content[0] as ToolResultContent)
       .contentBlocks!;
     expect(fresh[0].type).toBe("text");
+  });
+
+  test("captions file reads the payload cap had thinned, so the retry carries no raw image", async () => {
+    // GIVEN five 3 MB file reads: the cap keeps only the newest three on the
+    // rejected request (the band is 14 MB high, 9 MB low)
+    const MB = 1024 * 1024;
+    const messages = Array.from({ length: 5 }, (_, i) =>
+      userMessage({
+        type: "tool_result",
+        tool_use_id: `tu-doc-${i}`,
+        content: `render ${i}`,
+        mediaRetention: "document",
+        contentBlocks: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: `${"A".repeat(3 * MB)}${i}`,
+            },
+          },
+        ],
+      } as ContentBlock),
+    );
+    expect(retainedToolResultMediaKeys(messages).size).toBe(3);
+    const ctx = makeCtx({ messages, error: new Error(VISION_ERROR_MESSAGE) });
+
+    // WHEN the recovery captions for the retry
+    await postModelCall(ctx);
+
+    // THEN every file read is captioned, including the two the cap had
+    // evicted: with the newest three reduced to text, a recomputed cap would
+    // otherwise bring the older two back as raw images and reject again
+    expect(ctx.decision).toBe("continue");
+    for (const message of ctx.messages) {
+      const nested = (message.content[0] as ToolResultContent).contentBlocks!;
+      expect(nested[0].type).toBe("text");
+    }
+    expect(retainedToolResultMediaKeys(ctx.messages).size).toBe(0);
   });
 
   test("substitutes a fail-open placeholder when no vision profile exists", async () => {

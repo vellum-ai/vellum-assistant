@@ -19,7 +19,7 @@ import type {
 // host helpers the plugin reaches through `@vellumai/plugin-api`; wire them
 // into the mock so the tests exercise the shipped behavior rather than a
 // stand-in.
-import { retainedToolResultMediaKeys } from "../../../../context/outbound-sanitize.js";
+import { retainedToolResultMediaKeysBeforeCap } from "../../../../context/outbound-sanitize.js";
 import { isVisionNotSupportedError } from "../../../../util/provider-error-patterns.js";
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
@@ -74,7 +74,7 @@ function installPluginApiMock(overrides: Record<string, unknown> = {}): void {
     getModelProfiles: () => mockProfiles,
     resolveMediaSourceData: mockResolveMediaSourceData,
     getConfiguredProvider: async () => (providerResolves ? fakeProvider : null),
-    retainedToolResultMediaKeys,
+    retainedToolResultMediaKeysBeforeCap,
     isVisionNotSupportedError,
     persistSystemCard: async (opts: {
       conversationId: string;
