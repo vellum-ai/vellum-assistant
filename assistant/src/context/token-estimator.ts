@@ -1,4 +1,8 @@
 import {
+  estimateVisualTokens,
+  visionTierForModel,
+} from "../providers/anthropic/vision-tiers.js";
+import {
   estimateGeminiAudioTokens,
   normalizeGeminiAudioMime,
 } from "../providers/gemini/inline-media.js";
@@ -43,25 +47,6 @@ const OTHER_BLOCK_TOKENS = 16;
 const SYSTEM_PROMPT_OVERHEAD_TOKENS = 8;
 const GEMINI_INLINE_FILE_MIME_TYPES = new Set(["application/pdf"]);
 
-// Dimension-based image token estimate, used as a universal default for every
-// provider. The formula and constants below come from Anthropic's published
-// vision spec — scale to a 1568x1568 bounding box, then charge
-// ~(width * height) / 750 tokens, with a ~1.2-megapixel cap that lands at
-// ~1,600 tokens per image. Reference table (max sizes that won't be resized):
-//   1:1 → 1092x1092 (~1,590 tokens)   1:2 → 784x1568 (~1,639 tokens)
-// See: https://platform.claude.com/docs/en/build-with-claude/vision#evaluate-image-size
-//
-// Other multimodal providers (OpenAI/GPT-4V tile pricing, Moonshot/Kimi,
-// Gemini fixed-cost, OpenRouter pass-through) price differently in detail,
-// but every published rate lands in the same hundreds-to-low-thousands range
-// per image. Using this formula as the default gets compaction within ~2-3x
-// of reality instead of the ~30-100x over-counting produced by treating the
-// raw base64 payload as if it were text.
-const IMAGE_MAX_DIMENSION = 1568;
-const IMAGE_MAX_PIXELS = 1_200_000;
-const IMAGE_TOKENS_PER_PIXEL = 1 / 750;
-const IMAGE_MAX_TOKENS = 1_600;
-
 // Gemini prices images differently: any side ≤384px counts as a single 258-token
 // tile; anything larger is resized so the longest side is ≤3072px and then
 // split into 768x768 tiles at 258 tokens each. A 4000x4000 image clamps to
@@ -69,8 +54,8 @@ const IMAGE_MAX_TOKENS = 1_600;
 // we'd over-count it as 36 tiles (~9,288 tokens) and trigger spurious
 // compaction. The clamped 16-tile, 4,128-token figure is also the per-image
 // ceiling we fall back to when dimensions are unparseable (e.g. HEIC/HEIF
-// from iOS attachments) — the generic 1,600 cap can under-count Gemini
-// images by ~2.5x.
+// from iOS attachments); the standard vision tier's 1,568-token ceiling can
+// under-count Gemini images by ~2.5x.
 // See: https://ai.google.dev/gemini-api/docs/tokens#multimodal-tokens
 const GEMINI_IMAGE_SMALL_THRESHOLD = 384;
 const GEMINI_IMAGE_TILE_SIZE = 768;
@@ -97,8 +82,8 @@ export interface TokenEstimatorOptions {
   providerName?: string;
   /**
    * Model id the estimated request dispatches to, for model-keyed rules
-   * (e.g. audio-capable OpenAI-compatible models). Callers pass the
-   * provider's `defaultModel` when available.
+   * (audio-capable OpenAI-compatible models, the Claude vision tier).
+   * Callers pass the provider's `defaultModel` when available.
    */
   model?: string;
   /** Pre-computed tool token budget. When provided, added to the prompt total. */
@@ -168,26 +153,6 @@ function estimateFileDataTokens(
   return 0;
 }
 
-function estimateImageTokensByDimensions(
-  width: number,
-  height: number,
-): number {
-  // Step 1: Scale to fit within 1568px bounding box
-  const dimScale = Math.min(1, IMAGE_MAX_DIMENSION / Math.max(width, height));
-  let scaledWidth = Math.round(width * dimScale);
-  let scaledHeight = Math.round(height * dimScale);
-
-  // Step 2: Scale further if exceeds megapixel budget
-  const pixels = scaledWidth * scaledHeight;
-  if (pixels > IMAGE_MAX_PIXELS) {
-    const mpScale = Math.sqrt(IMAGE_MAX_PIXELS / pixels);
-    scaledWidth = Math.round(scaledWidth * mpScale);
-    scaledHeight = Math.round(scaledHeight * mpScale);
-  }
-
-  return Math.ceil(scaledWidth * scaledHeight * IMAGE_TOKENS_PER_PIXEL);
-}
-
 function estimateGeminiImageTokens(width: number, height: number): number {
   if (
     width <= GEMINI_IMAGE_SMALL_THRESHOLD &&
@@ -208,27 +173,35 @@ function estimateGeminiImageTokens(width: number, height: number): number {
   return tilesWide * tilesHigh * GEMINI_IMAGE_TOKENS_PER_TILE;
 }
 
+/**
+ * Images are costed with Anthropic's published vision model
+ * (`providers/anthropic/vision-tiers.ts`): one visual token per 28 px patch
+ * after the downscale of the tier the model id selects. The same estimate
+ * serves every provider without its own image pricing. OpenAI tile pricing,
+ * Moonshot/Kimi, and OpenRouter pass-through price differently in detail, but
+ * every published rate lands in the same hundreds-to-low-thousands range per
+ * image, so this gets compaction within ~2-3x of reality instead of the
+ * ~30-100x over-counting produced by treating the raw base64 payload as if it
+ * were text. Gemini's tile pricing is applied in its place.
+ *
+ * Dimensions are unparseable for a corrupt header or a format
+ * `parseImageDimensions` doesn't recognize (HEIC/HEIF from iOS attachments);
+ * those fall back to the per-image ceiling rather than the raw base64 length.
+ */
 function estimateImageTokens(
   block: Extract<ContentBlock, { type: "image" }>,
   options?: TokenEstimatorOptions,
 ): number {
   const dims = parseImageDimensions(block.source);
-  if (dims) {
-    if (options?.providerName === "gemini") {
-      return estimateGeminiImageTokens(dims.width, dims.height);
-    }
-    return estimateImageTokensByDimensions(dims.width, dims.height);
-  }
-  // Dimensions unparseable (corrupt header, or formats parseImageDimensions
-  // doesn't recognize like HEIC/HEIF coming from iOS attachments). Fall back
-  // to the per-provider per-image ceiling rather than the raw base64 length,
-  // which over-counts by 30-100x. Gemini's tile pricing tops out well above
-  // the universal 1,600-token cap, so use its max-tile budget instead to
-  // avoid under-counting large iPhone screenshots.
   if (options?.providerName === "gemini") {
-    return GEMINI_IMAGE_MAX_TOKENS;
+    return dims
+      ? estimateGeminiImageTokens(dims.width, dims.height)
+      : GEMINI_IMAGE_MAX_TOKENS;
   }
-  return IMAGE_MAX_TOKENS;
+  const tier = visionTierForModel(options?.model);
+  return dims
+    ? estimateVisualTokens(dims.width, dims.height, tier)
+    : tier.maxVisualTokens;
 }
 
 export function estimateContentBlockTokens(
@@ -401,10 +374,12 @@ export function estimatePromptTokensWithTools(
   systemPrompt: string | undefined,
   tools: ToolDefinition[],
   providerName: string,
+  model?: string,
 ): number {
   const toolTokenBudget = tools.length > 0 ? estimateToolsTokens(tools) : 0;
   return estimatePromptTokens(history, systemPrompt, {
     providerName,
+    model,
     toolTokenBudget,
   });
 }

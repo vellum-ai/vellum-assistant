@@ -139,9 +139,9 @@ describe("stripMediaPayloadsForRetry", () => {
 
   test("budget-aware: keeps images that fit within token budget", () => {
     // Dimension-based estimation: when the base64 data has no parseable image
-    // header, fall back to IMAGE_MAX_TOKENS (1600) + overhead (~19 tokens) ≈
-    // 1619 tokens/image. Budget of 5000 allows 3 images (3 * 1619 = 4857
-    // <= 5000) but not 4 (4 * 1619 = 6476 > 5000).
+    // header, fall back to the standard vision tier's ceiling (1568) +
+    // overhead (19 tokens) = 1587 tokens/image. Budget of 5000 allows 3
+    // images (3 * 1587 = 4761 <= 5000) but not 4 (4 * 1587 = 6348 > 5000).
     const images = Array.from({ length: 5 }, () =>
       makeImageBlockWithSize(4000),
     );

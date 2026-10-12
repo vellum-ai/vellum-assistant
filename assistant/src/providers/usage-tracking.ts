@@ -18,6 +18,7 @@ const log = getLogger("provider-usage-tracking");
 export class UsageTrackingProvider implements Provider {
   public readonly name: string;
   public readonly tokenEstimationProvider?: string;
+  public readonly defaultModel?: string;
   // Forward native web-search capability so it survives the wrapper chain
   // (callers like the advisor consult gate on it). Fixed at construction.
   public readonly supportsNativeWebSearch?: boolean;
@@ -29,6 +30,7 @@ export class UsageTrackingProvider implements Provider {
   constructor(private readonly inner: Provider) {
     this.name = inner.name;
     this.tokenEstimationProvider = inner.tokenEstimationProvider;
+    this.defaultModel = inner.defaultModel;
     this.supportsNativeWebSearch = inner.supportsNativeWebSearch;
     if (inner.countInputTokens) {
       this.countInputTokens = inner.countInputTokens.bind(inner);

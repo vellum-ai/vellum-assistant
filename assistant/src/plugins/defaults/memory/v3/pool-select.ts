@@ -762,6 +762,7 @@ function estimateSelectorInputTokens({
     systemPrompt,
     [SELECT_PAGES_TOOL],
     provider.tokenEstimationProvider ?? provider.name,
+    model,
   );
 }
 

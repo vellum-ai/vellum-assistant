@@ -351,10 +351,11 @@ describe("CallSiteRoutingProvider", () => {
     expect(response.actualProvider).toBeUndefined();
   });
 
-  test("delegates `name` and `tokenEstimationProvider` to the default provider", () => {
+  test("delegates `name`, `tokenEstimationProvider`, and `defaultModel` to the default provider", () => {
     const defaultProvider: Provider = {
       name: "anthropic",
       tokenEstimationProvider: "anthropic",
+      defaultModel: "claude-opus-4-8",
       async sendMessage() {
         return makeResponse("anthropic");
       },
@@ -367,6 +368,7 @@ describe("CallSiteRoutingProvider", () => {
 
     expect(wrapped.name).toBe("anthropic");
     expect(wrapped.tokenEstimationProvider).toBe("anthropic");
+    expect(wrapped.defaultModel).toBe("claude-opus-4-8");
   });
 
   test("name getter reflects the routed provider during sendMessage and reverts after", async () => {

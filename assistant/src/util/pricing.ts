@@ -1,4 +1,8 @@
 import type { ModelPricingOverride } from "../config/schema.js";
+import {
+  isAnthropicModelId,
+  normalizeAnthropicModelId,
+} from "../providers/anthropic/model-ids.js";
 import { isAnthropicDelegatingGateway } from "../providers/anthropic-gateway-shared.js";
 import type {
   CatalogModel,
@@ -140,38 +144,6 @@ function findCatalogPricing(
     }
   }
   return best?.pricing ? catalogPricingToInternal(best.pricing) : undefined;
-}
-
-/**
- * Identify a model ID as an Anthropic model — accepts both the OpenRouter
- * prefix form (`anthropic/claude-opus-4.6`) and the bare Anthropic slug
- * (`claude-opus-4-6`) that `response.model` sometimes carries.
- */
-function isAnthropicModelId(model: string): boolean {
-  return model.startsWith("anthropic/") || model.startsWith("claude-");
-}
-
-/**
- * Normalize an OpenRouter-style Anthropic model ID for lookup against the
- * Anthropic catalog: strip the `anthropic/` prefix, convert OpenRouter's
- * dot-separated version tokens (`claude-opus-4.6`) to the dash form Anthropic
- * uses natively (`claude-opus-4-6`), and swap OpenRouter's version-first
- * response form (`claude-4-7-opus-20260416`) into Anthropic's model-first
- * catalog form (`claude-opus-4-7-20260416`) so the prefix match succeeds.
- */
-function normalizeAnthropicModelId(model: string): string {
-  const bare = model.startsWith("anthropic/")
-    ? model.slice("anthropic/".length)
-    : model;
-  const dashed = bare.replace(/\./g, "-");
-  const versionFirst = dashed.match(
-    /^claude-(\d+(?:-\d+)*)-(opus|sonnet|haiku)(-.+)?$/,
-  );
-  if (versionFirst) {
-    const [, version, family, suffix] = versionFirst;
-    return `claude-${family}-${version}${suffix ?? ""}`;
-  }
-  return dashed;
 }
 
 /**

@@ -1203,6 +1203,10 @@ export class RetryProvider implements Provider {
     return this.inner.tokenEstimationProvider;
   }
 
+  get defaultModel(): string | undefined {
+    return this.inner.defaultModel;
+  }
+
   get supportsNativeWebSearch(): boolean | undefined {
     return this.inner.supportsNativeWebSearch;
   }

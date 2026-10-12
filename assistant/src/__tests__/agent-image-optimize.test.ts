@@ -2,12 +2,14 @@ import { describe, expect, it } from "bun:test";
 
 import {
   isBelowMinDimension,
+  MAX_IMAGE_DIMENSION,
   MIN_IMAGE_DIMENSION,
   optimizeImageForTransport,
   shouldRescaleImage,
   upscaleImageToMinimum,
   upscaleTargetDimensions,
 } from "../agent/image-optimize.js";
+import { MANY_IMAGE_MAX_DIMENSION_PX } from "../providers/anthropic/vision-tiers.js";
 
 /**
  * Minimal PNG whose IHDR declares the given dimensions — enough for
@@ -152,5 +154,17 @@ describe("optimizeImageForTransport", () => {
     );
     expect(result.exceedsTransportCap).toBe(true);
     expect(result.data.length).toBe(garbage.toString("base64").length);
+  });
+});
+
+describe("MAX_IMAGE_DIMENSION", () => {
+  it("stays within the per-image cap on many-image requests", () => {
+    // Images a conversation reads stay in its requests (tool-result media
+    // retention), so a request can carry more than 20 of them, and Anthropic
+    // then rejects any image over the cap on a side. The read-time cap can
+    // therefore never be raised toward the high-resolution tier's 2576 px.
+    expect(MAX_IMAGE_DIMENSION).toBeLessThanOrEqual(
+      MANY_IMAGE_MAX_DIMENSION_PX,
+    );
   });
 });

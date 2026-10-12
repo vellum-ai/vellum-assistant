@@ -920,6 +920,11 @@ export class AnthropicProvider implements Provider {
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;
   }
 
+  /** See {@link Provider.defaultModel}. */
+  get defaultModel(): string {
+    return this.model;
+  }
+
   /** See {@link Provider.supportsNativeWebSearch}. */
   get supportsNativeWebSearch(): boolean {
     return this.useNativeWebSearch;

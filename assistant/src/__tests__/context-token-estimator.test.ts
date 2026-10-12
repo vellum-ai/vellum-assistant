@@ -284,28 +284,76 @@ describe("token estimator", () => {
     const fullPayload = Buffer.concat([pngHeader, padding]);
     const base64Data = fullPayload.toString("base64");
 
-    // 1920x1080 scaled to fit 1568px bounding box: dimScale = 1568/1920 = 0.8167
-    // scaledWidth = round(1920 * 0.8167) = 1568, scaledHeight = round(1080 * 0.8167) = 882
-    // pixels = 1568 * 882 = 1,382,976 > 1,200,000 → mpScale = sqrt(1200000/1382976) = 0.9315
-    // scaledWidth = round(1568 * 0.9315) = 1461, scaledHeight = round(882 * 0.9315) = 822
-    // tokens = ceil(1461 * 822 / 750) = ceil(1601.26) = ~1,602
-    // With IMAGE_BLOCK_OVERHEAD_TOKENS and media_type overhead, still well under 5000.
-    // Same result for every provider — dimension-based estimate is universal.
-    for (const providerName of [
-      "anthropic",
-      "openai",
-      "openrouter",
-      "gemini",
-    ]) {
-      const tokens = estimateContentBlockTokens(
-        {
-          type: "image",
-          source: { type: "base64", media_type: "image/png", data: base64Data },
-        },
-        { providerName },
-      );
-      expect(tokens).toBeLessThan(5_000);
+    // On the standard vision tier 1920x1080 downsizes to 1456x819, which is
+    // 52 x 30 patches of 28 px = 1,560 visual tokens (the figure in Anthropic's
+    // docs table), plus 16 tokens of block overhead and 3 for the media type.
+    // The same estimate serves every provider without its own image pricing;
+    // Gemini's tiling is separate.
+    const image: ContentBlock = {
+      type: "image",
+      source: { type: "base64", media_type: "image/png", data: base64Data },
+    };
+    for (const providerName of ["anthropic", "openai", "openrouter"]) {
+      expect(estimateContentBlockTokens(image, { providerName })).toBe(1_579);
     }
+    expect(
+      estimateContentBlockTokens(image, { providerName: "gemini" }),
+    ).toBeLessThan(5_000);
+  });
+
+  test("costs images on the high-resolution tier for Claude 4.7 and later", () => {
+    const image: ContentBlock = {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: "image/png",
+        data: makePngBase64(1920, 1080),
+      },
+    };
+    // 1920x1080 is not downsized on the high-resolution tier: 69 x 39 patches
+    // = 2,691 visual tokens, plus the 19 tokens of block and media-type
+    // overhead. The tier follows the model id in any provider's spelling.
+    for (const model of [
+      "claude-opus-4-8",
+      "claude-opus-4-7-20260416",
+      "anthropic/claude-opus-4.7",
+      "claude-sonnet-5",
+    ]) {
+      expect(
+        estimateContentBlockTokens(image, { providerName: "anthropic", model }),
+      ).toBe(2_710);
+    }
+    // Models before 4.7, non-Claude models, and an unknown model stay on the
+    // standard tier.
+    for (const model of [
+      "claude-opus-4-6",
+      "claude-haiku-4-5-20251001",
+      "gpt-5",
+      undefined,
+    ]) {
+      expect(
+        estimateContentBlockTokens(image, { providerName: "anthropic", model }),
+      ).toBe(1_579);
+    }
+    // A 4K frame reaches the high-resolution tier's 4,784-token ceiling while
+    // the standard tier still downsizes it to 1,560.
+    const frame: ContentBlock = {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: "image/png",
+        data: makePngBase64(3840, 2160),
+      },
+    };
+    expect(
+      estimateContentBlockTokens(frame, {
+        providerName: "anthropic",
+        model: "claude-opus-4-8",
+      }),
+    ).toBe(4_803);
+    expect(
+      estimateContentBlockTokens(frame, { providerName: "anthropic" }),
+    ).toBe(1_579);
   });
 
   test("falls back to max tokens when image dimensions can't be parsed", () => {
@@ -327,11 +375,24 @@ describe("token estimator", () => {
         { providerName },
       );
 
-      // Falls back to the per-image cap (1,600 tokens). Total = 16 (block
-      // overhead) + ceil(9/4) (media_type) + 1600 = 1619.
-      expect(tokens).toBeGreaterThanOrEqual(1_600);
-      expect(tokens).toBeLessThan(2_000);
+      // Falls back to the standard tier's per-image ceiling (1,568 visual
+      // tokens). Total = 16 (block overhead) + ceil(9/4) (media_type) + 1568.
+      expect(tokens).toBe(1_587);
     }
+    // A high-resolution-tier model falls back to its own ceiling (4,784).
+    expect(
+      estimateContentBlockTokens(
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/png",
+            data: corruptedData,
+          },
+        },
+        { providerName: "anthropic", model: "claude-opus-4-8" },
+      ),
+    ).toBe(4_803);
   });
 
   test("Gemini falls back to its max-tile budget for unparseable / HEIC images", () => {

@@ -12,18 +12,25 @@
  * text here, so it is neither counted as media nor stubbed twice.
  */
 
-import { estimateContentBlockTokens } from "../context/token-estimator.js";
+import {
+  estimateContentBlockTokens,
+  type TokenEstimatorOptions,
+} from "../context/token-estimator.js";
 import { getSummaryFromContextMessage } from "../plugins/defaults/compaction/window-manager.js";
 import { mediaSourceDescriptor } from "../providers/media-resolve.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { safeStringSlice } from "../util/unicode.js";
 
-export interface StripMediaOptions {
+/** Provider and model identity for per-image token estimation. */
+export type MediaEstimatorOptions = Pick<
+  TokenEstimatorOptions,
+  "providerName" | "model"
+>;
+
+export interface StripMediaOptions extends MediaEstimatorOptions {
   /** Token budget available for media in the latest user message. Keeps as
    *  many images as fit within this budget instead of the hardcoded limit. */
   mediaTokenBudget?: number;
-  /** Provider name for per-image token estimation. */
-  providerName?: string;
 }
 
 const RETRY_KEEP_LATEST_MEDIA_BLOCKS = 3;
@@ -70,9 +77,7 @@ export function stripMediaPayloadsForRetry(
         let keep = false;
         if (latestUserIndex === msgIndex) {
           if (useBudget) {
-            const cost = estimateContentBlockTokens(block, {
-              providerName: options!.providerName,
-            });
+            const cost = estimateContentBlockTokens(block, options);
             if (cumulativeMediaTokens + cost <= options!.mediaTokenBudget!) {
               cumulativeMediaTokens += cost;
               keep = true;
@@ -96,9 +101,7 @@ export function stripMediaPayloadsForRetry(
         let keep = false;
         if (latestUserIndex === msgIndex) {
           if (useBudget) {
-            const cost = estimateContentBlockTokens(block, {
-              providerName: options!.providerName,
-            });
+            const cost = estimateContentBlockTokens(block, options);
             if (cumulativeMediaTokens + cost <= options!.mediaTokenBudget!) {
               cumulativeMediaTokens += cost;
               keep = true;
@@ -170,7 +173,7 @@ export function stripMediaPayloadsForRetry(
  */
 export function estimateUnconditionalStubTokens(
   messages: Message[],
-  options?: { providerName?: string },
+  options?: MediaEstimatorOptions,
 ): number {
   let latestUserIndex: number | null = null;
   for (let i = messages.length - 1; i >= 0; i--) {

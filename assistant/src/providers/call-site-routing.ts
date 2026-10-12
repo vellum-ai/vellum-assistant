@@ -14,8 +14,9 @@
  * `CallSiteRoutingProvider` consults `resolveCallSiteConfig` per call. When
  * the resolved profile names a `provider_connection`, the wrapper resolves
  * that connection and delegates the call to its bound Provider. Other
- * Provider interface surface area (`name`, `tokenEstimationProvider`) is
- * delegated to the default so wrappers further out (e.g. `RateLimitProvider`)
+ * Provider interface surface area (`name`, `tokenEstimationProvider`,
+ * `defaultModel`) is delegated to the default so wrappers further out (e.g.
+ * `RateLimitProvider`)
  * still see a stable identity.
  */
 
@@ -69,6 +70,7 @@ interface SelectedProviderRoute {
 
 export class CallSiteRoutingProvider implements Provider {
   public readonly tokenEstimationProvider?: string;
+  public readonly defaultModel?: string;
   // Forward native web-search capability so it survives the wrapper chain
   // (callers like the advisor consult gate on it). Fixed at construction.
   public readonly supportsNativeWebSearch?: boolean;
@@ -123,6 +125,7 @@ export class CallSiteRoutingProvider implements Provider {
     private readonly defaultRouteAttribution?: ProviderRouteAttribution,
   ) {
     this.tokenEstimationProvider = defaultProvider.tokenEstimationProvider;
+    this.defaultModel = defaultProvider.defaultModel;
     this.supportsNativeWebSearch = defaultProvider.supportsNativeWebSearch;
     if (defaultProvider.countInputTokens) {
       this.countInputTokens =

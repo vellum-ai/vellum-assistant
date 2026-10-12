@@ -1,9 +1,14 @@
 import { parseImageDimensions } from "../context/image-dimensions.js";
+import { STANDARD_VISION_TIER } from "../providers/anthropic/vision-tiers.js";
 import { convertImageToJpeg } from "../util/image-conversion.js";
 
-// Anthropic's documented max dimension — images larger than this are scaled
-// down server-side anyway, so pre-scaling is zero quality loss.
-const MAX_DIMENSION = 1568;
+// Longest side an image keeps when it is read: the standard vision tier's
+// edge, which standard-tier models downscale to anyway. Images a conversation
+// reads stay in its requests, so a request can carry more than 20 of them,
+// and Anthropic then rejects any image over MANY_IMAGE_MAX_DIMENSION_PX
+// (providers/anthropic/vision-tiers.ts) on a side; this cap must stay within
+// it even though high-resolution-tier models accept larger images.
+export const MAX_IMAGE_DIMENSION = STANDARD_VISION_TIER.maxEdgePx;
 
 // Minimum per-side pixel floor for the image-recovery rejection path.
 // Anthropic rejects very small images with a 400 "Could not process image"
@@ -46,7 +51,9 @@ export function shouldRescaleImage(
     return true;
   }
   if (dims) {
-    return dims.width > MAX_DIMENSION || dims.height > MAX_DIMENSION;
+    return (
+      dims.width > MAX_IMAGE_DIMENSION || dims.height > MAX_IMAGE_DIMENSION
+    );
   }
   // Dimensions unparseable — fall back to file size as a rough proxy.
   return byteLength > OPTIMIZE_THRESHOLD_BYTES;
@@ -73,7 +80,7 @@ export function isBelowMinDimension(
 /**
  * Aspect-preserving target dimensions that lift an undersized image's short
  * side to {@link MIN_IMAGE_DIMENSION}. The scale factor is capped so the long
- * side never exceeds {@link MAX_DIMENSION}; for pathological aspect ratios
+ * side never exceeds {@link MAX_IMAGE_DIMENSION}; for pathological aspect ratios
  * where no upscale is possible under that cap, returns null and the caller
  * notes the image out instead.
  *
@@ -90,7 +97,7 @@ export function upscaleTargetDimensions(dims: {
   }
   const scale = Math.min(
     MIN_IMAGE_DIMENSION / shortSide,
-    MAX_DIMENSION / longSide,
+    MAX_IMAGE_DIMENSION / longSide,
   );
   if (scale <= 1) {
     return null;
@@ -133,13 +140,15 @@ export async function upscaleImageToMinimum(
 }
 
 /**
- * Downscale a base64 image to fit within Anthropic's recommended dimensions
- * (1568px max side). Returns the original data unchanged if the image is
- * already small enough or if optimization fails.
+ * Downscale a base64 image to {@link MAX_IMAGE_DIMENSION} on its longest
+ * side. Returns the original data unchanged if the image is already small
+ * enough or if optimization fails.
  *
- * Anthropic applies the same scaling server-side, so this is zero quality
- * loss — we just do it pre-flight to keep request payloads small and avoid
- * 413 "request too large" errors when many images accumulate in context.
+ * Standard-tier models apply the same scaling server-side, so for them this
+ * is zero quality loss. High-resolution-tier models would accept a larger
+ * image and give up some detail here, in exchange for request payloads that
+ * stay small as images accumulate in context and for every image clearing
+ * the many-image dimension cap.
  *
  * Conversion (and its content-addressed disk cache) is shared with attachment
  * storage normalization — see `util/image-conversion.ts`.
@@ -169,7 +178,7 @@ export async function optimizeImageForTransport(
   }
 
   const optimized = await convertImageToJpeg(rawBytes, {
-    maxDimensionPx: MAX_DIMENSION,
+    maxDimensionPx: MAX_IMAGE_DIMENSION,
     quality: JPEG_QUALITY,
   });
   if (!optimized) {

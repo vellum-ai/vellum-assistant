@@ -1313,6 +1313,7 @@ export class AgentLoop {
       this.systemPrompt,
       this.getResolvedTools(history),
       getCalibrationProviderKey(this.provider),
+      this.provider.defaultModel,
     );
   }
 
@@ -2184,6 +2185,7 @@ export class AgentLoop {
               currentTools.length > 0 ? estimateToolsTokens(currentTools) : 0;
             return estimatePromptTokensRaw(history, runSystemPrompt, {
               providerName: getCalibrationProviderKey(this.provider),
+              model: this.provider.defaultModel,
               toolTokenBudget,
             });
           },

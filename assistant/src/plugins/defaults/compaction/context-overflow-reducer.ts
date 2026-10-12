@@ -31,11 +31,13 @@ import type { ContextWindowConfig } from "../../../config/types.js";
 import {
   estimateContentBlockTokens,
   estimatePromptTokens,
+  type TokenEstimatorOptions,
 } from "../../../context/token-estimator.js";
 import { truncateToolResultsAcrossHistory } from "../../../context/tool-result-truncation.js";
 import {
   countMediaBlocks,
   estimateUnconditionalStubTokens,
+  type MediaEstimatorOptions,
   stripMediaPayloadsForRetry,
 } from "../../../daemon/conversation-media-retry.js";
 import type { InjectionMode } from "../../../daemon/conversation-runtime-assembly.js";
@@ -115,6 +117,8 @@ export interface ReducerStepResult {
 export interface ReducerConfig {
   /** Provider name for token estimation. */
   providerName: string;
+  /** Model id the request dispatches to, for model-keyed estimation rules. */
+  model?: string;
   /** The system prompt (needed for accurate token estimation). */
   systemPrompt: string;
   /** The context window config from the assistant config. */
@@ -150,6 +154,15 @@ export interface ReducerConfig {
    * once the middle tiers are exhausted.
    */
   allowAutoCompressLatestTurn: boolean;
+}
+
+/** Estimator options for a prompt-level estimate under `config`. */
+function promptEstimatorOptions(config: ReducerConfig): TokenEstimatorOptions {
+  return {
+    providerName: config.providerName,
+    model: config.model,
+    toolTokenBudget: config.toolTokenBudget,
+  };
 }
 
 // Aggressive truncation cap for tool results during overflow recovery.
@@ -224,10 +237,11 @@ async function selectNextRung(
 
   // No rung left to apply — return a no-op step. `reduceContextOverflow`
   // marks it exhausted via `isLadderExhausted`.
-  const estimatedTokens = estimatePromptTokens(messages, config.systemPrompt, {
-    providerName: config.providerName,
-    toolTokenBudget: config.toolTokenBudget,
-  });
+  const estimatedTokens = estimatePromptTokens(
+    messages,
+    config.systemPrompt,
+    promptEstimatorOptions(config),
+  );
   return {
     messages,
     tier: applied[applied.length - 1] ?? "forced_compaction",
@@ -342,10 +356,11 @@ async function applyForcedCompaction(
   const nextMessages = result.compacted ? result.messages : messages;
   const estimatedTokens = result.compacted
     ? result.estimatedInputTokens
-    : estimatePromptTokens(messages, config.systemPrompt, {
-        providerName: config.providerName,
-        toolTokenBudget: config.toolTokenBudget,
-      });
+    : estimatePromptTokens(
+        messages,
+        config.systemPrompt,
+        promptEstimatorOptions(config),
+      );
 
   const nextApplied: ReducerTier[] = [...applied, "forced_compaction"];
   return {
@@ -375,10 +390,7 @@ function applyToolResultTruncation(
   const estimatedTokens = estimatePromptTokens(
     nextMessages,
     config.systemPrompt,
-    {
-      providerName: config.providerName,
-      toolTokenBudget: config.toolTokenBudget,
-    },
+    promptEstimatorOptions(config),
   );
 
   const nextApplied: ReducerTier[] = [...applied, "tool_result_truncation"];
@@ -407,25 +419,26 @@ function applyMediaStubbing(
 
   if (mediaCount > 0) {
     // Compute the token budget available for media content.
-    const totalTokens = estimatePromptTokens(messages, config.systemPrompt, {
-      providerName: config.providerName,
-      toolTokenBudget: config.toolTokenBudget,
-    });
+    const totalTokens = estimatePromptTokens(
+      messages,
+      config.systemPrompt,
+      promptEstimatorOptions(config),
+    );
 
     // Sum tokens for all image and file blocks (top-level and nested in tool_result).
+    const mediaOptions: MediaEstimatorOptions = {
+      providerName: config.providerName,
+      model: config.model,
+    };
     let mediaTokens = 0;
     for (const msg of messages) {
       for (const block of msg.content) {
         if (block.type === "image" || block.type === "file") {
-          mediaTokens += estimateContentBlockTokens(block, {
-            providerName: config.providerName,
-          });
+          mediaTokens += estimateContentBlockTokens(block, mediaOptions);
         } else if (block.type === "tool_result" && block.contentBlocks) {
           for (const cb of block.contentBlocks) {
             if (cb.type === "image" || cb.type === "file") {
-              mediaTokens += estimateContentBlockTokens(cb, {
-                providerName: config.providerName,
-              });
+              mediaTokens += estimateContentBlockTokens(cb, mediaOptions);
             }
           }
         }
@@ -437,9 +450,10 @@ function applyMediaStubbing(
     // Account for the token cost of text stubs that replace unconditionally
     // stubbed media (non-latest-user images/files, tool_result-nested media).
     // Without this adjustment the budget is systematically over-allocated.
-    const estimatedStubTokens = estimateUnconditionalStubTokens(messages, {
-      providerName: config.providerName,
-    });
+    const estimatedStubTokens = estimateUnconditionalStubTokens(
+      messages,
+      mediaOptions,
+    );
     const adjustedNonMediaTokens = nonMediaTokens + estimatedStubTokens;
     const mediaTokenBudget = Math.max(
       0,
@@ -448,7 +462,7 @@ function applyMediaStubbing(
 
     const stripped = stripMediaPayloadsForRetry(messages, {
       mediaTokenBudget,
-      providerName: config.providerName,
+      ...mediaOptions,
     });
     if (stripped.modified) {
       nextMessages = stripped.messages;
@@ -458,10 +472,7 @@ function applyMediaStubbing(
   const estimatedTokens = estimatePromptTokens(
     nextMessages,
     config.systemPrompt,
-    {
-      providerName: config.providerName,
-      toolTokenBudget: config.toolTokenBudget,
-    },
+    promptEstimatorOptions(config),
   );
 
   const nextApplied: ReducerTier[] = [...applied, "media_stubbing"];
@@ -488,10 +499,11 @@ function applyInjectionDowngrade(
   // The injection downgrade itself does not modify messages — it signals
   // to the caller that the next provider call should use minimal injection
   // mode, which the caller applies via applyRuntimeInjections().
-  const estimatedTokens = estimatePromptTokens(messages, config.systemPrompt, {
-    providerName: config.providerName,
-    toolTokenBudget: config.toolTokenBudget,
-  });
+  const estimatedTokens = estimatePromptTokens(
+    messages,
+    config.systemPrompt,
+    promptEstimatorOptions(config),
+  );
 
   const nextApplied: ReducerTier[] = [...applied, "injection_downgrade"];
   return {
@@ -533,10 +545,11 @@ async function applyAutoCompressLatestTurn(
   const nextMessages = result.compacted ? result.messages : messages;
   const estimatedTokens = result.compacted
     ? result.estimatedInputTokens
-    : estimatePromptTokens(nextMessages, config.systemPrompt, {
-        providerName: config.providerName,
-        toolTokenBudget: config.toolTokenBudget,
-      });
+    : estimatePromptTokens(
+        nextMessages,
+        config.systemPrompt,
+        promptEstimatorOptions(config),
+      );
 
   const nextApplied: ReducerTier[] = [...applied, "auto_compress_latest_turn"];
   return {

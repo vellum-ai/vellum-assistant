@@ -619,6 +619,7 @@ export class ContextWindowManager {
 
     const config: ReducerConfig = {
       providerName: this.estimationProviderName,
+      model: this.estimationModel,
       systemPrompt: this.systemPrompt,
       contextWindow: this.config,
       targetTokens,

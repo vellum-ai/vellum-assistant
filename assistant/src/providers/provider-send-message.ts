@@ -67,6 +67,7 @@ let lazyInitPromise: Promise<void> | null = null;
 export class CallSiteConfiguredProvider implements Provider {
   public readonly name: string;
   public readonly tokenEstimationProvider?: string;
+  public readonly defaultModel?: string;
   // Forward native web-search capability so it survives the wrapper chain
   // (callers like the advisor consult gate on it). Fixed at construction.
   public readonly supportsNativeWebSearch?: boolean;
@@ -89,6 +90,7 @@ export class CallSiteConfiguredProvider implements Provider {
   ) {
     this.name = inner.name;
     this.tokenEstimationProvider = inner.tokenEstimationProvider;
+    this.defaultModel = inner.defaultModel;
     this.supportsNativeWebSearch = inner.supportsNativeWebSearch;
   }
 

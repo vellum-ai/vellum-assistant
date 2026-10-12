@@ -514,7 +514,7 @@ export interface Provider {
   routeAttribution?: ProviderRouteAttribution;
   /**
    * Provider key used by the local token estimator to select model-family
-   * specific rules (e.g. Anthropic's `width * height / 750` image sizing).
+   * specific rules (e.g. Gemini's image tiling, Anthropic's PDF pages).
    * Wrapper providers that route to another provider's API — e.g. OpenRouter
    * calling Anthropic's Messages endpoint for `anthropic/*` models — override
    * this so the estimator matches what the upstream API will actually charge.
@@ -524,7 +524,8 @@ export interface Provider {
   /**
    * Model id this instance dispatches when a call carries no per-call model
    * override. Consumed by the local token estimator for model-keyed rules
-   * (e.g. audio-capable OpenAI-compatible models). Optional: providers whose
+   * (audio-capable OpenAI-compatible models, the Claude vision tier).
+   * Wrappers forward their default route's value. Optional: providers whose
    * estimation rules are provider-wide need not expose it.
    */
   defaultModel?: string;
