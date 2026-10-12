@@ -107,6 +107,7 @@ describe("attachmentsToReferenceBlocks", () => {
         sizeBytes: 1234,
         width: 800,
         height: 600,
+        transportSizeBytes: 900,
       },
     ]);
 
@@ -120,6 +121,7 @@ describe("attachmentsToReferenceBlocks", () => {
           sizeBytes: 1234,
           width: 800,
           height: 600,
+          transportSizeBytes: 900,
         },
       },
     ]);

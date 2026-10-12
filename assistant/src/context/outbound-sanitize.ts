@@ -6,7 +6,6 @@
  * transform is idempotent so each send re-derives the same projection.
  */
 
-import { transportImageByteCeiling } from "../agent/image-optimize.js";
 import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
 import { fileSourceMayBeInlined } from "../providers/inline-file-eligibility.js";
 import {
@@ -240,9 +239,10 @@ function isMediaBlock(block: ContentBlock): block is MediaBlock {
 
 /**
  * Bytes a media block occupies in the request, which carries media as base64.
- * An image is costed at what the transport optimizer lets through
- * ({@link transportImageByteCeiling}): a stored upload keeps its full
- * master, but the send path re-encodes anything over the cap. A file no
+ * An image reference is costed at the size the send path actually produces
+ * (`transportSizeBytes`, recorded at persist time by running the same
+ * transport optimization), falling back to its stored size on rows written
+ * before that hint existed; an inline image is already optimized. A file no
  * adapter would inline (video, over-cap text, audio outside every adapter's
  * inline set; see {@link fileSourceMayBeInlined}) puts no payload on the wire
  * and counts as none here.
@@ -250,7 +250,11 @@ function isMediaBlock(block: ContentBlock): block is MediaBlock {
 function mediaWireBytes(block: MediaBlock): number {
   const storedBytes = mediaSourceByteLength(block.source);
   if (block.type === "image") {
-    return Math.ceil((transportImageByteCeiling(storedBytes) * 4) / 3);
+    const sentBytes =
+      block.source.type === "workspace_ref"
+        ? (block.source.transportSizeBytes ?? storedBytes)
+        : storedBytes;
+    return Math.ceil((sentBytes * 4) / 3);
   }
   if (!fileSourceMayBeInlined(block.source, storedBytes)) {
     return 0;

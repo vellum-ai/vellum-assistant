@@ -203,6 +203,32 @@ describe("resolveMessageContentBlocks", () => {
     ).toBeUndefined();
   });
 
+  test("round-trips an image reference's transport size hint and drops a malformed one", () => {
+    const source = {
+      type: "workspace_ref" as const,
+      media_type: "image/png",
+      attachmentId: "att-1",
+      sizeBytes: 12_000_000,
+      transportSizeBytes: 3_000_000,
+    };
+    const hinted: ContentBlock[] = [{ type: "image", source }];
+    const hintedJson = JSON.stringify(hinted);
+    expect(JSON.stringify(resolveMessageContentBlocks(hintedJson))).toBe(
+      hintedJson,
+    );
+
+    const malformed = JSON.stringify([
+      { type: "image", source: { ...source, transportSizeBytes: "big" } },
+    ]);
+    const repaired = resolveMessageContentBlocks(malformed)[0];
+    expect(repaired.type).toBe("image");
+    if (repaired.type !== "image" || repaired.source.type !== "workspace_ref") {
+      throw new Error("expected an image reference");
+    }
+    expect(repaired.source.sizeBytes).toBe(12_000_000);
+    expect(repaired.source.transportSizeBytes).toBeUndefined();
+  });
+
   test("passes typed blocks outside the union through untouched", () => {
     // A persisted kind the union does not model still passes through: its
     // renderer owns the shape, so repair must not rewrite it.

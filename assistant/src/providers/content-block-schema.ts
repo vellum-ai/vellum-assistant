@@ -40,6 +40,9 @@ const workspaceRefMediaSourceSchema = z
     filename: z.string().optional(),
     width: z.number().optional(),
     height: z.number().optional(),
+    // Read by the outbound sanitizer's payload cap; a malformed value degrades
+    // to absent so the consumer falls back to `sizeBytes`.
+    transportSizeBytes: z.number().optional().catch(undefined),
   })
   .passthrough();
 

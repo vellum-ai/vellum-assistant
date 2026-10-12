@@ -306,16 +306,19 @@ export async function serializePersistedUserMessageContent(
 }
 
 /**
- * Pixel dimensions to record on an image reference. The model receives the
+ * Size hints to record on an image reference. The model receives the
  * transport-optimized image (`resolveMediaReferences` applies the same
- * optimization at send time), so we hint the optimized dimensions rather than
- * the stored original — keeping the per-turn token estimate accurate without a
- * disk read on the hot path.
+ * optimization at send time), so we hint the optimized dimensions and byte
+ * length rather than the stored original's, keeping the per-turn token
+ * estimate and the payload cap accurate without a disk read on the hot path.
  */
-async function computeReferenceImageDimensions(
+async function computeReferenceImageHints(
   attachmentId: string,
   mediaType: string,
-): Promise<{ width: number; height: number } | null> {
+): Promise<{
+  dimensions: { width: number; height: number } | null;
+  transportSizeBytes: number;
+} | null> {
   const bytes = getAttachmentContent(attachmentId);
   if (!bytes) {
     return null;
@@ -324,7 +327,10 @@ async function computeReferenceImageDimensions(
     bytes.toString("base64"),
     mediaType,
   );
-  return parseImageDimensions(optimized.data, optimized.mediaType);
+  return {
+    dimensions: parseImageDimensions(optimized.data, optimized.mediaType),
+    transportSizeBytes: Buffer.byteLength(optimized.data, "base64"),
+  };
 }
 
 interface PreparedUserAttachment {
@@ -427,13 +433,13 @@ async function referenceBlockForAttachment(
     extractedText: a.extractedText,
   };
   if (stored.mimeType.toLowerCase().startsWith("image/")) {
-    const dims = await computeReferenceImageDimensions(
-      stored.id,
-      stored.mimeType,
-    );
-    if (dims) {
-      ref.width = dims.width;
-      ref.height = dims.height;
+    const hints = await computeReferenceImageHints(stored.id, stored.mimeType);
+    if (hints) {
+      ref.transportSizeBytes = hints.transportSizeBytes;
+      if (hints.dimensions) {
+        ref.width = hints.dimensions.width;
+        ref.height = hints.dimensions.height;
+      }
     }
   }
   return attachmentsToReferenceBlocks([ref])[0]!;

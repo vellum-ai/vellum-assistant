@@ -37,6 +37,8 @@ export interface AttachmentReferenceInput {
   sizeBytes: number;
   width?: number;
   height?: number;
+  /** Decoded bytes the send path puts on the wire for an image; see `WorkspaceRefMediaSource.transportSizeBytes`. */
+  transportSizeBytes?: number;
   extractedText?: string;
 }
 
@@ -61,6 +63,9 @@ export function attachmentsToReferenceBlocks(
           sizeBytes: ref.sizeBytes,
           ...(ref.width != null ? { width: ref.width } : {}),
           ...(ref.height != null ? { height: ref.height } : {}),
+          ...(ref.transportSizeBytes != null
+            ? { transportSizeBytes: ref.transportSizeBytes }
+            : {}),
         },
       } as ContentBlock;
     }

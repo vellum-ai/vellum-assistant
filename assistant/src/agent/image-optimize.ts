@@ -23,17 +23,6 @@ const OPTIMIZE_THRESHOLD_BYTES = 300 * 1024; // 300 KB
 // form (raw * 4/3) stays comfortably under 5 MB even after re-encoding.
 const MAX_TRANSPORT_BYTES = Math.floor(3.5 * 1024 * 1024); // ~3.5 MB raw
 
-/**
- * Decoded bytes an image occupies on the wire given its stored size: one over
- * the transport cap is re-encoded under it by {@link optimizeImageForTransport}
- * before any provider sees it, one under the cap is sent as stored. For a
- * budget computed from persisted size hints (a stored upload keeps its
- * full-resolution master) rather than from the bytes actually sent.
- */
-export function transportImageByteCeiling(storedBytes: number): number {
-  return Math.min(storedBytes, MAX_TRANSPORT_BYTES);
-}
-
 const JPEG_QUALITY = 80;
 
 /**

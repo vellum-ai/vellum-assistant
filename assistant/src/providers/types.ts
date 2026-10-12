@@ -77,6 +77,15 @@ export interface WorkspaceRefMediaSource {
   width?: number;
   /** Decoded pixel height, when the reference is an image. */
   height?: number;
+  /**
+   * Decoded byte length of what the send path puts on the wire for an image
+   * reference, recorded at persist time by running the same transport
+   * optimization `resolveMediaReferences` applies. A stored upload keeps its
+   * full-resolution master, so this can be far below `sizeBytes`. Absent on
+   * rows persisted before it was recorded; size-only consumers fall back to
+   * `sizeBytes`.
+   */
+  transportSizeBytes?: number;
 }
 
 export type MediaSource = Base64MediaSource | WorkspaceRefMediaSource;

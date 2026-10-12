@@ -38,8 +38,14 @@ function inlineAudio(decodedBytes: number): ContentBlock {
   };
 }
 
-/** A persisted image reference of `sizeBytes` decoded bytes. */
-function refImage(sizeBytes: number): ContentBlock {
+/**
+ * A persisted image reference of `sizeBytes` stored bytes, optionally hinting
+ * the smaller size the send path produces after transport optimization.
+ */
+function refImage(
+  sizeBytes: number,
+  transportSizeBytes?: number,
+): ContentBlock {
   return {
     type: "image",
     source: {
@@ -47,6 +53,7 @@ function refImage(sizeBytes: number): ContentBlock {
       media_type: "image/png",
       attachmentId: "att-1",
       sizeBytes,
+      ...(transportSizeBytes !== undefined ? { transportSizeBytes } : {}),
     },
   };
 }
@@ -302,21 +309,34 @@ describe("tool-result media retention", () => {
     );
   });
 
-  test("a stored image is costed at its transport size, not its stored size", () => {
-    // GIVEN a 12 MB upload the send path re-encodes under the 3.5 MB
-    // transport cap, followed by two 2 MB reads
-    const history = [
+  test("a stored image is costed at the size the send path produces, not its stored size", () => {
+    // GIVEN a 12 MB upload whose reference records that transport
+    // optimization sends it as 3 MB, followed by two 2 MB reads
+    const reads = [
+      ...toolStep("d1", "document", [inlineImage(2 * MB)]),
+      ...toolStep("d2", "document", [inlineImage(2 * MB)]),
+    ];
+    const hinted = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "here" }, refImage(12 * MB, 3 * MB)],
+      } as Message,
+      ...reads,
+    ];
+
+    // THEN the upload counts for 4 MB on the wire and nothing is evicted
+    expect(preModelCallSanitize(hinted)).toEqual(hinted);
+
+    // AND a reference persisted before the hint existed is costed at its
+    // stored size, the conservative reading, so the older read is evicted
+    const unhinted = [
       {
         role: "user",
         content: [{ type: "text", text: "here" }, refImage(12 * MB)],
       } as Message,
-      ...toolStep("d1", "document", [inlineImage(2 * MB)]),
-      ...toolStep("d2", "document", [inlineImage(2 * MB)]),
+      ...reads,
     ];
-
-    // THEN the upload counts for about 4.7 MB on the wire and nothing is
-    // evicted; at its stored 16 MB it would have evicted both reads
-    expect(preModelCallSanitize(history)).toEqual(history);
+    expect(retainedToolResultMediaKeys(unhinted)).toEqual(new Set(["4:0"]));
   });
 
   test("files no adapter inlines add nothing to the total", () => {

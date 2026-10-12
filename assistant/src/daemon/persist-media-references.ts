@@ -40,16 +40,23 @@ function imageFilename(mediaType: string): string {
 }
 
 /**
- * Dimensions to hint on an image reference. The model receives the
+ * Size hints for an image reference. The model receives the
  * transport-optimized image (`resolveMediaReferences` applies the same
- * optimization at send time), so hint the optimized dimensions.
+ * optimization at send time), so hint the optimized dimensions and the
+ * optimized byte length rather than the stored original's.
  */
-async function optimizedImageDimensions(
+async function optimizedImageHints(
   dataBase64: string,
   mediaType: string,
-): Promise<{ width: number; height: number } | null> {
+): Promise<{
+  dimensions: { width: number; height: number } | null;
+  transportSizeBytes: number;
+}> {
   const optimized = await optimizeImageForTransport(dataBase64, mediaType);
-  return parseImageDimensions(optimized.data, optimized.mediaType);
+  return {
+    dimensions: parseImageDimensions(optimized.data, optimized.mediaType),
+    transportSizeBytes: Buffer.byteLength(optimized.data, "base64"),
+  };
 }
 
 /**
@@ -103,11 +110,12 @@ async function referenceMediaBlock(
       : {}),
   };
   if (block.type === "image") {
-    const dims = await optimizedImageDimensions(data, media_type);
-    if (dims) {
-      source.width = dims.width;
-      source.height = dims.height;
+    const hints = await optimizedImageHints(data, media_type);
+    if (hints.dimensions) {
+      source.width = hints.dimensions.width;
+      source.height = hints.dimensions.height;
     }
+    source.transportSizeBytes = hints.transportSizeBytes;
     return { type: "image", source };
   }
   return {

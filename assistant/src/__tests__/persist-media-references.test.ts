@@ -76,6 +76,9 @@ describe("referenceMediaBlocksForPersist", () => {
     const linked = getAttachmentsForMessage(msg.id);
     expect(linked.map((a) => a.id)).toEqual([nested.source.attachmentId]);
     expect(mediaSourceBytes(nested.source)?.toString()).toBe("hello");
+    // The reference hints what the send path puts on the wire; these bytes
+    // need no optimization, so that is their stored size.
+    expect(nested.source.transportSizeBytes).toBe(5);
   });
 
   test("leaves an already-referenced block untouched and creates no row", async () => {
