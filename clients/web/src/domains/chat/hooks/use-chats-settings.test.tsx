@@ -14,6 +14,7 @@ import type {
 let supported: boolean | undefined = true;
 let capabilityError = false;
 let allAlertsSupported: boolean | undefined = true;
+let allAlertsCapabilityError = false;
 const retryCapability = mock(() => {});
 let orgReady = true;
 let organizationId = "org-1";
@@ -52,8 +53,8 @@ mock.module("@/hooks/use-assistant-capability", () => ({
     capability === "allAlerts"
       ? {
           data: allAlertsSupported,
-          isPending: allAlertsSupported === undefined,
-          isError: false,
+          isPending: allAlertsSupported === undefined && !allAlertsCapabilityError,
+          isError: allAlertsCapabilityError,
           refetch: retryCapability,
         }
       : {
@@ -94,6 +95,7 @@ beforeEach(() => {
   supported = true;
   capabilityError = false;
   allAlertsSupported = true;
+  allAlertsCapabilityError = false;
   retryCapability.mockClear();
   orgReady = true;
   organizationId = "org-1";
@@ -155,6 +157,33 @@ test("omits the all-alerts leaf for an assistant without the capability", async 
       autoArchive: { enabled: false, afterDays: 7 },
       newMessageEnabled: true,
     },
+  });
+});
+test("an initial all-alerts capability failure offers retry", async () => {
+  allAlertsSupported = undefined;
+  allAlertsCapabilityError = true;
+  const hook = mount();
+  await waitFor(() => expect(hook.result.current.state.status).toBe("error"));
+  await act(() => hook.result.current.save(changes));
+  expect(patchConfig).not.toHaveBeenCalled();
+  act(() => hook.result.current.retryLoad());
+  expect(retryCapability).toHaveBeenCalled();
+  allAlertsCapabilityError = false;
+  allAlertsSupported = true;
+  hook.rerender({ open: true });
+  await waitFor(() => expect(hook.result.current.state.status).toBe("ready"));
+  expect(hook.result.current.state).toMatchObject({
+    values: { allAlertsEnabled: false },
+  });
+});
+test("a failed all-alerts capability refresh preserves the loaded form", async () => {
+  const hook = mount();
+  await waitFor(() => expect(hook.result.current.state.status).toBe("ready"));
+  allAlertsCapabilityError = true;
+  hook.rerender({ open: true });
+  expect(hook.result.current.state).toMatchObject({
+    status: "ready",
+    values: { allAlertsEnabled: false },
   });
 });
 test("waits for the all-alerts capability before exposing the form", async () => {

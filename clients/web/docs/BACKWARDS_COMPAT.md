@@ -119,7 +119,9 @@ The all-alerts toggle inside the same modal is gated separately by the
 all-alerts preference accept the `notifications.allAlertsEnabled` key but never
 act on it, so the modal omits the toggle and never writes that leaf unless the
 capability is present. The hook waits for both capability reads before
-mounting the form, because the form snapshots its values once on mount.
+mounting the form, because the form snapshots its values once on mount, and a
+first `allAlerts` read that fails is a retryable error like a failed
+`chatsSettings` read; a failed refresh keeps the earlier answer.
 
 The modal submits only leaves edited during its open session. Remote config
 refreshes do not replace a dirty draft. Concurrent edits to different leaves

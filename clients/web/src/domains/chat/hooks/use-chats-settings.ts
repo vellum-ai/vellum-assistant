@@ -109,6 +109,13 @@ export function useChatsSettings({
     // leaf exists has to be known before it renders.
     state = { status: "loading" };
   } else if (
+    allAlertsCapability.data === undefined &&
+    allAlertsCapability.isError
+  ) {
+    // A failed refresh keeps the earlier answer; only a first read that never
+    // answered is retryable here.
+    state = { status: "error" };
+  } else if (
     loadedForSession &&
     autoArchive &&
     typeof newMessageEnabled === "boolean" &&
