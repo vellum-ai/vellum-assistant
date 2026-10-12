@@ -276,17 +276,17 @@ describe("tool-result media retention", () => {
   });
 
   test("the image-count cap evicts oldest documents down to the low count", () => {
-    // GIVEN 81 tiny reads against an 80-image high mark and 50-image low mark
-    const history = documentSteps(81, 1);
+    // GIVEN 61 tiny reads against a 60-image high mark and 40-image low mark
+    const history = documentSteps(61, 1);
 
     // WHEN sanitized
     const retained = retainedToolResultMediaKeys(history);
 
-    // THEN the newest 50 are kept and the oldest 31 are evicted
-    expect(retained.size).toBe(50);
-    expect(retained.has(`${2 * 31 - 1}:0`)).toBe(false);
-    expect(retained.has(`${2 * 32 - 1}:0`)).toBe(true);
-    expect(retained.has(`${2 * 81 - 1}:0`)).toBe(true);
+    // THEN the newest 40 are kept and the oldest 21 are evicted
+    expect(retained.size).toBe(40);
+    expect(retained.has(`${2 * 21 - 1}:0`)).toBe(false);
+    expect(retained.has(`${2 * 22 - 1}:0`)).toBe(true);
+    expect(retained.has(`${2 * 61 - 1}:0`)).toBe(true);
   });
 
   test("user attachments count toward the cap but are never evicted", () => {

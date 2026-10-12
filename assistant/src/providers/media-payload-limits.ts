@@ -23,7 +23,11 @@
  * - Anthropic: 100 images per request on 200k-context models (600 on larger
  *   windows); Gemini allows far more. Above 20 images Anthropic applies a
  *   stricter per-image dimension cap, which read-time scaling
- *   (`agent/image-optimize.ts`) already satisfies.
+ *   (`agent/image-optimize.ts`) already satisfies. The count marks leave 40
+ *   slots under the 100 for the current step's frames, which the running
+ *   total leaves out for the same stability reason as their bytes (below);
+ *   a step is one assistant message's tool calls, so that covers many
+ *   parallel screenshots.
  *   https://platform.claude.com/docs/en/build-with-claude/vision#request-limits
  *
  * The byte marks leave room under the 20 MB total for what the cap counts
@@ -58,6 +62,6 @@ const MB = 1024 * 1024;
 export const MEDIA_PAYLOAD_LIMITS: MediaPayloadLimits = {
   highBytes: 10 * MB,
   lowBytes: 6 * MB,
-  highImages: 80,
-  lowImages: 50,
+  highImages: 60,
+  lowImages: 40,
 };
