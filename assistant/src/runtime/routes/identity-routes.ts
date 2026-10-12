@@ -161,6 +161,7 @@ async function getDetailedHealth() {
       appPins: true,
       chatsSettings: true,
       composerSettings: true,
+      allAlerts: true,
     },
     ...(profiler ? { profiler } : {}),
     ...migrationHealthFields,
@@ -282,6 +283,7 @@ const healthCapabilitiesSchema = z.object({
   appPins: z.boolean(),
   chatsSettings: z.boolean().optional(),
   composerSettings: z.boolean().optional(),
+  allAlerts: z.boolean().optional(),
 });
 
 const healthDiskSchema = z.object({

@@ -2247,6 +2247,8 @@
     "days": "{count, plural, one {# day} other {# days}}",
     "notifications": "Chat reply alerts",
     "notificationsHelper": "Get notified about replies in chats you’re not viewing.",
+    "allAlerts": "Alert on every notification",
+    "allAlertsHelper": "Banner and chime for everything your assistant sends, not only urgent items and replies. Your assistant can still keep a message quiet.",
     "cancel": "Cancel",
     "confirm": "Confirm",
     "saving": "Saving…",

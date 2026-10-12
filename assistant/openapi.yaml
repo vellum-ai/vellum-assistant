@@ -14612,6 +14612,8 @@ paths:
                         type: boolean
                       composerSettings:
                         type: boolean
+                      allAlerts:
+                        type: boolean
                     required:
                       - memoryOptOut
                       - retryLastTurn
@@ -14849,6 +14851,8 @@ paths:
                       chatsSettings:
                         type: boolean
                       composerSettings:
+                        type: boolean
+                      allAlerts:
                         type: boolean
                     required:
                       - memoryOptOut

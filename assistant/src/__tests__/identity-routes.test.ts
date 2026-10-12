@@ -168,6 +168,7 @@ describe("identity routes — health endpoint", () => {
         appPins: true,
         chatsSettings: true,
         composerSettings: true,
+        allAlerts: true,
       });
 
       // Profiler should either be absent or show enabled: false

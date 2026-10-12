@@ -22,6 +22,7 @@ import {
 const DEFAULTS: ChatsSettingsValues = {
   autoArchive: { enabled: false, afterDays: 7 },
   newMessageEnabled: true,
+  allAlertsEnabled: false,
 };
 
 const meta = {
@@ -76,6 +77,28 @@ export const NotificationsOff: Story = {
     state: {
       status: "ready",
       values: { ...DEFAULTS, newMessageEnabled: false },
+    },
+  },
+};
+
+export const AllAlertsOn: Story = {
+  args: {
+    state: {
+      status: "ready",
+      values: { ...DEFAULTS, allAlertsEnabled: true },
+    },
+  },
+};
+
+/** An assistant without the all-alerts capability shows no second toggle. */
+export const LegacyAssistant: Story = {
+  args: {
+    state: {
+      status: "ready",
+      values: {
+        autoArchive: DEFAULTS.autoArchive,
+        newMessageEnabled: DEFAULTS.newMessageEnabled,
+      },
     },
   },
 };

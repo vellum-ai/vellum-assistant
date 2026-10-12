@@ -37,6 +37,8 @@ export function useChatsSettings({
 }: UseChatsSettingsOptions): UseChatsSettingsResult {
   const capability = useAssistantCapabilityQuery("chatsSettings");
   const supported = capability.data === true;
+  const allAlertsCapability = useAssistantCapabilityQuery("allAlerts");
+  const allAlertsSupported = allAlertsCapability.data === true;
   const orgReady = useIsOrgReady();
   const queryClient = useQueryClient();
   const mounted = useRef(false);
@@ -81,8 +83,13 @@ export function useChatsSettings({
 
   const autoArchive = query.data?.conversations?.autoArchive;
   const newMessageEnabled = query.data?.notifications?.newMessageEnabled;
+  const allAlertsEnabled = query.data?.notifications?.allAlertsEnabled;
+  const allAlertsReady =
+    !allAlertsSupported || typeof allAlertsEnabled === "boolean";
   const validSettings =
-    autoArchive != null && typeof newMessageEnabled === "boolean";
+    autoArchive != null &&
+    typeof newMessageEnabled === "boolean" &&
+    allAlertsReady;
   useEffect(() => {
     if (query.isFetchedAfterMount && query.isSuccess && validSettings) {
       setLoadedForSession(true);
@@ -97,12 +104,26 @@ export function useChatsSettings({
     state = { status: "error" };
   } else if (!supported) {
     state = { status: "unsupported" };
+  } else if (allAlertsCapability.isPending) {
+    // The form snapshots its values once on mount, so whether the all-alerts
+    // leaf exists has to be known before it renders.
+    state = { status: "loading" };
   } else if (
     loadedForSession &&
     autoArchive &&
-    typeof newMessageEnabled === "boolean"
+    typeof newMessageEnabled === "boolean" &&
+    allAlertsReady
   ) {
-    state = { status: "ready", values: { autoArchive, newMessageEnabled } };
+    state = {
+      status: "ready",
+      values: {
+        autoArchive,
+        newMessageEnabled,
+        ...(allAlertsSupported && typeof allAlertsEnabled === "boolean"
+          ? { allAlertsEnabled }
+          : {}),
+      },
+    };
   } else if (
     query.isError ||
     (query.isFetchedAfterMount && query.isSuccess && !validSettings)
@@ -146,6 +167,9 @@ export function useChatsSettings({
       if (ownsSession() && orgReady) {
         if (capability.isError || !supported) {
           void capability.refetch();
+        }
+        if (allAlertsCapability.isError) {
+          void allAlertsCapability.refetch();
         }
         if (supported) {
           void query.refetch();

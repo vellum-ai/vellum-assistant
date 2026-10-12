@@ -2181,6 +2181,8 @@
     "days": "{count, plural, one {# día} other {# días}}",
     "notifications": "Alertas de respuestas en chats",
     "notificationsHelper": "Recibe avisos de respuestas en chats que no estás viendo.",
+    "allAlerts": "Avisar de todas las notificaciones",
+    "allAlertsHelper": "Aviso y sonido para todo lo que envía tu asistente, no solo lo urgente y las respuestas. Tu asistente aún puede mantener un mensaje en silencio.",
     "cancel": "Cancelar",
     "confirm": "Confirmar",
     "saving": "Guardando…",

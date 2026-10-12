@@ -2247,6 +2247,8 @@
     "days": "{count, plural, other {# 天}}",
     "notifications": "聊天回覆提醒",
     "notificationsHelper": "接收目前未檢視的聊天中的回覆提醒。",
+    "allAlerts": "所有通知都提醒",
+    "allAlertsHelper": "助理傳送的每則通知都會顯示橫幅並發出提示音，而不只是緊急事項和回覆。助理仍可讓某則訊息保持靜音。",
     "cancel": "取消",
     "confirm": "確認",
     "saving": "正在儲存…",

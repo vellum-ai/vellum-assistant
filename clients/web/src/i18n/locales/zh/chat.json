@@ -2247,6 +2247,8 @@
     "days": "{count, plural, other {# 天}}",
     "notifications": "聊天回复提醒",
     "notificationsHelper": "接收当前未查看的聊天中的回复提醒。",
+    "allAlerts": "所有通知都提醒",
+    "allAlertsHelper": "助手发送的每条通知都会显示横幅并提示音，而不只是紧急事项和回复。助手仍可让某条消息保持静默。",
     "cancel": "取消",
     "confirm": "确认",
     "saving": "正在保存…",

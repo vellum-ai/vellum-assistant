@@ -177,6 +177,7 @@ function settingsFixture(
     },
     notifications: {
       newMessageEnabled: context.parameters.notificationsOff !== true,
+      allAlertsEnabled: false,
     },
   };
 }

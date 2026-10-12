@@ -10,6 +10,7 @@ import {
 const DEFAULTS: ChatsSettingsValues = {
   autoArchive: { enabled: false, afterDays: 7 },
   newMessageEnabled: true,
+  allAlertsEnabled: false,
 };
 
 afterEach(cleanup);
@@ -63,19 +64,43 @@ describe("ChatsSettingsModal", () => {
         .getByRole("switch", { name: "Chat reply alerts" })
         .getAttribute("aria-checked"),
     ).toBe("true");
+    expect(
+      view
+        .getByRole("switch", { name: "Alert on every notification" })
+        .getAttribute("aria-checked"),
+    ).toBe("false");
   });
 
   test("Confirm submits only changed leaves and leaves closing to successful save", () => {
     const view = setup();
     fireEvent.click(view.getByRole("switch", { name: "Auto Archive Chats" }));
     fireEvent.click(view.getByRole("switch", { name: "Chat reply alerts" }));
+    fireEvent.click(
+      view.getByRole("switch", { name: "Alert on every notification" }),
+    );
     fireEvent.click(view.getByRole("button", { name: "Confirm" }));
     expect(view.props.onSave).toHaveBeenCalledTimes(1);
     expect(view.props.onSave).toHaveBeenCalledWith({
       conversations: { autoArchive: { enabled: true } },
-      notifications: { newMessageEnabled: false },
+      notifications: { newMessageEnabled: false, allAlertsEnabled: true },
     });
     expect(view.props.onOpenChange).not.toHaveBeenCalled();
+  });
+
+  test("omits the all-alerts toggle for an assistant that predates it", () => {
+    const legacyValues: ChatsSettingsValues = {
+      autoArchive: DEFAULTS.autoArchive,
+      newMessageEnabled: DEFAULTS.newMessageEnabled,
+    };
+    const view = setup({ state: { status: "ready", values: legacyValues } });
+    expect(
+      view.queryByRole("switch", { name: "Alert on every notification" }),
+    ).toBeNull();
+    fireEvent.click(view.getByRole("switch", { name: "Chat reply alerts" }));
+    fireEvent.click(view.getByRole("button", { name: "Confirm" }));
+    expect(view.props.onSave).toHaveBeenCalledWith({
+      notifications: { newMessageEnabled: false },
+    });
   });
 
   test("reverting the draft disables Confirm", () => {

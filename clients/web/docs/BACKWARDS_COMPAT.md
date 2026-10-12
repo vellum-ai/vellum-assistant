@@ -114,6 +114,13 @@ The query distinguishes loading and retryable health failures from a confirmed
 unsupported response. A failed background check retains previously confirmed
 support so it does not discard an open form's edits.
 
+The all-alerts toggle inside the same modal is gated separately by the
+`allAlerts` capability. Assistants between the Chats Settings release and the
+all-alerts preference accept the `notifications.allAlertsEnabled` key but never
+act on it, so the modal omits the toggle and never writes that leaf unless the
+capability is present. The hook waits for both capability reads before
+mounting the form, because the form snapshots its values once on mount.
+
 The modal submits only leaves edited during its open session. Remote config
 refreshes do not replace a dirty draft. Concurrent edits to different leaves
 are preserved; for the same leaf, the last successful write wins. Config

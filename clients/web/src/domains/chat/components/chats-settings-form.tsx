@@ -14,16 +14,22 @@ type ChatsSettingsAutoArchive = Pick<
   "enabled" | "afterDays"
 >;
 
+type ChatsSettingsNotifications = NonNullable<
+  ConfigGetResponse["notifications"]
+>;
+
 export interface ChatsSettingsValues {
   autoArchive: ChatsSettingsAutoArchive;
-  newMessageEnabled: NonNullable<
-    ConfigGetResponse["notifications"]
-  >["newMessageEnabled"];
+  newMessageEnabled: ChatsSettingsNotifications["newMessageEnabled"];
+  /** Absent when the assistant predates the all-alerts preference. */
+  allAlertsEnabled?: ChatsSettingsNotifications["allAlertsEnabled"];
 }
 
 export interface ChatsSettingsChanges {
   conversations?: { autoArchive: Partial<ChatsSettingsAutoArchive> };
-  notifications?: Pick<ChatsSettingsValues, "newMessageEnabled">;
+  notifications?: Partial<
+    Pick<ChatsSettingsValues, "newMessageEnabled" | "allAlertsEnabled">
+  >;
 }
 
 interface ChatsSettingsFormProps {
@@ -50,13 +56,22 @@ function changedSettings(
   if (draft.autoArchive.afterDays !== initial.autoArchive.afterDays) {
     autoArchive.afterDays = draft.autoArchive.afterDays;
   }
+  const notifications: NonNullable<ChatsSettingsChanges["notifications"]> =
+    {};
+  if (draft.newMessageEnabled !== initial.newMessageEnabled) {
+    notifications.newMessageEnabled = draft.newMessageEnabled;
+  }
+  if (
+    draft.allAlertsEnabled !== undefined &&
+    draft.allAlertsEnabled !== initial.allAlertsEnabled
+  ) {
+    notifications.allAlertsEnabled = draft.allAlertsEnabled;
+  }
   return {
     ...(Object.keys(autoArchive).length > 0
       ? { conversations: { autoArchive } }
       : {}),
-    ...(draft.newMessageEnabled !== initial.newMessageEnabled
-      ? { notifications: { newMessageEnabled: draft.newMessageEnabled } }
-      : {}),
+    ...(Object.keys(notifications).length > 0 ? { notifications } : {}),
   };
 }
 
@@ -128,7 +143,7 @@ export function ChatsSettingsForm({
             className="min-w-24"
           />
         </div>
-        <div className="border-t border-[var(--border-subtle)] pt-5">
+        <div className="space-y-5 border-t border-[var(--border-subtle)] pt-5">
           <Toggle
             size="sm"
             label={t("chatsSettingsModal.notifications")}
@@ -140,6 +155,19 @@ export function ChatsSettingsForm({
             disabled={saving}
             className={TOGGLE_CLASSES}
           />
+          {draft.allAlertsEnabled !== undefined ? (
+            <Toggle
+              size="sm"
+              label={t("chatsSettingsModal.allAlerts")}
+              helperText={t("chatsSettingsModal.allAlertsHelper")}
+              checked={draft.allAlertsEnabled}
+              onChange={(allAlertsEnabled) =>
+                setDraft({ ...draft, allAlertsEnabled })
+              }
+              disabled={saving}
+              className={TOGGLE_CLASSES}
+            />
+          ) : null}
         </div>
         {saveStatus === "error" ? (
           <Notice tone="error">{t("chatsSettingsModal.saveError")}</Notice>
