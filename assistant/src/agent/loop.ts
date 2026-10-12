@@ -396,6 +396,13 @@ export type AgentEvent =
       };
       status?: string;
       contentBlocks?: ContentBlock[];
+      /**
+       * Retention class of `contentBlocks` media, from the tool definition.
+       * Carried on the event because the daemon builds the durable
+       * tool_result row from the event, not from the loop's history, and the
+       * outbound sanitizer reads the class off the reloaded row.
+       */
+      mediaRetention?: MediaRetention;
       riskLevel?: string;
       riskReason?: string;
       matchedTrustRuleId?: string;
@@ -1001,6 +1008,7 @@ function cancelledToolOutcomeFor(
  */
 function toolResultEventFields(
   result: LoopToolResult,
+  mediaRetention: MediaRetention | undefined,
 ): Omit<Extract<AgentEvent, { type: "tool_result" }>, "type" | "toolUseId"> {
   return {
     content: result.content,
@@ -1008,6 +1016,7 @@ function toolResultEventFields(
     diff: result.diff,
     status: result.status,
     contentBlocks: result.contentBlocks,
+    mediaRetention: result.contentBlocks ? mediaRetention : undefined,
     riskLevel: result.riskLevel,
     riskReason: result.riskReason,
     matchedTrustRuleId: result.matchedTrustRuleId,
@@ -3178,7 +3187,7 @@ export class AgentLoop {
           onEvent({
             type: "tool_result",
             toolUseId: toolUse.id,
-            ...toolResultEventFields(result),
+            ...toolResultEventFields(result, mediaRetentionFor(toolUse.name)),
             content: emitContent,
           });
         }
@@ -3312,7 +3321,10 @@ export class AgentLoop {
                   ? {
                       type: "tool_result",
                       toolUseId: toolUse.id,
-                      ...toolResultEventFields(result),
+                      ...toolResultEventFields(
+                        result,
+                        mediaRetentionFor(toolUse.name),
+                      ),
                       content: emitContent,
                     }
                   : {

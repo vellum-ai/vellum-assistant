@@ -764,6 +764,44 @@ describe("tool preview lifecycle", () => {
       });
     });
 
+    test("a document-class result persists its media retention on the stored block", async () => {
+      /**
+       * The durable row is built from the event, not from the loop's history,
+       * so the retention class must ride the event to survive a reload: the
+       * outbound sanitizer reads it off the stored block to keep a file read
+       * in view instead of treating it as a stale screenshot.
+       */
+      // GIVEN a started file-read tool
+      const { deps } = makeStampingDeps();
+      state.lastAssistantMessageId = "assistant-msg-1";
+      registerTool("toolu_doc");
+
+      // WHEN its result arrives carrying an image and the document class
+      await handleToolResult(state, deps, {
+        type: "tool_result",
+        toolUseId: "toolu_doc",
+        content: "Image loaded: render.png",
+        isError: false,
+        contentBlocks: [
+          {
+            type: "image",
+            source: { type: "base64", media_type: "image/png", data: "aGk=" },
+          },
+        ],
+        mediaRetention: "document",
+      });
+
+      // THEN the written block carries the class alongside its media
+      const blocks = latestWrittenBlocks();
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0]).toMatchObject({
+        type: "tool_result",
+        tool_use_id: "toolu_doc",
+        mediaRetention: "document",
+      });
+      expect(blocks[0].contentBlocks).toHaveLength(1);
+    });
+
     test("parallel results share one row, grouped as sibling blocks", async () => {
       /**
        * Results from parallel tool calls in the same turn must land in a single

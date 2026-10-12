@@ -77,6 +77,7 @@ import { resolveMediaSourceData } from "../providers/media-resolve.js";
 import type {
   ContentBlock,
   ImageContent,
+  MediaRetention,
   Message,
 } from "../providers/types.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
@@ -255,6 +256,13 @@ export interface PendingToolResult {
   content: string;
   isError: boolean;
   contentBlocks?: ContentBlock[];
+  /**
+   * Retention class of `contentBlocks` media (mirrors the live `tool_result`
+   * event's `mediaRetention`). Persisted onto the stored `tool_result` block
+   * so the outbound sanitizer keeps file-read media in view across a reload
+   * rather than treating it as a stale screenshot.
+   */
+  mediaRetention?: MediaRetention;
   /**
    * Stable, machine-readable classification for an error result (mirrors the
    * live `tool_result` event's `errorCode`). Persisted onto the stored
@@ -2179,6 +2187,7 @@ function buildToolResultBlocks(
           ),
         }
       : {}),
+    ...(result.mediaRetention ? { mediaRetention: result.mediaRetention } : {}),
   }));
 }
 
@@ -2581,6 +2590,7 @@ export async function handleToolResult(
     content: event.content,
     isError: event.isError,
     contentBlocks: event.contentBlocks,
+    mediaRetention: event.mediaRetention,
     errorCode: event.errorCode,
   });
 

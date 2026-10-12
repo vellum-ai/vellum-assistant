@@ -3304,7 +3304,7 @@ describe("AgentLoop media retention stamp", () => {
       isError: boolean;
       contentBlocks?: ContentBlock[];
     },
-  ): Promise<Message[]> {
+  ): Promise<{ history: Message[]; events: AgentEvent[] }> {
     const { provider } = createMockProvider([
       toolUseResponse("t1", tools[0].name!, {}),
       textResponse("done"),
@@ -3323,8 +3323,16 @@ describe("AgentLoop media retention stamp", () => {
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
-    return history;
+    return { history, events };
   }
+
+  const toolResultEventOf = (events: AgentEvent[]) => {
+    const event = events.find((e) => e.type === "tool_result");
+    if (!event || event.type !== "tool_result") {
+      throw new Error("no tool_result event");
+    }
+    return event;
+  };
 
   const toolResultOf = (history: Message[]): ToolResultContent => {
     for (const message of history) {
@@ -3349,7 +3357,7 @@ describe("AgentLoop media retention stamp", () => {
     ];
 
     // WHEN its result carries an image
-    const history = await runOneToolCall(tools, {
+    const { history, events } = await runOneToolCall(tools, {
       content: "Image loaded",
       isError: false,
       contentBlocks: [imageBlock],
@@ -3357,6 +3365,8 @@ describe("AgentLoop media retention stamp", () => {
 
     // THEN the tool_result block records the class for the outbound sanitizer
     expect(toolResultOf(history).mediaRetention).toBe("document");
+    // AND so does the emitted event, which is what the daemon persists
+    expect(toolResultEventOf(events).mediaRetention).toBe("document");
   });
 
   test("leaves results without media, and tools without a declaration, unstamped", async () => {
@@ -3373,7 +3383,8 @@ describe("AgentLoop media retention stamp", () => {
       content: "nothing to see",
       isError: false,
     });
-    expect("mediaRetention" in toolResultOf(textOnly)).toBe(false);
+    expect("mediaRetention" in toolResultOf(textOnly.history)).toBe(false);
+    expect(toolResultEventOf(textOnly.events).mediaRetention).toBeUndefined();
 
     // AND a tool with no declaration returning an image (a screenshot)
     const undeclared = await runOneToolCall(dummyTools, {
@@ -3382,6 +3393,7 @@ describe("AgentLoop media retention stamp", () => {
       contentBlocks: [imageBlock],
     });
     // THEN the block keeps its prior shape, which the sanitizer reads as frame
-    expect("mediaRetention" in toolResultOf(undeclared)).toBe(false);
+    expect("mediaRetention" in toolResultOf(undeclared.history)).toBe(false);
+    expect(toolResultEventOf(undeclared.events).mediaRetention).toBeUndefined();
   });
 });
