@@ -26,6 +26,18 @@ function inlineImage(wireBytes: number): ContentBlock {
   };
 }
 
+/** An inline MP3 of `decodedBytes`, which every adapter inlines and the transport cap does not shrink. */
+function inlineAudio(decodedBytes: number): ContentBlock {
+  return {
+    type: "file",
+    source: {
+      type: "base64",
+      media_type: "audio/mpeg",
+      data: "A".repeat(Math.ceil((decodedBytes * 4) / 3)),
+    },
+  };
+}
+
 /** A persisted image reference of `sizeBytes` decoded bytes. */
 function refImage(sizeBytes: number): ContentBlock {
   return {
@@ -221,15 +233,16 @@ describe("tool-result media retention", () => {
   });
 
   test("a crossing never evicts the step that caused it", () => {
-    // GIVEN a single read far above the high mark on its own
-    const alone = documentSteps(1, 30 * MB);
+    // GIVEN a single audio read above the high mark on its own (9 MB raw is
+    // 12 MB on the wire)
+    const alone = toolStep("d1", "document", [inlineAudio(9 * MB)]);
     // THEN it is still sent
     expect(preModelCallSanitize(alone)).toEqual(alone);
 
-    // GIVEN a small read followed by a huge one
+    // GIVEN a small image read followed by that audio read
     const history = [
       ...toolStep("d1", "document", [inlineImage(1 * MB)]),
-      ...toolStep("d2", "document", [inlineImage(30 * MB)]),
+      ...toolStep("d2", "document", [inlineAudio(9 * MB)]),
     ];
     // THEN only the older read is evicted
     expect(retainedToolResultMediaKeys(history)).toEqual(new Set(["3:0"]));
@@ -271,10 +284,10 @@ describe("tool-result media retention", () => {
   });
 
   test("a persisted reference is costed at its base64 size on the wire", () => {
-    // GIVEN a 7.5 MB reference (10 MB as base64, exactly the high mark) and
-    // a 4-byte inline read after it
+    // GIVEN a 7.5 MB audio reference (10 MB as base64, exactly the high
+    // mark) and a 4-byte inline read after it
     const history = [
-      ...toolStep("d1", "document", [refImage(7.5 * MB)]),
+      ...toolStep("d1", "document", [refFile("audio/mpeg", 7.5 * MB)]),
       ...toolStep("d2", "document", [inlineImage(4)]),
     ];
 
@@ -287,6 +300,23 @@ describe("tool-result media retention", () => {
     expect(retainedToolResultMediaKeys(history.slice(0, 2))).toEqual(
       new Set(["1:0"]),
     );
+  });
+
+  test("a stored image is costed at its transport size, not its stored size", () => {
+    // GIVEN a 12 MB upload the send path re-encodes under the 3.5 MB
+    // transport cap, followed by two 2 MB reads
+    const history = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "here" }, refImage(12 * MB)],
+      } as Message,
+      ...toolStep("d1", "document", [inlineImage(2 * MB)]),
+      ...toolStep("d2", "document", [inlineImage(2 * MB)]),
+    ];
+
+    // THEN the upload counts for about 4.7 MB on the wire and nothing is
+    // evicted; at its stored 16 MB it would have evicted both reads
+    expect(preModelCallSanitize(history)).toEqual(history);
   });
 
   test("files no adapter inlines add nothing to the total", () => {

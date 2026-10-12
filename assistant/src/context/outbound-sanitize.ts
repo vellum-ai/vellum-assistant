@@ -6,6 +6,7 @@
  * transform is idempotent so each send re-derives the same projection.
  */
 
+import { transportImageByteCeiling } from "../agent/image-optimize.js";
 import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
 import { fileSourceMayBeInlined } from "../providers/inline-file-eligibility.js";
 import {
@@ -239,19 +240,22 @@ function isMediaBlock(block: ContentBlock): block is MediaBlock {
 
 /**
  * Bytes a media block occupies in the request, which carries media as base64.
- * A file no adapter would inline (video, over-cap text, audio outside every
- * adapter's inline set; see {@link fileSourceMayBeInlined}) puts no payload on
- * the wire and counts as none here.
+ * An image is costed at what the transport optimizer lets through
+ * ({@link transportImageByteCeiling}): a stored upload keeps its full
+ * master, but the send path re-encodes anything over the cap. A file no
+ * adapter would inline (video, over-cap text, audio outside every adapter's
+ * inline set; see {@link fileSourceMayBeInlined}) puts no payload on the wire
+ * and counts as none here.
  */
 function mediaWireBytes(block: MediaBlock): number {
-  const byteLength = mediaSourceByteLength(block.source);
-  if (
-    block.type === "file" &&
-    !fileSourceMayBeInlined(block.source, byteLength)
-  ) {
+  const storedBytes = mediaSourceByteLength(block.source);
+  if (block.type === "image") {
+    return Math.ceil((transportImageByteCeiling(storedBytes) * 4) / 3);
+  }
+  if (!fileSourceMayBeInlined(block.source, storedBytes)) {
     return 0;
   }
-  return Math.ceil((byteLength * 4) / 3);
+  return Math.ceil((storedBytes * 4) / 3);
 }
 
 const FRAME_MEDIA_PLACEHOLDER =
