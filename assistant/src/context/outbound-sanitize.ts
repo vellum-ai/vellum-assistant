@@ -7,6 +7,7 @@
  */
 
 import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
+import { keepFileAsWorkspaceRef } from "../providers/content-block-size.js";
 import {
   MEDIA_PAYLOAD_LIMITS,
   type MediaPayloadLimits,
@@ -20,7 +21,6 @@ import type {
   FileContent,
   ImageContent,
   MediaRetention,
-  MediaSource,
   Message,
 } from "../providers/types.js";
 
@@ -237,9 +237,17 @@ function isMediaBlock(block: ContentBlock): block is MediaBlock {
   return block.type === "image" || block.type === "file";
 }
 
-/** Bytes a media block occupies in the request, which carries media as base64. */
-function mediaWireBytes(source: MediaSource): number {
-  return Math.ceil((mediaSourceByteLength(source) * 4) / 3);
+/**
+ * Bytes a media block occupies in the request, which carries media as base64.
+ * A file every serializer names rather than inlines (video, over-cap text; see
+ * {@link keepFileAsWorkspaceRef}) puts no payload on the wire and counts as
+ * none here.
+ */
+function mediaWireBytes(block: MediaBlock): number {
+  if (block.type === "file" && keepFileAsWorkspaceRef(block.source)) {
+    return 0;
+  }
+  return Math.ceil((mediaSourceByteLength(block.source) * 4) / 3);
 }
 
 const FRAME_MEDIA_PLACEHOLDER =
@@ -279,7 +287,9 @@ function documentMediaPlaceholder(media: MediaBlock[]): string {
  * agent loop and the compactor derive the same projection from the same
  * history with no shared state. Frames stay out of the running total for the
  * same reason: which frames go out depends on which step is current, which
- * changes every send.
+ * changes every send, so counting them would make evictions flip from one
+ * send to the next. The band's byte marks reserve room for the current step's
+ * frames instead (see `MEDIA_PAYLOAD_LIMITS`).
  *
  * That stability assumes history only grows between sends. A pass that
  * rewrites old messages in place (captioning images for a text-only model)
@@ -315,7 +325,7 @@ function planMediaRetention(
     for (let blockIdx = 0; blockIdx < msg.content.length; blockIdx++) {
       const block = msg.content[blockIdx];
       if (isMediaBlock(block)) {
-        totalBytes += mediaWireBytes(block.source);
+        totalBytes += mediaWireBytes(block);
         totalImages += block.type === "image" ? 1 : 0;
         continue;
       }
@@ -335,7 +345,7 @@ function planMediaRetention(
         }
         continue;
       }
-      const bytes = media.reduce((n, b) => n + mediaWireBytes(b.source), 0);
+      const bytes = media.reduce((n, b) => n + mediaWireBytes(b), 0);
       const images = media.filter((b) => b.type === "image").length;
       totalBytes += bytes;
       totalImages += images;

@@ -39,6 +39,20 @@ function refImage(sizeBytes: number): ContentBlock {
   };
 }
 
+/** A persisted file reference of `sizeBytes` decoded bytes and the given MIME type. */
+function refFile(mediaType: string, sizeBytes: number): ContentBlock {
+  return {
+    type: "file",
+    source: {
+      type: "workspace_ref",
+      media_type: mediaType,
+      attachmentId: "att-file",
+      sizeBytes,
+      filename: "attachment",
+    },
+  };
+}
+
 /** One tool step: the assistant's call and the user-role result carrying media. */
 function toolStep(
   id: string,
@@ -154,43 +168,42 @@ describe("tool-result media retention", () => {
   });
 
   test("the byte cap evicts the oldest documents down to the low mark, once per crossing", () => {
-    // GIVEN the 14 MB high / 9 MB low band and 3 MB reads
+    // GIVEN the 10 MB high / 6 MB low band and 2.5 MB reads
 
-    // WHEN four reads total 12 MB
-    const four = documentSteps(4, 3 * MB);
+    // WHEN four reads total 10 MB, on the mark
+    const four = documentSteps(4, 2.5 * MB);
     // THEN nothing is evicted
     expect(preModelCallSanitize(four)).toEqual(four);
 
-    // WHEN a fifth read pushes the total to 15 MB
-    const five = documentSteps(5, 3 * MB);
+    // WHEN a fifth read pushes the total to 12.5 MB
+    const five = documentSteps(5, 2.5 * MB);
     const sentFive = preModelCallSanitize(five);
-    // THEN the two oldest are evicted (15 -> 12 -> 9 MB, at the low mark)
-    expect(retainedToolResultMediaKeys(five)).toEqual(
-      new Set(["5:0", "7:0", "9:0"]),
-    );
+    // THEN the three oldest are evicted (12.5 -> 10 -> 7.5 -> 5 MB, under
+    // the low mark)
+    expect(retainedToolResultMediaKeys(five)).toEqual(new Set(["7:0", "9:0"]));
     const evicted = toolResult(sentFive, 1);
     expect(hasMedia(evicted)).toBe(false);
     expect(evicted.content).toStartWith("loaded d1");
     expect(evicted.content).toContain("payload limit");
     expect(evicted.content).toContain("Call the tool again");
 
-    // WHEN a sixth read arrives (9 + 3 = 12 MB, under the high mark)
-    const six = documentSteps(6, 3 * MB);
-    const sentSix = preModelCallSanitize(six);
+    // WHEN a sixth and seventh read arrive (7.5 MB, then 10 MB on the mark)
+    const seven = documentSteps(7, 2.5 * MB);
+    const sentSeven = preModelCallSanitize(seven);
     // THEN no new eviction happens and the earlier prefix is byte-identical,
     // so the prompt cache holds between crossings
-    expect(retainedToolResultMediaKeys(six)).toEqual(
-      new Set(["5:0", "7:0", "9:0", "11:0"]),
+    expect(retainedToolResultMediaKeys(seven)).toEqual(
+      new Set(["7:0", "9:0", "11:0", "13:0"]),
     );
-    expect(JSON.stringify(sentSix.slice(0, five.length))).toBe(
+    expect(JSON.stringify(sentSeven.slice(0, five.length))).toBe(
       JSON.stringify(sentFive),
     );
 
-    // WHEN a seventh read crosses the high mark again (15 MB)
-    const seven = documentSteps(7, 3 * MB);
-    // THEN the next two oldest go
-    expect(retainedToolResultMediaKeys(seven)).toEqual(
-      new Set(["9:0", "11:0", "13:0"]),
+    // WHEN an eighth read crosses the high mark again (12.5 MB)
+    const eight = documentSteps(8, 2.5 * MB);
+    // THEN the next three oldest go
+    expect(retainedToolResultMediaKeys(eight)).toEqual(
+      new Set(["13:0", "15:0"]),
     );
   });
 
@@ -224,10 +237,10 @@ describe("tool-result media retention", () => {
   });
 
   test("user attachments count toward the cap but are never evicted", () => {
-    // GIVEN a 10 MB user upload followed by two 3 MB reads
+    // GIVEN a 6 MB user upload followed by two 3 MB reads
     const upload: Message = {
       role: "user",
-      content: [{ type: "text", text: "here" }, inlineImage(10 * MB)],
+      content: [{ type: "text", text: "here" }, inlineImage(6 * MB)],
     };
     const history = [
       upload,
@@ -235,7 +248,7 @@ describe("tool-result media retention", () => {
       ...toolStep("d2", "document", [inlineImage(3 * MB)]),
     ];
 
-    // WHEN sanitized (13 MB fits under the 14 MB mark, 16 MB does not)
+    // WHEN sanitized (9 MB fits under the 10 MB mark, 12 MB does not)
     const sent = preModelCallSanitize(history);
 
     // THEN the upload is intact, the older read is evicted, the newer read kept
@@ -245,10 +258,10 @@ describe("tool-result media retention", () => {
   });
 
   test("a persisted reference is costed at its base64 size on the wire", () => {
-    // GIVEN a 10.5 MB reference (14 MB as base64, exactly the high mark) and
+    // GIVEN a 7.5 MB reference (10 MB as base64, exactly the high mark) and
     // a 4-byte inline read after it
     const history = [
-      ...toolStep("d1", "document", [refImage(10.5 * MB)]),
+      ...toolStep("d1", "document", [refImage(7.5 * MB)]),
       ...toolStep("d2", "document", [inlineImage(4)]),
     ];
 
@@ -261,6 +274,40 @@ describe("tool-result media retention", () => {
     expect(retainedToolResultMediaKeys(history.slice(0, 2))).toEqual(
       new Set(["1:0"]),
     );
+  });
+
+  test("files serializers keep as workspace references add nothing to the total", () => {
+    // GIVEN a 50 MB video and a 9 MB text file the user attached, both of
+    // which every serializer names rather than inlines, then two 3 MB reads
+    const refsOnly = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "here" },
+          refFile("video/mp4", 50 * MB),
+          refFile("text/plain", 9 * MB),
+        ],
+      } as Message,
+      ...toolStep("d1", "document", [inlineImage(3 * MB)]),
+      ...toolStep("d2", "document", [inlineImage(3 * MB)]),
+    ];
+
+    // THEN neither read is evicted: the references put no bytes on the wire
+    expect(preModelCallSanitize(refsOnly)).toEqual(refsOnly);
+
+    // AND an audio file, which providers do inline, counts in full
+    const withAudio = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "here" },
+          refFile("audio/mpeg", 9 * MB),
+        ],
+      } as Message,
+      ...toolStep("d1", "document", [inlineImage(3 * MB)]),
+      ...toolStep("d2", "document", [inlineImage(3 * MB)]),
+    ];
+    expect(retainedToolResultMediaKeys(withAudio)).toEqual(new Set(["4:0"]));
   });
 
   test("is idempotent after an eviction", () => {

@@ -26,8 +26,18 @@
  *   (`agent/image-optimize.ts`) already satisfies.
  *   https://platform.claude.com/docs/en/build-with-claude/vision#request-limits
  *
- * Marks sit well inside those limits so the non-media part of the request
- * (text, tool definitions, the media the sanitizer never evicts) has room.
+ * The byte marks leave room under the 20 MB total for what the cap counts
+ * but never evicts and for what it does not count at all:
+ * - the current step's frame media (a screenshot the model needs for its next
+ *   action). It is left out of the running total so eviction decisions never
+ *   depend on which step is current, which changes every send; one read-time
+ *   optimized image is at most about 4.7 MB as base64
+ *   (`agent/image-optimize.ts`), so that much is reserved for it;
+ * - the request's text and tool definitions, a few MB at most.
+ * A step that returns several large frames at once can still exceed the
+ * total; the reactive overflow path (`plugins/defaults/compaction/
+ * context-overflow-reducer.ts`) is the backstop for that case.
+ *
  * Per-image limits are enforced when the media is read, so only the aggregate
  * is governed here.
  */
@@ -46,8 +56,8 @@ export interface MediaPayloadLimits {
 const MB = 1024 * 1024;
 
 export const MEDIA_PAYLOAD_LIMITS: MediaPayloadLimits = {
-  highBytes: 14 * MB,
-  lowBytes: 9 * MB,
+  highBytes: 10 * MB,
+  lowBytes: 6 * MB,
   highImages: 80,
   lowImages: 50,
 };
