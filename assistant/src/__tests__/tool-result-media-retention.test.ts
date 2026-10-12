@@ -45,12 +45,13 @@ function inlineAudio(decodedBytes: number): ContentBlock {
 function refImage(
   sizeBytes: number,
   transportSizeBytes?: number,
+  mediaType = "image/png",
 ): ContentBlock {
   return {
     type: "image",
     source: {
       type: "workspace_ref",
-      media_type: "image/png",
+      media_type: mediaType,
       attachmentId: "att-1",
       sizeBytes,
       ...(transportSizeBytes !== undefined ? { transportSizeBytes } : {}),
@@ -337,6 +338,25 @@ describe("tool-result media retention", () => {
       ...reads,
     ];
     expect(retainedToolResultMediaKeys(unhinted)).toEqual(new Set(["4:0"]));
+  });
+
+  test("an image reference no provider reads adds nothing to the total", () => {
+    // GIVEN a 20 MB SVG upload, which the send path replaces with a text
+    // note, followed by two 3 MB reads
+    const history = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "here" },
+          refImage(20 * MB, undefined, "image/svg+xml"),
+        ],
+      } as Message,
+      ...toolStep("d1", "document", [inlineImage(3 * MB)]),
+      ...toolStep("d2", "document", [inlineImage(3 * MB)]),
+    ];
+
+    // THEN neither read is evicted and the SVG counts as no image
+    expect(preModelCallSanitize(history)).toEqual(history);
   });
 
   test("files no adapter inlines add nothing to the total", () => {

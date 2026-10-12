@@ -482,6 +482,36 @@ export function sniffImageMimeType(bytes: Uint8Array): string | null {
   return null;
 }
 
+/**
+ * Media types {@link sniffImageMimeType} can return: the formats every
+ * provider reads as an image block. HEIF has its own detector,
+ * {@link heifImageMimeType}, for the providers that accept it.
+ */
+export const SNIFFABLE_IMAGE_MIME_TYPES: ReadonlySet<string> = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+]);
+
+/**
+ * Whether an image reference's declared media type names bytes the send path
+ * will put on the wire. `resolveMediaReferences` sniffs the stored bytes and
+ * substitutes a text note for any format no provider reads (SVG, BMP, TIFF,
+ * ICO); storage normalizes a reference's declared type to the sniffed one, so
+ * the declared type stands in faithfully when the bytes are not at hand. HEIF
+ * counts as readable because some providers accept it and a budget computed
+ * from this must not understate.
+ */
+export function isProviderReadableImageMimeType(mediaType: string): boolean {
+  const normalized = mediaType.toLowerCase().split(";")[0]?.trim() ?? "";
+  return (
+    SNIFFABLE_IMAGE_MIME_TYPES.has(normalized) ||
+    normalized === "image/heic" ||
+    normalized === "image/heif"
+  );
+}
+
 /** Base64 variant of {@link sniffImageMimeType}; decodes only the head. */
 export function sniffBase64ImageMimeType(dataBase64: string): string | null {
   // 16 base64 chars decode to the 12 bytes the longest signature needs.

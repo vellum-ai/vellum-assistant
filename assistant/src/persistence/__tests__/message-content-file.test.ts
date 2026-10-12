@@ -217,16 +217,21 @@ describe("resolveMessageContentBlocks", () => {
       hintedJson,
     );
 
-    const malformed = JSON.stringify([
-      { type: "image", source: { ...source, transportSizeBytes: "big" } },
-    ]);
-    const repaired = resolveMessageContentBlocks(malformed)[0];
-    expect(repaired.type).toBe("image");
-    if (repaired.type !== "image" || repaired.source.type !== "workspace_ref") {
-      throw new Error("expected an image reference");
+    for (const bad of ["big", -1, 1.5]) {
+      const malformed = JSON.stringify([
+        { type: "image", source: { ...source, transportSizeBytes: bad } },
+      ]);
+      const repaired = resolveMessageContentBlocks(malformed)[0];
+      expect(repaired.type).toBe("image");
+      if (
+        repaired.type !== "image" ||
+        repaired.source.type !== "workspace_ref"
+      ) {
+        throw new Error("expected an image reference");
+      }
+      expect(repaired.source.sizeBytes).toBe(12_000_000);
+      expect(repaired.source.transportSizeBytes).toBeUndefined();
     }
-    expect(repaired.source.sizeBytes).toBe(12_000_000);
-    expect(repaired.source.transportSizeBytes).toBeUndefined();
   });
 
   test("passes typed blocks outside the union through untouched", () => {

@@ -16,9 +16,11 @@ import {
   hasValidJpegStructure,
   isCompleteJpeg,
   isHeifImage,
+  isProviderReadableImageMimeType,
   jpegFilenameFor,
   normalizeImageBase64,
   normalizeImageBytes,
+  SNIFFABLE_IMAGE_MIME_TYPES,
   sniffBase64ImageMimeType,
   sniffImageFileMimeType,
   sniffImageMimeType,
@@ -435,3 +437,42 @@ describe.skipIf(process.platform !== "darwin")(
     });
   },
 );
+
+describe("isProviderReadableImageMimeType", () => {
+  test("mirrors the formats the sniffer recognizes", () => {
+    // Every signature the sniffer knows names a readable type, so a stored
+    // reference's declared (normalized) type is a faithful stand-in for the
+    // bytes the resolver would sniff.
+    const signatures: Array<[string, number[]]> = [
+      ["image/png", [0x89, 0x50, 0x4e, 0x47]],
+      ["image/jpeg", [0xff, 0xd8, 0xff, 0xe0]],
+      ["image/gif", [0x47, 0x49, 0x46, 0x38]],
+      [
+        "image/webp",
+        [0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50],
+      ],
+    ];
+    for (const [expected, bytes] of signatures) {
+      const sniffed = sniffImageMimeType(new Uint8Array(bytes));
+      expect(sniffed).toBe(expected);
+      expect(SNIFFABLE_IMAGE_MIME_TYPES.has(sniffed!)).toBe(true);
+      expect(isProviderReadableImageMimeType(expected)).toBe(true);
+    }
+    expect(isProviderReadableImageMimeType("image/heic")).toBe(true);
+    expect(isProviderReadableImageMimeType("IMAGE/PNG; charset=binary")).toBe(
+      true,
+    );
+  });
+
+  test("rejects formats the resolver replaces with a text note", () => {
+    for (const unreadable of [
+      "image/svg+xml",
+      "image/bmp",
+      "image/tiff",
+      "image/x-icon",
+      "application/octet-stream",
+    ]) {
+      expect(isProviderReadableImageMimeType(unreadable)).toBe(false);
+    }
+  });
+});

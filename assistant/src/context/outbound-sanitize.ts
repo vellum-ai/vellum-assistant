@@ -23,6 +23,7 @@ import type {
   MediaRetention,
   Message,
 } from "../providers/types.js";
+import { isProviderReadableImageMimeType } from "../util/image-conversion.js";
 
 /** Number of most-recent AX tree snapshots to keep in conversation history. */
 const MAX_AX_TREES_IN_HISTORY = 2;
@@ -238,28 +239,43 @@ function isMediaBlock(block: ContentBlock): block is MediaBlock {
 }
 
 /**
- * Bytes a media block occupies in the request, which carries media as base64.
- * An image reference is costed at the size the send path actually produces
- * (`transportSizeBytes`, recorded at persist time by running the same
- * transport optimization), falling back to its stored size on rows written
- * before that hint existed; an inline image is already optimized. A file no
- * adapter would inline (video, over-cap text, audio outside every adapter's
- * inline set; see {@link fileSourceMayBeInlined}) puts no payload on the wire
- * and counts as none here.
+ * What a media block costs the request, which carries media as base64: wire
+ * bytes and whether it counts as an image.
+ * - An inline image is already transport-optimized and is sent as is.
+ * - An image reference is costed at the size the send path produces
+ *   (`transportSizeBytes`, recorded at persist time by running the same
+ *   transport optimization), falling back to its stored size on rows written
+ *   before that hint existed. One whose format no provider reads
+ *   ({@link isProviderReadableImageMimeType}) is replaced by a text note at
+ *   send and costs nothing.
+ * - A file costs nothing unless some adapter would inline it
+ *   ({@link fileSourceMayBeInlined}: video, over-cap text, and audio outside
+ *   every adapter's inline set put no payload on the wire).
  */
-function mediaWireBytes(block: MediaBlock): number {
+function mediaWireCost(block: MediaBlock): { bytes: number; images: number } {
   const storedBytes = mediaSourceByteLength(block.source);
   if (block.type === "image") {
-    const sentBytes =
-      block.source.type === "workspace_ref"
-        ? (block.source.transportSizeBytes ?? storedBytes)
-        : storedBytes;
-    return Math.ceil((sentBytes * 4) / 3);
+    if (block.source.type !== "workspace_ref") {
+      return { bytes: base64Bytes(storedBytes), images: 1 };
+    }
+    if (!isProviderReadableImageMimeType(block.source.media_type)) {
+      return NO_WIRE_COST;
+    }
+    return {
+      bytes: base64Bytes(block.source.transportSizeBytes ?? storedBytes),
+      images: 1,
+    };
   }
   if (!fileSourceMayBeInlined(block.source, storedBytes)) {
-    return 0;
+    return NO_WIRE_COST;
   }
-  return Math.ceil((storedBytes * 4) / 3);
+  return { bytes: base64Bytes(storedBytes), images: 0 };
+}
+
+const NO_WIRE_COST = { bytes: 0, images: 0 };
+
+function base64Bytes(decodedBytes: number): number {
+  return Math.ceil((decodedBytes * 4) / 3);
 }
 
 const FRAME_MEDIA_PLACEHOLDER =
@@ -337,8 +353,9 @@ function planMediaRetention(
     for (let blockIdx = 0; blockIdx < msg.content.length; blockIdx++) {
       const block = msg.content[blockIdx];
       if (isMediaBlock(block)) {
-        totalBytes += mediaWireBytes(block);
-        totalImages += block.type === "image" ? 1 : 0;
+        const cost = mediaWireCost(block);
+        totalBytes += cost.bytes;
+        totalImages += cost.images;
         continue;
       }
       if (block.type !== "tool_result") {
@@ -360,8 +377,12 @@ function planMediaRetention(
         }
         continue;
       }
-      const bytes = media.reduce((n, b) => n + mediaWireBytes(b), 0);
-      const images = media.filter((b) => b.type === "image").length;
+      let bytes = 0;
+      let images = 0;
+      for (const cost of media.map(mediaWireCost)) {
+        bytes += cost.bytes;
+        images += cost.images;
+      }
       totalBytes += bytes;
       totalImages += images;
       retained.add(key);
