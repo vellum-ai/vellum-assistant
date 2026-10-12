@@ -258,10 +258,6 @@ export async function captionImagesInMessages(
  * the retry replaces it with the compact removed-media marker rather than a
  * full caption: captioning it would waste vision calls and balloon context.
  *
- * The hook has no provider in scope, so the keys are computed under the
- * tightest payload marks; near the cap this captions a few images the actual
- * provider would have kept, never fewer.
- *
  * Text-only user content is then merged via {@link flattenTextOnlyBlocks}.
  */
 export async function captionOutboundImagesInMessages(

@@ -153,19 +153,18 @@ describe("tool-result media retention", () => {
   });
 
   test("the byte cap evicts the oldest documents down to the low mark, once per crossing", () => {
-    // GIVEN Anthropic marks (24 MB high, 16 MB low) and 5 MB reads
-    const opts = { providerName: "anthropic" };
+    // GIVEN the 14 MB high / 9 MB low band and 3 MB reads
 
-    // WHEN four reads total 20 MB
-    const four = documentSteps(4, 5 * MB);
+    // WHEN four reads total 12 MB
+    const four = documentSteps(4, 3 * MB);
     // THEN nothing is evicted
-    expect(preModelCallSanitize(four, opts)).toEqual(four);
+    expect(preModelCallSanitize(four)).toEqual(four);
 
-    // WHEN a fifth read pushes the total to 25 MB
-    const five = documentSteps(5, 5 * MB);
-    const sentFive = preModelCallSanitize(five, opts);
-    // THEN the two oldest are evicted (25 -> 20 -> 15 MB, under the low mark)
-    expect(retainedToolResultMediaKeys(five, opts)).toEqual(
+    // WHEN a fifth read pushes the total to 15 MB
+    const five = documentSteps(5, 3 * MB);
+    const sentFive = preModelCallSanitize(five);
+    // THEN the two oldest are evicted (15 -> 12 -> 9 MB, at the low mark)
+    expect(retainedToolResultMediaKeys(five)).toEqual(
       new Set(["5:0", "7:0", "9:0"]),
     );
     const evicted = toolResult(sentFive, 1);
@@ -174,22 +173,22 @@ describe("tool-result media retention", () => {
     expect(evicted.content).toContain("payload limit");
     expect(evicted.content).toContain("Call the tool again");
 
-    // WHEN a sixth read arrives (15 + 5 = 20 MB, under the high mark)
-    const six = documentSteps(6, 5 * MB);
-    const sentSix = preModelCallSanitize(six, opts);
+    // WHEN a sixth read arrives (9 + 3 = 12 MB, under the high mark)
+    const six = documentSteps(6, 3 * MB);
+    const sentSix = preModelCallSanitize(six);
     // THEN no new eviction happens and the earlier prefix is byte-identical,
     // so the prompt cache holds between crossings
-    expect(retainedToolResultMediaKeys(six, opts)).toEqual(
+    expect(retainedToolResultMediaKeys(six)).toEqual(
       new Set(["5:0", "7:0", "9:0", "11:0"]),
     );
     expect(JSON.stringify(sentSix.slice(0, five.length))).toBe(
       JSON.stringify(sentFive),
     );
 
-    // WHEN a seventh read crosses the high mark again (25 MB)
-    const seven = documentSteps(7, 5 * MB);
+    // WHEN a seventh read crosses the high mark again (15 MB)
+    const seven = documentSteps(7, 3 * MB);
     // THEN the next two oldest go
-    expect(retainedToolResultMediaKeys(seven, opts)).toEqual(
+    expect(retainedToolResultMediaKeys(seven)).toEqual(
       new Set(["9:0", "11:0", "13:0"]),
     );
   });
@@ -198,9 +197,7 @@ describe("tool-result media retention", () => {
     // GIVEN a single read far above the high mark on its own
     const alone = documentSteps(1, 30 * MB);
     // THEN it is still sent
-    expect(preModelCallSanitize(alone, { providerName: "anthropic" })).toEqual(
-      alone,
-    );
+    expect(preModelCallSanitize(alone)).toEqual(alone);
 
     // GIVEN a small read followed by a huge one
     const history = [
@@ -208,9 +205,7 @@ describe("tool-result media retention", () => {
       ...toolStep("d2", "document", [inlineImage(30 * MB)]),
     ];
     // THEN only the older read is evicted
-    expect(
-      retainedToolResultMediaKeys(history, { providerName: "anthropic" }),
-    ).toEqual(new Set(["3:0"]));
+    expect(retainedToolResultMediaKeys(history)).toEqual(new Set(["3:0"]));
   });
 
   test("the image-count cap evicts oldest documents down to the low count", () => {
@@ -218,9 +213,7 @@ describe("tool-result media retention", () => {
     const history = documentSteps(81, 1);
 
     // WHEN sanitized
-    const retained = retainedToolResultMediaKeys(history, {
-      providerName: "anthropic",
-    });
+    const retained = retainedToolResultMediaKeys(history);
 
     // THEN the newest 50 are kept and the oldest 31 are evicted
     expect(retained.size).toBe(50);
@@ -230,10 +223,10 @@ describe("tool-result media retention", () => {
   });
 
   test("user attachments count toward the cap but are never evicted", () => {
-    // GIVEN a 20 MB user upload followed by two 3 MB reads
+    // GIVEN a 10 MB user upload followed by two 3 MB reads
     const upload: Message = {
       role: "user",
-      content: [{ type: "text", text: "here" }, inlineImage(20 * MB)],
+      content: [{ type: "text", text: "here" }, inlineImage(10 * MB)],
     };
     const history = [
       upload,
@@ -241,8 +234,8 @@ describe("tool-result media retention", () => {
       ...toolStep("d2", "document", [inlineImage(3 * MB)]),
     ];
 
-    // WHEN sanitized under Anthropic marks (23 MB fits, 26 MB does not)
-    const sent = preModelCallSanitize(history, { providerName: "anthropic" });
+    // WHEN sanitized (13 MB fits under the 14 MB mark, 16 MB does not)
+    const sent = preModelCallSanitize(history);
 
     // THEN the upload is intact, the older read is evicted, the newer read kept
     expect(sent[0]).toEqual(upload);
@@ -251,55 +244,31 @@ describe("tool-result media retention", () => {
   });
 
   test("a persisted reference is costed at its base64 size on the wire", () => {
-    // GIVEN an 18 MB reference (24 MB as base64, exactly the high mark) and a
-    // 4-byte inline read after it
+    // GIVEN a 10.5 MB reference (14 MB as base64, exactly the high mark) and
+    // a 4-byte inline read after it
     const history = [
-      ...toolStep("d1", "document", [refImage(18 * MB)]),
+      ...toolStep("d1", "document", [refImage(10.5 * MB)]),
       ...toolStep("d2", "document", [inlineImage(4)]),
     ];
 
-    // WHEN sanitized under Anthropic marks
-    const retained = retainedToolResultMediaKeys(history, {
-      providerName: "anthropic",
-    });
+    // WHEN sanitized
+    const retained = retainedToolResultMediaKeys(history);
 
     // THEN the second read tips the total over the mark and the reference goes
     expect(retained).toEqual(new Set(["3:0"]));
     // AND the reference alone sits on the mark without tripping it
-    expect(
-      retainedToolResultMediaKeys(history.slice(0, 2), {
-        providerName: "anthropic",
-      }),
-    ).toEqual(new Set(["1:0"]));
-  });
-
-  test("marks follow the transport provider, with the tightest band by default", () => {
-    // GIVEN three 5 MB reads (15 MB)
-    const history = documentSteps(3, 5 * MB);
-
-    // THEN Anthropic (24 MB high) keeps them all
-    expect(
-      retainedToolResultMediaKeys(history, { providerName: "anthropic" }).size,
-    ).toBe(3);
-    // AND Gemini (14 MB high, 9 MB low) keeps only the newest
-    expect(
-      retainedToolResultMediaKeys(history, { providerName: "gemini" }),
-    ).toEqual(new Set(["5:0"]));
-    // AND an unknown or unspecified provider gets the tightest band
-    expect(
-      retainedToolResultMediaKeys(history, { providerName: "acme" }),
-    ).toEqual(new Set(["5:0"]));
-    expect(retainedToolResultMediaKeys(history)).toEqual(new Set(["5:0"]));
+    expect(retainedToolResultMediaKeys(history.slice(0, 2))).toEqual(
+      new Set(["1:0"]),
+    );
   });
 
   test("is idempotent after an eviction", () => {
     // GIVEN a history that trips the cap
-    const history = documentSteps(7, 5 * MB);
-    const opts = { providerName: "anthropic" };
-    const once = preModelCallSanitize(history, opts);
+    const history = documentSteps(7, 3 * MB);
+    const once = preModelCallSanitize(history);
 
     // WHEN the projection is sanitized again (every send re-runs the bundle)
-    const twice = preModelCallSanitize(once, opts);
+    const twice = preModelCallSanitize(once);
 
     // THEN nothing changes
     expect(twice).toEqual(once);

@@ -2191,10 +2191,7 @@ export class AgentLoop {
         // web-search results to text. See {@link preModelCallSanitize}.
         const sanitizedHistory = timeSyncSection(
           "agent-loop:pre-model-call-sanitize",
-          () =>
-            preModelCallSanitize(history, {
-              providerName: this.provider.name,
-            }),
+          () => preModelCallSanitize(history),
           (sanitized) => ({ messageCount: sanitized.length }),
         );
 

@@ -7,10 +7,7 @@
  */
 
 import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
-import {
-  type MediaPayloadLimits,
-  mediaPayloadLimitsFor,
-} from "../providers/media-payload-limits.js";
+import { MEDIA_PAYLOAD_LIMITS } from "../providers/media-payload-limits.js";
 import {
   mediaSourceByteLength,
   mediaSourceDescriptor,
@@ -242,14 +239,6 @@ function mediaWireBytes(source: MediaSource): number {
   return Math.ceil((mediaSourceByteLength(source) * 4) / 3);
 }
 
-export interface PreModelCallSanitizeOptions {
-  /**
-   * `Provider.name` of the transport the request goes to; selects the payload
-   * marks retained media is held under. Omitted means the tightest known marks.
-   */
-  providerName?: string;
-}
-
 const FRAME_MEDIA_PLACEHOLDER =
   "\n[Media (image/audio) was captured and shown previously; binary data removed to save context.]";
 
@@ -274,9 +263,10 @@ function documentMediaPlaceholder(media: MediaBlock[]): string {
  *   reads. Retained across steps and turns until the payload cap retires the
  *   oldest.
  *
- * The cap is a hysteresis band over the media the request carries: retained
- * documents plus the user's own attachments, which count toward the total but
- * are never evicted here (the reactive overflow path owns those). Walking the
+ * The cap ({@link MEDIA_PAYLOAD_LIMITS}) is a hysteresis band over the media
+ * the request carries: retained documents plus the user's own attachments,
+ * which count toward the total but are never evicted here (the reactive
+ * overflow path owns those). Walking the
  * history in order, once the running total crosses the high mark, whole
  * document-carrying messages are evicted oldest-first until the total is under
  * the low mark. A trip at message k evicts only messages before k, so whether
@@ -288,10 +278,11 @@ function documentMediaPlaceholder(media: MediaBlock[]): string {
  * same reason: which frames go out depends on which step is current, which
  * changes every send.
  */
-function planMediaRetention(
-  history: Message[],
-  limits: MediaPayloadLimits,
-): { evicted: Map<string, MediaRetention>; retained: Set<string> } {
+function planMediaRetention(history: Message[]): {
+  evicted: Map<string, MediaRetention>;
+  retained: Set<string>;
+} {
+  const limits = MEDIA_PAYLOAD_LIMITS;
   const evicted = new Map<string, MediaRetention>();
   const retained = new Set<string>();
   const currentStepIdx = lastToolResultUserMessageIndex(history);
@@ -368,11 +359,8 @@ function planMediaRetention(
  * blocks and gains a text marker saying what was dropped and, for a document,
  * how to get it back. The model saw the media on the step it was captured.
  */
-function applyMediaRetention(
-  history: Message[],
-  limits: MediaPayloadLimits,
-): Message[] {
-  const { evicted: evictions } = planMediaRetention(history, limits);
+function applyMediaRetention(history: Message[]): Message[] {
+  const { evicted: evictions } = planMediaRetention(history);
   if (evictions.size === 0) {
     return history;
   }
@@ -408,14 +396,8 @@ function applyMediaRetention(
  * for consumers that mirror the outbound projection on the raw history (the
  * image-fallback plugin captions exactly the images a request carries).
  */
-export function retainedToolResultMediaKeys(
-  history: Message[],
-  options: PreModelCallSanitizeOptions = {},
-): Set<string> {
-  return planMediaRetention(
-    history,
-    mediaPayloadLimitsFor(options.providerName),
-  ).retained;
+export function retainedToolResultMediaKeys(history: Message[]): Set<string> {
+  return planMediaRetention(history).retained;
 }
 
 /**
@@ -423,9 +405,9 @@ export function retainedToolResultMediaKeys(
  * the pre-send transforms applied to every request that carries conversation
  * history:
  * - {@link applyMediaRetention} drops stale frame media (screenshots outside
- *   the current step) and, once the request's media crosses the provider's
- *   payload marks, the oldest document media (file reads), replacing each with
- *   a text marker. Beyond context bloat, an unbounded history can carry
+ *   the current step) and, once the request's media crosses the payload
+ *   marks, the oldest document media (file reads), replacing each with a text
+ *   marker. Beyond context bloat, an unbounded history can carry
  *   enough images to cross a provider's per-request limits, where a single
  *   request is rejected outright.
  * - {@link compactAxTreeHistory} collapses all but the most recent few
@@ -441,19 +423,13 @@ export function retainedToolResultMediaKeys(
  * Transforms the outbound copy only: the durable history keeps the rich
  * originals and each send re-derives the sanitized projection (every transform
  * is idempotent). Both the agent loop's model calls and the compactor's
- * summary calls funnel through this bundle with the same `providerName`, so
- * their request prefixes stay byte-aligned (the summary call reuses the
- * agent's warm prompt cache) and over-cap media and expired web-search tokens
- * are guaranteed to be removed from every request.
+ * summary calls funnel through this bundle, so their request prefixes stay
+ * byte-aligned (the summary call reuses the agent's warm prompt cache) and
+ * over-cap media and expired web-search tokens are guaranteed to be removed
+ * from every request.
  */
-export function preModelCallSanitize(
-  history: Message[],
-  options: PreModelCallSanitizeOptions = {},
-): Message[] {
-  const mediaRetained = applyMediaRetention(
-    history,
-    mediaPayloadLimitsFor(options.providerName),
-  );
+export function preModelCallSanitize(history: Message[]): Message[] {
+  const mediaRetained = applyMediaRetention(history);
   const axCompacted = compactAxTreeHistory(mediaRetained);
   const webSearchStripped =
     stripHistoricalWebSearchResults(axCompacted).messages;

@@ -1206,10 +1206,9 @@ function extractTextFromResponse(content: ContentBlock[]): string {
 function buildCompactionRequest(
   history: Message[],
   instruction: Message,
-  providerName: string,
 ): Message[] {
   return [
-    ...repairHistory(preModelCallSanitize(history, { providerName })).messages,
+    ...repairHistory(preModelCallSanitize(history)).messages,
     instruction,
   ];
 }
@@ -1377,19 +1376,13 @@ export async function runAssistantDrivenCompaction(
   // outbound request is truncated. A below-budget history is returned
   // untouched, keeping the prefix aligned with the agent's warm cache.
   const summaryHistory = truncateHistoryToBudget({
-    messages: preModelCallSanitize(args.messages, {
-      providerName: args.provider.name,
-    }),
+    messages: preModelCallSanitize(args.messages),
     systemPrompt: args.systemPrompt,
     budgetTokens: compactionPrefixBudget(args.maxInputTokens),
     providerName: args.provider.tokenEstimationProvider ?? args.provider.name,
     model: args.provider.defaultModel,
   });
-  const requestMessages = buildCompactionRequest(
-    summaryHistory,
-    instruction,
-    args.provider.name,
-  );
+  const requestMessages = buildCompactionRequest(summaryHistory, instruction);
 
   let response: ProviderResponse;
   try {
@@ -1851,9 +1844,7 @@ export async function runEmergencyCompaction(
   // transforms are 1:1 per message, so `splitIndex` maps onto the sanitized
   // array unchanged.
   const prefix = truncateHistoryToBudget({
-    messages: preModelCallSanitize(args.messages, {
-      providerName: args.provider.name,
-    }).slice(0, splitIndex),
+    messages: preModelCallSanitize(args.messages).slice(0, splitIndex),
     systemPrompt: args.systemPrompt,
     budgetTokens: compactionPrefixBudget(args.maxInputTokens),
     providerName: args.provider.tokenEstimationProvider ?? args.provider.name,
@@ -1864,11 +1855,7 @@ export async function runEmergencyCompaction(
     role: "user",
     content: [{ type: "text", text: EMERGENCY_COMPACTION_PROMPT }],
   };
-  const requestMessages = buildCompactionRequest(
-    prefix,
-    instruction,
-    args.provider.name,
-  );
+  const requestMessages = buildCompactionRequest(prefix, instruction);
 
   let response: ProviderResponse;
   try {
