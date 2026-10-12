@@ -287,6 +287,10 @@ const meta = {
           true,
         );
         cache.setQueryData(
+          ["assistant-capability", "allAlerts", SETTINGS_ASSISTANT_ID],
+          true,
+        );
+        cache.setQueryData(
           configGetQueryKey({ path: { assistant_id: SETTINGS_ASSISTANT_ID } }),
           settingsFixture(context),
         );
