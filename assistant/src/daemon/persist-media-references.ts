@@ -16,11 +16,8 @@
  * block passes through untouched.
  */
 
-import { optimizeImageForTransport } from "../agent/image-optimize.js";
-import { parseImageDimensions } from "../context/image-dimensions.js";
 import {
   createInlineAttachment,
-  getAttachmentContent,
   linkAttachmentToMessage,
 } from "../persistence/attachments-store.js";
 import type {
@@ -31,6 +28,7 @@ import type {
 } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import { toolImageFilename } from "./assistant-attachments.js";
+import { storedImageReferenceHints } from "./reference-image-hints.js";
 
 const log = getLogger("persist-media-references");
 
@@ -38,26 +36,6 @@ const log = getLogger("persist-media-references");
 function imageFilename(mediaType: string): string {
   const subtype = mediaType.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "png";
   return `image.${subtype}`;
-}
-
-/**
- * Size hints for an image reference. The model receives the
- * transport-optimized image (`resolveMediaReferences` applies the same
- * optimization at send time), so hint the optimized dimensions and the
- * optimized byte length rather than the stored original's.
- */
-async function optimizedImageHints(
-  dataBase64: string,
-  mediaType: string,
-): Promise<{
-  dimensions: { width: number; height: number } | null;
-  transportSizeBytes: number;
-}> {
-  const optimized = await optimizeImageForTransport(dataBase64, mediaType);
-  return {
-    dimensions: parseImageDimensions(optimized.data, optimized.mediaType),
-    transportSizeBytes: Buffer.byteLength(optimized.data, "base64"),
-  };
 }
 
 /**
@@ -116,18 +94,14 @@ async function referenceMediaBlock(
       : {}),
   };
   if (block.type === "image") {
-    // Normalization may have rewritten the bytes (HEIF to JPEG); hint from
-    // what was stored in that case rather than from the block's payload.
-    const storedData =
-      stored.mimeType === media_type
-        ? data
-        : (getAttachmentContent(stored.id)?.toString("base64") ?? data);
-    const hints = await optimizedImageHints(storedData, stored.mimeType);
-    if (hints.dimensions) {
-      source.width = hints.dimensions.width;
-      source.height = hints.dimensions.height;
+    const hints = await storedImageReferenceHints(stored.id, stored.mimeType);
+    if (hints) {
+      if (hints.dimensions) {
+        source.width = hints.dimensions.width;
+        source.height = hints.dimensions.height;
+      }
+      source.transportSizeBytes = hints.transportSizeBytes;
     }
-    source.transportSizeBytes = hints.transportSizeBytes;
     return { type: "image", source };
   }
   return {

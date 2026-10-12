@@ -14,7 +14,6 @@ import {
   enrichMessageWithSourcePaths,
   type MessageAttachmentInput,
 } from "../agent/attachments.js";
-import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import type { AssistantEvent } from "../api/index.js";
 import type {
   TurnChannelContext,
@@ -25,7 +24,6 @@ import {
   parseClientOs,
   parseInterfaceId,
 } from "../channels/types.js";
-import { parseImageDimensions } from "../context/image-dimensions.js";
 import type { SupportedLocale } from "../i18n/index.js";
 import {
   type ProviderMessageMetadata,
@@ -42,7 +40,6 @@ import {
   AttachmentUploadError,
   createInlineAttachment,
   deleteOrphanAttachments,
-  getAttachmentContent,
   getFilePathForAttachment,
   linkAttachmentToMessage,
   scopeAttachmentToMessageConversation,
@@ -92,6 +89,7 @@ import {
   offloadOversizedText,
   type PortOversizedContext,
 } from "./port-oversized-content.js";
+import { storedImageReferenceHints } from "./reference-image-hints.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { restingTrust } from "./trust-context-types.js";
 import { postUnsendableImageNotice } from "./unsendable-image-notice.js";
@@ -305,34 +303,6 @@ export async function serializePersistedUserMessageContent(
   return serializeUserContentBlocks(content, displayContent, attachmentBlocks);
 }
 
-/**
- * Size hints to record on an image reference. The model receives the
- * transport-optimized image (`resolveMediaReferences` applies the same
- * optimization at send time), so we hint the optimized dimensions and byte
- * length rather than the stored original's, keeping the per-turn token
- * estimate and the payload cap accurate without a disk read on the hot path.
- */
-async function computeReferenceImageHints(
-  attachmentId: string,
-  mediaType: string,
-): Promise<{
-  dimensions: { width: number; height: number } | null;
-  transportSizeBytes: number;
-} | null> {
-  const bytes = getAttachmentContent(attachmentId);
-  if (!bytes) {
-    return null;
-  }
-  const optimized = await optimizeImageForTransport(
-    bytes.toString("base64"),
-    mediaType,
-  );
-  return {
-    dimensions: parseImageDimensions(optimized.data, optimized.mediaType),
-    transportSizeBytes: Buffer.byteLength(optimized.data, "base64"),
-  };
-}
-
 interface PreparedUserAttachment {
   position: number;
   /** The content block persisted for this attachment (a reference or, on a
@@ -433,7 +403,7 @@ async function referenceBlockForAttachment(
     extractedText: a.extractedText,
   };
   if (stored.mimeType.toLowerCase().startsWith("image/")) {
-    const hints = await computeReferenceImageHints(stored.id, stored.mimeType);
+    const hints = await storedImageReferenceHints(stored.id, stored.mimeType);
     if (hints) {
       ref.transportSizeBytes = hints.transportSizeBytes;
       if (hints.dimensions) {
