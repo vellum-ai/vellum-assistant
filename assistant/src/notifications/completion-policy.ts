@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { getConfig } from "../config/loader.js";
 import { areChatReplyAlertsDisabled } from "./chat-reply-policy.js";
 import type { ChannelDestination } from "./types.js";
 import type { Urgency } from "./urgency.js";
@@ -66,7 +67,12 @@ export interface NotificationPresentationContext {
   assistantInitiatedThreadCreated?: boolean;
 }
 
-/** Presentation is independent of urgency and channel routing. */
+/**
+ * Presentation is independent of urgency and channel routing. Explicit
+ * suppression (a quiet payload, disabled chat-reply alerts) always wins. The
+ * all-alerts preference then banners everything else; without it only urgent
+ * signals, completions, and new From me chats banner.
+ */
 export function isLocalNotificationSilent(
   event: CompletionEvent & { urgency: Urgency },
   presentation?: NotificationPresentationContext,
@@ -76,6 +82,9 @@ export function isLocalNotificationSilent(
     areChatReplyAlertsDisabled(event.sourceEventName)
   ) {
     return true;
+  }
+  if (getConfig().notifications.allAlertsEnabled) {
+    return false;
   }
   return (
     !presentation?.assistantInitiatedThreadCreated &&

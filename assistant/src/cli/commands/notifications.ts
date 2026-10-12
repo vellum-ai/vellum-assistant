@@ -145,6 +145,7 @@ export function registerNotificationsCommand(program: Command): void {
             sourceEventName?: string;
             message: string;
             urgent: boolean;
+            quiet: boolean;
             title?: string;
             urgency?: string;
             requiresAction?: boolean;
@@ -310,6 +311,7 @@ export function registerNotificationsCommand(program: Command): void {
                 contextPayload: {
                   requestedMessage: message,
                   requestedBySource: sourceChannel,
+                  ...(opts.quiet ? { quiet: true } : {}),
                   ...(opts.title ? { requestedTitle: opts.title } : {}),
                   ...(preferredChannels?.length ? { preferredChannels } : {}),
                   ...(channelAllowlist?.length ? { channelAllowlist } : {}),
@@ -351,7 +353,10 @@ export function registerNotificationsCommand(program: Command): void {
               if (signal.reason) {
                 log.info(`  Reason: ${signal.reason}`);
               }
-              if (signal.selectedChannels && signal.selectedChannels.length > 0) {
+              if (
+                signal.selectedChannels &&
+                signal.selectedChannels.length > 0
+              ) {
                 log.info(`  Channels: ${signal.selectedChannels.join(", ")}`);
               }
               if (signal.receiptClass) {

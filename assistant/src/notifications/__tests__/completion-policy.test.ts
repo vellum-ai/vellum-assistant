@@ -243,9 +243,10 @@ describe("completion local delivery policy", () => {
   );
 });
 
+const share = { sourceEventName: "assistant.share", urgency: "low" as const };
+
 describe("new From me thread presentation", () => {
   const presentation = { assistantInitiatedThreadCreated: true };
-  const share = { sourceEventName: "assistant.share", urgency: "low" as const };
 
   test("can alert without completion ownership or urgency escalation", () => {
     expect(isLocalNotificationSilent(share)).toBe(true);
@@ -273,6 +274,55 @@ describe("new From me thread presentation", () => {
         ),
       ).toBe(true);
       expect(isLocalNotificationSilent(share, presentation)).toBe(false);
+    } finally {
+      saveRawConfig({});
+    }
+  });
+});
+
+describe("all alerts preference", () => {
+  test("defaults off and keeps the urgent-only policy", () => {
+    expect(isLocalNotificationSilent(share)).toBe(true);
+  });
+
+  test("banners low-urgency, scheduled, and background signals", () => {
+    saveRawConfig({ notifications: { allAlertsEnabled: true } });
+    try {
+      expect(isLocalNotificationSilent(share)).toBe(false);
+      expect(
+        isLocalNotificationSilent({
+          sourceEventName: "schedule.result",
+          urgency: "low",
+        }),
+      ).toBe(false);
+      expect(
+        isLocalNotificationSilent({
+          sourceEventName: "activity.complete",
+          urgency: "low",
+        }),
+      ).toBe(false);
+    } finally {
+      saveRawConfig({});
+    }
+  });
+
+  test("explicit suppression retains priority", () => {
+    saveRawConfig({
+      notifications: { allAlertsEnabled: true, newMessageEnabled: false },
+    });
+    try {
+      expect(
+        isLocalNotificationSilent({
+          ...share,
+          contextPayload: { quiet: true },
+        }),
+      ).toBe(true);
+      expect(
+        isLocalNotificationSilent({
+          sourceEventName: "chat.assistant_reply",
+          urgency: "high",
+        }),
+      ).toBe(true);
     } finally {
       saveRawConfig({});
     }

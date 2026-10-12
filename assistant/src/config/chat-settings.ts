@@ -71,6 +71,10 @@ export const ChatSettingsPatchSchema = z.object({
         .unwrap()
         .nullable()
         .optional(),
+      allAlertsEnabled: NotificationsConfigSchema.shape.allAlertsEnabled
+        .unwrap()
+        .nullable()
+        .optional(),
     })
     .passthrough()
     .nullable()
@@ -88,6 +92,7 @@ export function scrubNulledChatSettings(
     ["conversations", "autoArchive", "enabled"],
     ["conversations", "autoArchive", "afterDays"],
     ["notifications", "newMessageEnabled"],
+    ["notifications", "allAlertsEnabled"],
   ]) {
     if (readPath(patch, path) !== null) {
       continue;

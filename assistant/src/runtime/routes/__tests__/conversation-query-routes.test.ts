@@ -2161,6 +2161,7 @@ describe("persisted chat settings", () => {
       ["conversations.autoArchive", { afterDays: 2 }],
       ["notifications.newMessageEnabled", "true"],
       ["notifications.newMessageEnabled", 1],
+      ["notifications.allAlertsEnabled", "true"],
     ])(
       `${writer} rejects changed invalid settings at %s over legacy config`,
       async (path, value) => {
@@ -2208,6 +2209,31 @@ describe("persisted chat settings", () => {
     });
   });
 
+  test("PATCH persists the all-alerts preference and a null leaf restores the default", async () => {
+    const result = await patchRoute.handler({
+      body: { notifications: { allAlertsEnabled: true } },
+    });
+    expect(result).toMatchObject({
+      notifications: {
+        newMessageEnabled: false,
+        allAlertsEnabled: true,
+        futureOption: "keep",
+      },
+    });
+    invalidateConfigCache();
+    expect(loadConfig().notifications.allAlertsEnabled).toBe(true);
+
+    await patchRoute.handler({
+      body: { notifications: { allAlertsEnabled: null } },
+    });
+    expect(loadRawConfig()).toEqual({
+      ...rawConfigFixture,
+      notifications: { newMessageEnabled: false, futureOption: "keep" },
+    });
+    invalidateConfigCache();
+    expect(loadConfig().notifications.allAlertsEnabled).toBe(false);
+  });
+
   test("sparse GET exposes effective defaults without materializing unrelated fields", async () => {
     rawConfigFixture = {};
     seedRawConfig();
@@ -2215,7 +2241,7 @@ describe("persisted chat settings", () => {
     const result = await getRoute.handler({});
     expect(result).toMatchObject({
       conversations: { autoArchive: { enabled: false, afterDays: 7 } },
-      notifications: { newMessageEnabled: true },
+      notifications: { newMessageEnabled: true, allAlertsEnabled: false },
     });
     expect(result).not.toHaveProperty("conversations.skipAutoRetitling");
     expect(loadRawConfig()).not.toHaveProperty("conversations");
@@ -2303,7 +2329,7 @@ describe("persisted chat settings", () => {
     const result = await patchRoute.handler({ body });
     expect(result).toMatchObject({
       conversations: { autoArchive: { enabled: false, afterDays: 7 } },
-      notifications: { newMessageEnabled: true },
+      notifications: { newMessageEnabled: true, allAlertsEnabled: false },
     });
     expect(loadRawConfig()).not.toHaveProperty("conversations.autoArchive");
     expect(loadRawConfig()).not.toHaveProperty("notifications");
@@ -2376,7 +2402,7 @@ describe("persisted chat settings", () => {
 
       expect(result).toMatchObject({
         conversations: { autoArchive: { enabled: false, afterDays: 7 } },
-        notifications: { newMessageEnabled: true },
+        notifications: { newMessageEnabled: true, allAlertsEnabled: false },
       });
       expect(loadRawConfig()).toEqual({ maxStepsPerSession: 75 });
     },

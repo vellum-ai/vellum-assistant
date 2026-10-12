@@ -40,6 +40,7 @@ assistant notifications send --title "..." --message "..." --urgent
 | `--message <message>`  | Yes             | Notification body. Markdown (GFM) renders in the detail panel; the OS banner shows plain text.                                                       |
 | `--title <title>`      | Yes in practice | Short headline (≤ 8 words). Omitting it triggers a body-truncation fallback that shows up as a duplicate of `--message` — always write a real title. |
 | `--urgent`             | No              | Mark as needing attention now/soon                                                                                                                   |
+| `--quiet`              | No              | Keep off the OS banner even when the user banners every notification. Still lands in the conversation and Home.                                      |
 | `--preferred-channels` | No              | Additive channel hints. Vellum stays selected.                                                                                                       |
 | `--channels`           | No              | Exclusive allowlist (e.g. `telegram`). Replaces the default set. Urgent delivery does not add vellum or platform. Wins over `--preferred-channels`.  |
 | `--json`               | No              | Output machine-readable JSON                                                                                                                         |
@@ -68,6 +69,8 @@ Avoid large headings (`#`, `##`) and wide tables — they render fine in the pan
 ### Urgent semantics
 
 Use `--urgent` for items needing attention now/soon (blocked work, broken auth, time-sensitive issues). Skip for items the user should see when they have time.
+
+Use `--quiet` for something that should land in its conversation and Home without an OS banner, such as a routine digest. The user can turn on banners for every notification (`notifications.allAlertsEnabled`, in Chats Settings); `--quiet` is the per-send exception, and it only affects the local banner, never routing.
 
 ### Channel routing
 

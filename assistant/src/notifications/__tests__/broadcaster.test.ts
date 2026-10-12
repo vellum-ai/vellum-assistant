@@ -1801,3 +1801,85 @@ describe("NotificationBroadcaster new From me threads", () => {
     });
   });
 });
+
+describe("NotificationBroadcaster all alerts preference", () => {
+  const copy = { title: "Reach", body: "Thinking of you." };
+  const lowUrgency = {
+    ...makeSignal().attentionHints,
+    urgency: "low" as const,
+  };
+  const decision = () =>
+    makeDecision({
+      selectedChannels: ["vellum"],
+      renderedCopy: { vellum: copy },
+    });
+
+  beforeEach(() => {
+    pairingByChannel.vellum = {
+      ...defaultPairing(),
+      conversationId: "conv-1",
+      messageId: "msg-1",
+      createdNewConversation: true,
+    };
+  });
+
+  test.each([
+    ["assistant_tool", "heartbeat.reach"],
+    ["scheduler", "schedule.notify"],
+  ] as const)(
+    "banners a low-urgency %s signal while the preference is on",
+    async (sourceChannel, sourceEventName) => {
+      saveRawConfig({ notifications: { allAlertsEnabled: true } });
+      const local = makeCapturingAdapter("vellum");
+      const paired = mock(() => {});
+      const broadcaster = new NotificationBroadcaster([local.adapter]);
+      broadcaster.setOnConversationCreated(paired);
+
+      await broadcaster.broadcastDecision(
+        makeSignal({
+          sourceChannel,
+          sourceEventName,
+          attentionHints: lowUrgency,
+        }),
+        decision(),
+      );
+
+      expect(local.sends[0]?.payload.silent).toBe(false);
+      expect(paired).toHaveBeenCalledWith(
+        expect.objectContaining({ conversationId: "conv-1", silent: false }),
+      );
+    },
+  );
+
+  test("keeps an explicitly quiet signal silent", async () => {
+    saveRawConfig({ notifications: { allAlertsEnabled: true } });
+    const local = makeCapturingAdapter("vellum");
+
+    await new NotificationBroadcaster([local.adapter]).broadcastDecision(
+      makeSignal({
+        sourceChannel: "assistant_tool",
+        sourceEventName: "heartbeat.reach",
+        contextPayload: { quiet: true },
+        attentionHints: lowUrgency,
+      }),
+      decision(),
+    );
+
+    expect(local.sends[0]?.payload.silent).toBe(true);
+  });
+
+  test("stays silent for a low-urgency signal while the preference is off", async () => {
+    const local = makeCapturingAdapter("vellum");
+
+    await new NotificationBroadcaster([local.adapter]).broadcastDecision(
+      makeSignal({
+        sourceChannel: "assistant_tool",
+        sourceEventName: "heartbeat.reach",
+        attentionHints: lowUrgency,
+      }),
+      decision(),
+    );
+
+    expect(local.sends[0]?.payload.silent).toBe(true);
+  });
+});

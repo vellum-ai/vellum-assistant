@@ -260,6 +260,26 @@ describe("notifications send", () => {
     expect(payload.preferredChannels).toBeUndefined();
   });
 
+  test("send --quiet marks the signal quiet for local presentation", async () => {
+    const { exitCode } = await runCommand([
+      "send",
+      "--message",
+      "Nightly digest",
+      "--quiet",
+    ]);
+
+    expect(exitCode).toBe(0);
+    const payload = lastSendBody().contextPayload as Record<string, unknown>;
+    expect(payload.quiet).toBe(true);
+  });
+
+  test("send omits quiet unless --quiet is passed", async () => {
+    await runCommand(["send", "--message", "Hello"]);
+
+    const payload = lastSendBody().contextPayload as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("quiet");
+  });
+
   test("send rejects invalid urgency", async () => {
     const { parsed, exitCode } = await runCommand([
       "send",

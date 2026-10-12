@@ -14,6 +14,7 @@ describe("chat settings config", () => {
       afterDays: 7,
     });
     expect(config.notifications.newMessageEnabled).toBe(true);
+    expect(config.notifications.allAlertsEnabled).toBe(false);
   });
 
   test.each([1, 7, 14, 30])(
@@ -35,6 +36,8 @@ describe("chat settings config", () => {
     { conversations: null },
     { notifications: { newMessageEnabled: 1 } },
     { notifications: { newMessageEnabled: null } },
+    { notifications: { allAlertsEnabled: 1 } },
+    { notifications: { allAlertsEnabled: null } },
     { notifications: [] },
   ])(
     "raw writes reject invalid settings before changing disk: %j",
@@ -63,6 +66,7 @@ describe("chat settings config", () => {
     { notifications: null },
     { notifications: { newMessageEnabled: "false" } },
     { notifications: { newMessageEnabled: null } },
+    { notifications: { allAlertsEnabled: "true" } },
   ])("raw unrelated writes preserve untouched legacy values: %j", (legacy) => {
     const original = { ...legacy, maxStepsPerSession: 75 };
     writeFileSync(getWorkspaceConfigPath(), JSON.stringify(original));
@@ -86,6 +90,10 @@ describe("chat settings config", () => {
     [
       { notifications: { newMessageEnabled: "false" } },
       { notifications: { newMessageEnabled: "true" } },
+    ],
+    [
+      { notifications: { allAlertsEnabled: "true" } },
+      { notifications: { allAlertsEnabled: "false" } },
     ],
     [
       { conversations: { autoArchive: { enabled: "true", afterDays: 2 } } },

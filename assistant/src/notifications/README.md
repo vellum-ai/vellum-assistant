@@ -88,6 +88,14 @@ guardian alone does not make a shared preview private. A declared but malformed
 completion ownership payload is excluded too. Ordinary activity notifications
 and skill-update receipts retain their existing feed behavior.
 
+`notifications.allAlertsEnabled` defaults to false. Setting it true makes every
+vellum local intent non-silent regardless of urgency, completion status, or
+From me promotion, so proactive sends and scheduled output banner too. Explicit
+`contextPayload.quiet` (the CLI's `--quiet`) and a disabled chat-reply
+preference keep precedence. The preference changes presentation only: channel
+routing, platform push, and the Home feed are unchanged. `completion-policy.ts`
+reads it at send time, so a toggle applies to the next delivery.
+
 `background-result-producer.ts` owns successful subagent parent continuations
 and background-tool completion wakes in user conversations. It waits for
 user-facing work and queued continuations to settle, preserves scheduled-run

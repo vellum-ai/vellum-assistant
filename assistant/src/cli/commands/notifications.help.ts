@@ -75,6 +75,12 @@ Examples:
           defaultValue: false,
         },
         {
+          flags: "--quiet",
+          description:
+            "Keep this notification off the OS banner even when the user banners every notification. It still reaches its conversation and Vellum Home; routing is unchanged.",
+          defaultValue: false,
+        },
+        {
           flags: "--source-channel <channel>",
           description: `Source channel producing this notification. One of: ${SOURCE_CHANNEL_HELP} (default: ${DEFAULT_SOURCE_CHANNEL})`,
         },
@@ -159,6 +165,7 @@ Examples:
 Arguments:
   --message            The notification body text (required, must be non-empty)
   --urgent             Shortcut that maps to urgency=critical + requires-action=true
+  --quiet              Keep the notification off the OS banner; it still lands in its conversation and Home
 
 Behavioral notes:
   - The signal is emitted through the full notification pipeline: event store,
@@ -167,6 +174,8 @@ Behavioral notes:
     is treated as critical and requires user action. Explicit --urgency /
     --requires-action flags still win for back-compat.
   - Without --urgent, --urgency defaults to low and --requires-action to false.
+  - --quiet wins over urgency for the local banner only. Channel routing,
+    pushes, and the Home feed are unchanged.
   - --preferred-channels are additive hints; vellum stays in the selected set.
   - --channels is an exclusive allowlist. Only those connected channels are
     selected. Urgent delivery does not force vellum or platform, and Home
@@ -184,6 +193,7 @@ Behavioral notes:
 Examples:
   $ assistant notifications send --message "Task complete"
   $ assistant notifications send --message "Pager: prod is down" --urgent
+  $ assistant notifications send --message "Nightly digest" --quiet
   $ assistant notifications send --message "Alarm" --channels telegram --urgent
   $ assistant notifications send --message "Build green" --conversation-id 649c4645-3a6f-4ded-a713-504f02ca806b`,
     },

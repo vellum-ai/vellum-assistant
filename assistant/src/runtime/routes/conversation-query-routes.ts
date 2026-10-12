@@ -970,6 +970,7 @@ function overlayChatSettingsForWire(config: unknown): void {
   root.notifications = {
     ...readPlainObject(root.notifications),
     newMessageEnabled: effective.notifications.newMessageEnabled,
+    allAlertsEnabled: effective.notifications.allAlertsEnabled,
   };
 }
 
