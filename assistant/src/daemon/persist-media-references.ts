@@ -20,6 +20,7 @@ import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import { parseImageDimensions } from "../context/image-dimensions.js";
 import {
   createInlineAttachment,
+  getAttachmentContent,
   linkAttachmentToMessage,
 } from "../persistence/attachments-store.js";
 import type {
@@ -82,14 +83,19 @@ async function referenceMediaBlock(
       ? (imageFilenameOverride ?? imageFilename(media_type))
       : "attachment");
 
-  let stored: { id: string; sizeBytes: number };
+  let stored: { id: string; mimeType: string; sizeBytes: number };
   try {
+    // Images are normalized the way uploads are: the declared type is only
+    // the tool's claim, and the store corrects it to the sniffed format (and
+    // converts HEIF to JPEG), so the reference's `media_type` describes the
+    // stored bytes the same way an upload reference's does.
     stored = await createInlineAttachment(
       conversationId,
       conversationCreatedAt,
       filename,
       media_type,
       data,
+      { normalizeImage: block.type === "image" },
     );
     linkAttachmentToMessage(messageId, stored.id, position);
   } catch (err) {
@@ -102,7 +108,7 @@ async function referenceMediaBlock(
 
   const source: WorkspaceRefMediaSource = {
     type: "workspace_ref",
-    media_type,
+    media_type: stored.mimeType,
     attachmentId: stored.id,
     sizeBytes: stored.sizeBytes,
     ...(block.source.filename !== undefined
@@ -110,7 +116,13 @@ async function referenceMediaBlock(
       : {}),
   };
   if (block.type === "image") {
-    const hints = await optimizedImageHints(data, media_type);
+    // Normalization may have rewritten the bytes (HEIF to JPEG); hint from
+    // what was stored in that case rather than from the block's payload.
+    const storedData =
+      stored.mimeType === media_type
+        ? data
+        : (getAttachmentContent(stored.id)?.toString("base64") ?? data);
+    const hints = await optimizedImageHints(storedData, stored.mimeType);
     if (hints.dimensions) {
       source.width = hints.dimensions.width;
       source.height = hints.dimensions.height;

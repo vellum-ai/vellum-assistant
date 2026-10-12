@@ -247,7 +247,8 @@ function isMediaBlock(block: ContentBlock): block is MediaBlock {
  * - An image whose bytes or declared format no provider reads is replaced by a
  *   text note at send ({@link isProviderReadableImageData} for inline bytes,
  *   {@link isProviderReadableImageMimeType} for a reference, whose declared
- *   type storage has normalized to the sniffed one) and costs nothing.
+ *   type the attachment store has normalized to the sniffed format for both
+ *   uploads and persisted tool results) and costs nothing.
  * - An inline image is already transport-optimized and is sent as is.
  * - An image reference is costed at the size the send path produces
  *   (`transportSizeBytes`, recorded at persist time by running the same

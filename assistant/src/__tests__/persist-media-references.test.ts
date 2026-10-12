@@ -81,6 +81,56 @@ describe("referenceMediaBlocksForPersist", () => {
     expect(nested.source.transportSizeBytes).toBe(5);
   });
 
+  test("normalizes a tool image's declared type to its sniffed format", async () => {
+    // A tool's declared media type is only a claim. The store sniffs the
+    // bytes the way uploads are sniffed, so the reference describes the
+    // stored format and the outbound sanitizer's readability check (which
+    // trusts the reference's type) agrees with what the resolver will send.
+    const conv = createConversation();
+    const msg = await addMessage(conv.id, "user", "tool results");
+    const pngBytesDeclaredSvg =
+      "iVBORw0KGgoAAAANSUhEUgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+
+    const referenced = await referenceMediaBlocksForPersist(
+      conv.id,
+      conv.createdAt,
+      msg.id,
+      [
+        {
+          type: "tool_result",
+          tool_use_id: "tool-mislabeled",
+          content: "rendered",
+          contentBlocks: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: "image/svg+xml",
+                data: pngBytesDeclaredSvg,
+              },
+            },
+          ],
+        },
+      ],
+    );
+
+    const toolResult = referenced[0] as Extract<
+      ContentBlock,
+      { type: "tool_result" }
+    >;
+    const nested = toolResult.contentBlocks![0] as Extract<
+      ContentBlock,
+      { type: "image" }
+    >;
+    if (nested.source.type !== "workspace_ref") {
+      throw new Error("expected ref");
+    }
+    expect(nested.source.media_type).toBe("image/png");
+    expect(nested.source.transportSizeBytes).toBe(
+      Buffer.byteLength(pngBytesDeclaredSvg, "base64"),
+    );
+  });
+
   test("leaves an already-referenced block untouched and creates no row", async () => {
     const conv = createConversation();
     const msg = await addMessage(conv.id, "user", "tool results");
