@@ -70,10 +70,11 @@ export const hostFileReadInputSchema = z.looseObject({
 export const hostFileReadTool = {
   name: "host_file_read",
   description:
-    "Read the contents of a file on your guardian's device, including images (JPEG, PNG, GIF, WebP) and audio (MP3, WAV, OGG, FLAC, AAC, M4A). Text reads return the first 100000 characters unless you pass `max_chars`; when a read stops short the result says so, and `start_index` pages on from there. For files on your own machine, use file_read instead.",
+    "Read the contents of a file on your guardian's device, including images (JPEG, PNG, GIF, WebP) and audio (MP3, WAV, OGG, FLAC, AAC, M4A). Text reads return the first 100000 characters unless you pass `max_chars`; when a read stops short the result says so, and `start_index` pages on from there. Media you read stays in view on later turns, so files read at different times can be compared; when a request nears the provider's size limit the oldest are dropped and can be read again. For files on your own machine, use file_read instead.",
   category: "host-filesystem",
   executionTarget: "host",
   defaultRiskLevel: RiskLevel.Medium,
+  mediaRetention: "document",
 
   input_schema: toToolInputSchema(hostFileReadInputSchema),
 

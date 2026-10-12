@@ -1,5 +1,9 @@
-import type { ToolDefinition } from "../tools/tool-types.js";
-export type { ToolDefinition };
+import {
+  MEDIA_RETENTION_VALUES,
+  type MediaRetention,
+  type ToolDefinition,
+} from "../tools/tool-types.js";
+export { MEDIA_RETENTION_VALUES, type MediaRetention, type ToolDefinition };
 
 /**
  * The tool name that activates provider-native web search. Callers append a
@@ -183,6 +187,14 @@ export interface ToolResultContent {
   is_error?: boolean;
   /** Rich content blocks (e.g. images) to include alongside text in the tool result. */
   contentBlocks?: ContentBlock[];
+  /**
+   * Retention class of the media in `contentBlocks`, copied from the tool
+   * definition by the agent loop and present only when the tool declares one.
+   * Internal: it survives persistence (the content-block schema passes unknown
+   * keys through) and never reaches a provider, since every adapter builds its
+   * tool_result wire block field by field.
+   */
+  mediaRetention?: MediaRetention;
 }
 
 export interface ServerToolUseContent {

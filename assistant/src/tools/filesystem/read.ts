@@ -61,10 +61,11 @@ export const fileReadInputSchema = z.looseObject({
 export const fileReadTool = {
   name: "file_read",
   description:
-    "Read the contents of a file on your own machine. Text reads return the first 100000 characters unless you pass `max_chars`; when a read stops short the result says so, and `start_index` pages on from there. To find where something is in a large file, code_search is cheaper than paging through it. For image files (JPEG, PNG, GIF, WebP), returns the image for visual analysis. For audio files (MP3, WAV, OGG, FLAC, AAC, M4A), returns the audio for listening. Use host_file_read for files on your guardian's device instead.",
+    "Read the contents of a file on your own machine. Text reads return the first 100000 characters unless you pass `max_chars`; when a read stops short the result says so, and `start_index` pages on from there. To find where something is in a large file, code_search is cheaper than paging through it. For image files (JPEG, PNG, GIF, WebP), returns the image for visual analysis. For audio files (MP3, WAV, OGG, FLAC, AAC, M4A), returns the audio for listening. Media you read stays in view on later turns, so files read at different times can be compared; when a request nears the provider's size limit the oldest are dropped and can be read again. Use host_file_read for files on your guardian's device instead.",
   category: "filesystem",
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Low,
+  mediaRetention: "document",
 
   input_schema: toToolInputSchema(fileReadInputSchema, {
     advertiseRequired: ["activity"],

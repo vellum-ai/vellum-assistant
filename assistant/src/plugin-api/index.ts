@@ -257,13 +257,19 @@ export { isMaxTokensStopReason } from "../providers/stop-reasons.js";
 // `PostModelCallContext.error` to decide whether to caption the request's
 // images and retry.
 export { isVisionNotSupportedError } from "../util/provider-error-patterns.js";
-// Index of the last user message carrying `tool_result` blocks — the
-// "current turn" boundary the host's outbound sanitizer keeps intact while it
-// strips media from older tool results. A plugin that mirrors that scope (e.g.
-// captioning only the media a rejected request would still carry) reads it to
-// avoid touching stale tool-result media the sanitizer will replace with its
-// removed-media marker.
-export { lastToolResultUserMessageIndex } from "../context/outbound-sanitize.js";
+// Keys (`${messageIndex}:${blockIndex}`) of the tool_result blocks whose
+// media the host's outbound sanitizer sends on a model call rather than
+// replacing with a marker. A plugin that mirrors that scope (e.g. captioning
+// exactly the images a request carries) reads it instead of re-deriving the
+// retention policy.
+export {
+  // Index of the last user message carrying `tool_result` blocks: the current
+  // tool step, where screenshot (frame) media is kept. Kept for plugins that
+  // import it; `retainedToolResultMediaKeys` is the full retention answer,
+  // since file-read (document) media is also kept on earlier steps.
+  lastToolResultUserMessageIndex,
+  retainedToolResultMediaKeys,
+} from "../context/outbound-sanitize.js";
 // The `surfaceId` a successful `ui_show` tool result reports, read from the
 // envelope the host writes (which may also carry advisory `note`/`status`
 // fields). A `post-model-call` hook correlates a progress surface's `ui_show`

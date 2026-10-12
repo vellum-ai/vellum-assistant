@@ -1181,8 +1181,9 @@ function extractTextFromResponse(content: ContentBlock[]): string {
 
 // Build the outbound message list for a compaction provider call: apply the
 // same pre-send sanitization bundle as the agent loop's model calls
-// (`preModelCallSanitize`: old tool-result media stripped, AX trees
-// collapsed, historical web-search results converted to text), run the
+// (`preModelCallSanitize`: stale frame media and over-cap document media
+// dropped, AX trees collapsed, historical web-search results converted to
+// text), run the
 // deterministic history repair over the sanitized projection, then append
 // the summarization instruction at the tail. The repair pass downgrades any
 // orphaned `tool_result` (its `tool_use` outside the request, e.g. cut off
@@ -1205,9 +1206,10 @@ function extractTextFromResponse(content: ContentBlock[]): string {
 function buildCompactionRequest(
   history: Message[],
   instruction: Message,
+  providerName: string,
 ): Message[] {
   return [
-    ...repairHistory(preModelCallSanitize(history)).messages,
+    ...repairHistory(preModelCallSanitize(history, { providerName })).messages,
     instruction,
   ];
 }
@@ -1375,13 +1377,19 @@ export async function runAssistantDrivenCompaction(
   // outbound request is truncated. A below-budget history is returned
   // untouched, keeping the prefix aligned with the agent's warm cache.
   const summaryHistory = truncateHistoryToBudget({
-    messages: preModelCallSanitize(args.messages),
+    messages: preModelCallSanitize(args.messages, {
+      providerName: args.provider.name,
+    }),
     systemPrompt: args.systemPrompt,
     budgetTokens: compactionPrefixBudget(args.maxInputTokens),
     providerName: args.provider.tokenEstimationProvider ?? args.provider.name,
     model: args.provider.defaultModel,
   });
-  const requestMessages = buildCompactionRequest(summaryHistory, instruction);
+  const requestMessages = buildCompactionRequest(
+    summaryHistory,
+    instruction,
+    args.provider.name,
+  );
 
   let response: ProviderResponse;
   try {
@@ -1843,7 +1851,9 @@ export async function runEmergencyCompaction(
   // transforms are 1:1 per message, so `splitIndex` maps onto the sanitized
   // array unchanged.
   const prefix = truncateHistoryToBudget({
-    messages: preModelCallSanitize(args.messages).slice(0, splitIndex),
+    messages: preModelCallSanitize(args.messages, {
+      providerName: args.provider.name,
+    }).slice(0, splitIndex),
     systemPrompt: args.systemPrompt,
     budgetTokens: compactionPrefixBudget(args.maxInputTokens),
     providerName: args.provider.tokenEstimationProvider ?? args.provider.name,
@@ -1854,7 +1864,11 @@ export async function runEmergencyCompaction(
     role: "user",
     content: [{ type: "text", text: EMERGENCY_COMPACTION_PROMPT }],
   };
-  const requestMessages = buildCompactionRequest(prefix, instruction);
+  const requestMessages = buildCompactionRequest(
+    prefix,
+    instruction,
+    args.provider.name,
+  );
 
   let response: ProviderResponse;
   try {

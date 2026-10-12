@@ -51,7 +51,11 @@ const assistantToolUse = (id: string): Message => ({
   content: [{ type: "tool_use", id, name: "screenshot", input: {} }],
 });
 
-const toolResultWithImage = (id: string, data: string): Message => ({
+const toolResultWithImage = (
+  id: string,
+  data: string,
+  mediaRetention?: "frame" | "document",
+): Message => ({
   role: "user",
   content: [
     {
@@ -64,6 +68,7 @@ const toolResultWithImage = (id: string, data: string): Message => ({
           source: { type: "base64", media_type: "image/png", data },
         },
       ],
+      ...(mediaRetention ? { mediaRetention } : {}),
     },
   ],
 });
@@ -152,5 +157,35 @@ describe("compaction summary calls — old tool-result media stripping", () => {
     // so persisted messages keep the original rich blocks
     expect(serializeBlocks(messages)).toBe(inputSnapshot);
     expect(result.compacted).toBe(true);
+  });
+
+  test("runAssistantDrivenCompaction keeps older document media (file reads) in the summary request", async () => {
+    // GIVEN an older file read tagged as document media, then a later screenshot
+    const messages: Message[] = [
+      assistantToolUse("tu_doc"),
+      toolResultWithImage("tu_doc", OLD_SCREENSHOT_DATA, "document"),
+      userTextWithTurnContext("tail anchor message", TAIL_TIMESTAMP),
+      assistantToolUse("tu_latest"),
+      toolResultWithImage("tu_latest", LATEST_SCREENSHOT_DATA),
+    ];
+    const sink = { sent: [] as Message[] };
+
+    // WHEN compaction runs over that history
+    await runAssistantDrivenCompaction({
+      conversationId: "conv-media-retain",
+      messages,
+      provider: recordingProvider(sink),
+      systemPrompt: "system",
+      compaction: { enabled: true, autoThreshold: 0.7 },
+      maxInputTokens: 100000,
+      previousEstimatedInputTokens: 90000,
+    });
+
+    // THEN the summary call carries the file read exactly as the agent loop
+    // would, alongside the current step's screenshot
+    const sentSerialized = serializeBlocks(sink.sent);
+    expect(sentSerialized).toContain(OLD_SCREENSHOT_DATA);
+    expect(sentSerialized).toContain(LATEST_SCREENSHOT_DATA);
+    expect(sentSerialized).not.toContain("binary data removed to save context");
   });
 });

@@ -25,7 +25,7 @@ import type {
 // hook reaches through `@vellumai/plugin-api`; wire them into the mock so the
 // tests exercise the shipped behavior (broad rejection patterns, media scope)
 // rather than a stand-in.
-import { lastToolResultUserMessageIndex } from "../../../../context/outbound-sanitize.js";
+import { retainedToolResultMediaKeys } from "../../../../context/outbound-sanitize.js";
 import { isVisionNotSupportedError } from "../../../../util/provider-error-patterns.js";
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ mock.module("@vellumai/plugin-api", () => ({
   resolveMediaSourceData: mockResolveMediaSourceData,
   getConfiguredProvider: async () => fakeProvider,
   isVisionNotSupportedError,
-  lastToolResultUserMessageIndex,
+  retainedToolResultMediaKeys,
   // The module registry is process-wide, so this surface covers every
   // plugin-api export the plugin's hooks import, including the transcript
   // notice only the sibling test file exercises.

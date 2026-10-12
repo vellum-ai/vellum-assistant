@@ -19,7 +19,7 @@ import type {
 // host helpers the plugin reaches through `@vellumai/plugin-api`; wire them
 // into the mock so the tests exercise the shipped behavior rather than a
 // stand-in.
-import { lastToolResultUserMessageIndex } from "../../../../context/outbound-sanitize.js";
+import { retainedToolResultMediaKeys } from "../../../../context/outbound-sanitize.js";
 import { isVisionNotSupportedError } from "../../../../util/provider-error-patterns.js";
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
@@ -74,7 +74,7 @@ function installPluginApiMock(overrides: Record<string, unknown> = {}): void {
     getModelProfiles: () => mockProfiles,
     resolveMediaSourceData: mockResolveMediaSourceData,
     getConfiguredProvider: async () => (providerResolves ? fakeProvider : null),
-    lastToolResultUserMessageIndex,
+    retainedToolResultMediaKeys,
     isVisionNotSupportedError,
     persistSystemCard: async (opts: {
       conversationId: string;
@@ -108,9 +108,8 @@ const postToolUse = (await import("../hooks/post-tool-use.js")).default;
 const postCompact = (await import("../hooks/post-compact.js")).default;
 const conversationDeleted = (await import("../hooks/conversation-deleted.js"))
   .default;
-const { CAPTION_TIMEOUT_MS, findVisionProfile } = await import(
-  "../src/vision-caption.js"
-);
+const { CAPTION_TIMEOUT_MS, findVisionProfile } =
+  await import("../src/vision-caption.js");
 const { flattenTextOnlyBlocks } = await import("../src/caption-blocks.js");
 const { closeCaptionStore, initCaptionStore, resetCaptionCacheForTests } =
   await import("../src/caption-cache.js");

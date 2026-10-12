@@ -16,6 +16,7 @@ import type {
   Provider,
   ProviderResponse,
   ToolDefinition,
+  ToolResultContent,
 } from "../providers/types.js";
 import { ContextOverflowError } from "../providers/types.js";
 import {
@@ -3283,5 +3284,104 @@ describe("AgentLoop", () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0].options?.config?.callSite).toBeUndefined();
+  });
+});
+
+describe("AgentLoop media retention stamp", () => {
+  beforeEach(() => {
+    resetPluginRegistryAndRegisterDefaults();
+  });
+
+  const imageBlock: ContentBlock = {
+    type: "image",
+    source: { type: "base64", media_type: "image/png", data: "aGk=" },
+  };
+
+  async function runOneToolCall(
+    tools: ToolDefinition[],
+    result: {
+      content: string;
+      isError: boolean;
+      contentBlocks?: ContentBlock[];
+    },
+  ): Promise<Message[]> {
+    const { provider } = createMockProvider([
+      toolUseResponse("t1", tools[0].name!, {}),
+      textResponse("done"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools,
+      toolExecutor: async () => result,
+    });
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+    return history;
+  }
+
+  const toolResultOf = (history: Message[]): ToolResultContent => {
+    for (const message of history) {
+      for (const block of message.content) {
+        if (block.type === "tool_result") {
+          return block;
+        }
+      }
+    }
+    throw new Error("no tool_result in history");
+  };
+
+  test("stamps a tool's declared retention class on results that carry media", async () => {
+    // GIVEN a file-read style tool that declares document retention
+    const tools: ToolDefinition[] = [
+      {
+        name: "read_image",
+        description: "Read an image",
+        input_schema: { type: "object", properties: {} },
+        mediaRetention: "document",
+      },
+    ];
+
+    // WHEN its result carries an image
+    const history = await runOneToolCall(tools, {
+      content: "Image loaded",
+      isError: false,
+      contentBlocks: [imageBlock],
+    });
+
+    // THEN the tool_result block records the class for the outbound sanitizer
+    expect(toolResultOf(history).mediaRetention).toBe("document");
+  });
+
+  test("leaves results without media, and tools without a declaration, unstamped", async () => {
+    // GIVEN the same document tool returning text only
+    const documentTool: ToolDefinition[] = [
+      {
+        name: "read_image",
+        description: "Read an image",
+        input_schema: { type: "object", properties: {} },
+        mediaRetention: "document",
+      },
+    ];
+    const textOnly = await runOneToolCall(documentTool, {
+      content: "nothing to see",
+      isError: false,
+    });
+    expect("mediaRetention" in toolResultOf(textOnly)).toBe(false);
+
+    // AND a tool with no declaration returning an image (a screenshot)
+    const undeclared = await runOneToolCall(dummyTools, {
+      content: "captured",
+      isError: false,
+      contentBlocks: [imageBlock],
+    });
+    // THEN the block keeps its prior shape, which the sanitizer reads as frame
+    expect("mediaRetention" in toolResultOf(undeclared)).toBe(false);
   });
 });

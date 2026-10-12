@@ -2,15 +2,26 @@
  * Outbound-request history sanitization shared by every provider call that
  * sends conversation history: the agent loop's model calls and the
  * compactor's summary calls. Each transform derives a sanitized projection of
- * the outbound copy only — durable history keeps the rich originals, and every
+ * the outbound copy only (durable history keeps the rich originals), and every
  * transform is idempotent so each send re-derives the same projection.
  */
 
 import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
+import {
+  type MediaPayloadLimits,
+  mediaPayloadLimitsFor,
+} from "../providers/media-payload-limits.js";
+import {
+  mediaSourceByteLength,
+  mediaSourceDescriptor,
+} from "../providers/media-resolve.js";
 import type {
   ContentBlock,
+  FileContent,
+  ImageContent,
+  MediaRetention,
+  MediaSource,
   Message,
-  ToolResultContent,
 } from "../providers/types.js";
 
 /** Number of most-recent AX tree snapshots to keep in conversation history. */
@@ -199,10 +210,9 @@ export function dedupeChannelCapabilityBlocks(history: Message[]): Message[] {
 }
 
 /**
- * Index of the last user message carrying `tool_result` blocks — the
- * "current turn" boundary {@link stripOldMediaBlocks} keeps intact while
- * stripping media from older tool results. Returns -1 when no user message
- * has tool results.
+ * Index of the last user message carrying `tool_result` blocks: the current
+ * tool step, the only place frame media survives. Returns -1 when no user
+ * message has tool results.
  *
  * Targets the last user message with tool_results (not just the last user
  * message) because a plain-text user message may follow the tool-result turn;
@@ -221,69 +231,203 @@ export function lastToolResultUserMessageIndex(history: Message[]): number {
   return -1;
 }
 
+type MediaBlock = ImageContent | FileContent;
+
+function isMediaBlock(block: ContentBlock): block is MediaBlock {
+  return block.type === "image" || block.type === "file";
+}
+
+/** Bytes a media block occupies in the request, which carries media as base64. */
+function mediaWireBytes(source: MediaSource): number {
+  return Math.ceil((mediaSourceByteLength(source) * 4) / 3);
+}
+
+export interface PreModelCallSanitizeOptions {
+  /**
+   * `Provider.name` of the transport the request goes to; selects the payload
+   * marks retained media is held under. Omitted means the tightest known marks.
+   */
+  providerName?: string;
+}
+
+const FRAME_MEDIA_PLACEHOLDER =
+  "\n[Media (image/audio) was captured and shown previously; binary data removed to save context.]";
+
+function documentMediaPlaceholder(media: MediaBlock[]): string {
+  const described = media
+    .map((block) => mediaSourceDescriptor(block.source))
+    .join("; ");
+  return `\n[Media (${described}) shown in an earlier turn was removed from this request to stay within the provider's payload limit. Call the tool again to view it.]`;
+}
+
 /**
- * Strip image contentBlocks from all tool_result blocks except those in the
- * most recent user message that contains tool_result blocks. This prevents
- * screenshots from accumulating in the context window — each image is seen
- * once by the LLM on the turn it was captured, then replaced with a text
- * placeholder on subsequent turns.
+ * Decide which tool-result media the outbound copy keeps and which it drops.
+ * Blocks are keyed `${messageIndex}:${blockIndex}`; an evicted block carries
+ * the retention class that picks its replacement marker.
+ *
+ * Two retention classes, declared per tool (`mediaRetention` on the tool
+ * definition) and stamped on the `tool_result` block by the agent loop:
+ * - `frame` (the default): views of one evolving surface, such as
+ *   screenshots. A newer frame supersedes older ones, so frames survive only
+ *   in the current tool step ({@link lastToolResultUserMessageIndex}).
+ * - `document`: distinct files the model may want side by side, such as file
+ *   reads. Retained across steps and turns until the payload cap retires the
+ *   oldest.
+ *
+ * The cap is a hysteresis band over the media the request carries: retained
+ * documents plus the user's own attachments, which count toward the total but
+ * are never evicted here (the reactive overflow path owns those). Walking the
+ * history in order, once the running total crosses the high mark, whole
+ * document-carrying messages are evicted oldest-first until the total is under
+ * the low mark. A trip at message k evicts only messages before k, so whether
+ * message j keeps its media depends only on the messages up to the trip that
+ * evicted it, never on how the conversation continues: the projection of a
+ * prefix is fixed once written, the prompt cache holds between trips, and the
+ * agent loop and the compactor derive the same projection from the same
+ * history with no shared state. Frames stay out of the running total for the
+ * same reason: which frames go out depends on which step is current, which
+ * changes every send.
  */
-function stripOldMediaBlocks(history: Message[]): Message[] {
-  const lastToolResultUserIdx = lastToolResultUserMessageIndex(history);
+function planMediaRetention(
+  history: Message[],
+  limits: MediaPayloadLimits,
+): { evicted: Map<string, MediaRetention>; retained: Set<string> } {
+  const evicted = new Map<string, MediaRetention>();
+  const retained = new Set<string>();
+  const currentStepIdx = lastToolResultUserMessageIndex(history);
+  const documentMessages: Array<{
+    keys: string[];
+    bytes: number;
+    images: number;
+  }> = [];
+  let totalBytes = 0;
+  let totalImages = 0;
 
-  return history.map((msg, idx) => {
-    // Keep the most recent tool-result user message intact (current turn)
-    if (idx === lastToolResultUserIdx || msg.role !== "user") {
-      return msg;
+  for (let msgIdx = 0; msgIdx < history.length; msgIdx++) {
+    const msg = history[msgIdx];
+    if (msg.role !== "user") {
+      continue;
+    }
+    const documents = { keys: [] as string[], bytes: 0, images: 0 };
+    for (let blockIdx = 0; blockIdx < msg.content.length; blockIdx++) {
+      const block = msg.content[blockIdx];
+      if (isMediaBlock(block)) {
+        totalBytes += mediaWireBytes(block.source);
+        totalImages += block.type === "image" ? 1 : 0;
+        continue;
+      }
+      if (block.type !== "tool_result") {
+        continue;
+      }
+      const media = block.contentBlocks?.filter(isMediaBlock) ?? [];
+      if (media.length === 0) {
+        continue;
+      }
+      const key = `${msgIdx}:${blockIdx}`;
+      if ((block.mediaRetention ?? "frame") === "frame") {
+        if (msgIdx === currentStepIdx) {
+          retained.add(key);
+        } else {
+          evicted.set(key, "frame");
+        }
+        continue;
+      }
+      const bytes = media.reduce((n, b) => n + mediaWireBytes(b.source), 0);
+      const images = media.filter((b) => b.type === "image").length;
+      totalBytes += bytes;
+      totalImages += images;
+      retained.add(key);
+      documents.keys.push(key);
+      documents.bytes += bytes;
+      documents.images += images;
     }
 
-    // Check if any tool_result blocks carry embedded media (image or audio).
-    const isMedia = (cb: ContentBlock) =>
-      cb.type === "image" || cb.type === "file";
-    const hasMedia = msg.content.some(
-      (b) =>
-        b.type === "tool_result" &&
-        (b as ToolResultContent).contentBlocks?.some(isMedia),
-    );
-    if (!hasMedia) {
+    if (totalBytes > limits.highBytes || totalImages > limits.highImages) {
+      while (
+        documentMessages.length > 0 &&
+        (totalBytes > limits.lowBytes || totalImages > limits.lowImages)
+      ) {
+        const victim = documentMessages.shift()!;
+        totalBytes -= victim.bytes;
+        totalImages -= victim.images;
+        for (const key of victim.keys) {
+          retained.delete(key);
+          evicted.set(key, "document");
+        }
+      }
+    }
+    if (documents.keys.length > 0) {
+      documentMessages.push(documents);
+    }
+  }
+  return { evicted, retained };
+}
+
+/**
+ * Apply {@link planMediaRetention}: each evicted tool_result loses its media
+ * blocks and gains a text marker saying what was dropped and, for a document,
+ * how to get it back. The model saw the media on the step it was captured.
+ */
+function applyMediaRetention(
+  history: Message[],
+  limits: MediaPayloadLimits,
+): Message[] {
+  const { evicted: evictions } = planMediaRetention(history, limits);
+  if (evictions.size === 0) {
+    return history;
+  }
+  return history.map((msg, msgIdx) => {
+    if (msg.role !== "user") {
       return msg;
     }
-
-    // Strip media from tool_result blocks, replacing with a text marker. The
-    // model already saw/heard the media in the turn it was captured; resending
-    // the bytes every turn (a 12 MB audio clip isn't optimized like images)
-    // bloats the request until compaction.
-    return {
-      ...msg,
-      content: msg.content.map((b) => {
-        if (b.type !== "tool_result") {
-          return b;
-        }
-        const tr = b as ToolResultContent;
-        if (!tr.contentBlocks?.some(isMedia)) {
-          return b;
-        }
-        return {
-          ...tr,
-          contentBlocks: undefined,
-          content:
-            (tr.content || "") +
-            "\n[Media (image/audio) was captured and shown previously — binary data removed to save context.]",
-        };
-      }),
-    };
+    let changed = false;
+    const content = msg.content.map((block, blockIdx) => {
+      const retention = evictions.get(`${msgIdx}:${blockIdx}`);
+      if (retention === undefined || block.type !== "tool_result") {
+        return block;
+      }
+      changed = true;
+      const media = (block.contentBlocks ?? []).filter(isMediaBlock);
+      return {
+        ...block,
+        contentBlocks: undefined,
+        content:
+          (block.content || "") +
+          (retention === "frame"
+            ? FRAME_MEDIA_PLACEHOLDER
+            : documentMediaPlaceholder(media)),
+      };
+    });
+    return changed ? { ...msg, content } : msg;
   });
+}
+
+/**
+ * Keys (`${messageIndex}:${blockIndex}`) of the `tool_result` blocks whose
+ * media {@link preModelCallSanitize} sends rather than replacing with a marker,
+ * for consumers that mirror the outbound projection on the raw history (the
+ * image-fallback plugin captions exactly the images a request carries).
+ */
+export function retainedToolResultMediaKeys(
+  history: Message[],
+  options: PreModelCallSanitizeOptions = {},
+): Set<string> {
+  return planMediaRetention(
+    history,
+    mediaPayloadLimitsFor(options.providerName),
+  ).retained;
 }
 
 /**
  * Sanitize the outbound history immediately before a provider call, bundling
  * the pre-send transforms applied to every request that carries conversation
  * history:
- * - {@link stripOldMediaBlocks} drops accumulated screenshot/audio bytes from
- *   older tool results — the model saw the media on the turn it was captured.
- *   Beyond context bloat, unstripped history can carry enough images to cross
- *   Anthropic's many-image threshold, where a stricter per-image dimension
- *   cap applies and a single large screenshot rejects the whole request.
+ * - {@link applyMediaRetention} drops stale frame media (screenshots outside
+ *   the current step) and, once the request's media crosses the provider's
+ *   payload marks, the oldest document media (file reads), replacing each with
+ *   a text marker. Beyond context bloat, an unbounded history can carry
+ *   enough images to cross a provider's per-request limits, where a single
+ *   request is rejected outright.
  * - {@link compactAxTreeHistory} collapses all but the most recent few
  *   `<ax-tree>` snapshots so TTFT does not grow linearly with step count.
  * - {@link stripHistoricalWebSearchResults} converts historical
@@ -294,17 +438,23 @@ function stripOldMediaBlocks(history: Message[]): Message[] {
  *   block per distinct set of capabilities instead of the one-per-turn history
  *   accumulates; every repeat is byte-identical to the copy above it.
  *
- * Transforms the outbound copy only — the durable history keeps the rich
+ * Transforms the outbound copy only: the durable history keeps the rich
  * originals and each send re-derives the sanitized projection (every transform
  * is idempotent). Both the agent loop's model calls and the compactor's
- * summary calls funnel through this bundle, so their request prefixes stay
- * byte-aligned (the summary call reuses the agent's warm prompt cache) and
- * oversized media and expired web-search tokens are guaranteed to be removed
- * from every request.
+ * summary calls funnel through this bundle with the same `providerName`, so
+ * their request prefixes stay byte-aligned (the summary call reuses the
+ * agent's warm prompt cache) and over-cap media and expired web-search tokens
+ * are guaranteed to be removed from every request.
  */
-export function preModelCallSanitize(history: Message[]): Message[] {
-  const mediaStripped = stripOldMediaBlocks(history);
-  const axCompacted = compactAxTreeHistory(mediaStripped);
+export function preModelCallSanitize(
+  history: Message[],
+  options: PreModelCallSanitizeOptions = {},
+): Message[] {
+  const mediaRetained = applyMediaRetention(
+    history,
+    mediaPayloadLimitsFor(options.providerName),
+  );
+  const axCompacted = compactAxTreeHistory(mediaRetained);
   const webSearchStripped =
     stripHistoricalWebSearchResults(axCompacted).messages;
   return dedupeChannelCapabilityBlocks(webSearchStripped);

@@ -49,6 +49,7 @@ import { isMaxTokensStopReason } from "../providers/stop-reasons.js";
 import { normalizeThinkingConfigForWire } from "../providers/thinking-config.js";
 import type {
   ContentBlock,
+  MediaRetention,
   Message,
   Provider,
   ProviderResponse,
@@ -1170,6 +1171,30 @@ export interface AgentLoopConstructorOptions {
   transformCompactedHistory?: (messages: Message[]) => Message[];
 }
 
+/**
+ * The `tool_result` block for an executed tool call. The tool's media
+ * retention class is stamped only when the tool declares one and the result
+ * carries media, so every other result keeps its exact prior shape.
+ */
+function toolResultBlock(
+  toolUse: ToolUseBlock,
+  outcome: {
+    content: string;
+    isError: boolean;
+    contentBlocks?: ContentBlock[];
+  },
+  mediaRetention: MediaRetention | undefined,
+): ToolResultContent {
+  return {
+    type: "tool_result",
+    tool_use_id: toolUse.id,
+    content: outcome.content,
+    is_error: outcome.isError,
+    ...(outcome.contentBlocks ? { contentBlocks: outcome.contentBlocks } : {}),
+    ...(outcome.contentBlocks && mediaRetention ? { mediaRetention } : {}),
+  };
+}
+
 export class AgentLoop {
   private provider: Provider;
   private systemPrompt: string;
@@ -1793,6 +1818,19 @@ export class AgentLoop {
       // catch can reach it.
       let streamedTokens = false;
       let unparseableToolRetryLimitReached = false;
+      // The tool set resolved for this iteration. Declared here so the outer
+      // catch, which synthesizes tool_results for cancelled calls, can read
+      // each tool's declared media retention the same way the success path
+      // does.
+      let turnTools: ToolDefinition[] = this.tools;
+      // Retention class a tool declares for the media it returns, stamped on
+      // its tool_result blocks so the outbound sanitizer can tell a
+      // screenshot from a file read on every later send.
+      const mediaRetentionFor = (
+        toolName: string,
+      ): MediaRetention | undefined =>
+        turnTools.find((tool) => tool.name === toolName)?.mediaRetention ??
+        getTool(toolName)?.mediaRetention;
 
       try {
         // ── Pre-call budget gate ─────────────────────────────────────
@@ -1957,6 +1995,7 @@ export class AgentLoop {
         const resolvedTools = this.resolveTools
           ? this.resolveTools(history)
           : this.tools;
+        turnTools = resolvedTools;
         // Latency: the budget gate (above) and tool resolution are done; what
         // follows is per-call request prep before the wire.
         latencyTracker?.mark("tools_resolved");
@@ -2147,12 +2186,15 @@ export class AgentLoop {
         lastPreSendEstimatedTokens = preSendEstimatedTokens;
         rlog.info({ turn: toolUseTurns }, "LLM call start");
 
-        // Sanitize the outbound history right before sending: drop accumulated
-        // media, collapse old AX-tree snapshots, and convert historical
+        // Sanitize the outbound history right before sending: apply media
+        // retention, collapse old AX-tree snapshots, and convert historical
         // web-search results to text. See {@link preModelCallSanitize}.
         const sanitizedHistory = timeSyncSection(
           "agent-loop:pre-model-call-sanitize",
-          () => preModelCallSanitize(history),
+          () =>
+            preModelCallSanitize(history, {
+              providerName: this.provider.name,
+            }),
           (sanitized) => ({ messageCount: sanitized.length }),
         );
 
@@ -3109,15 +3151,8 @@ export class AgentLoop {
 
         // Collect result blocks preserving tool_use order (Promise.all maintains order)
         const rawResultBlocks: ContentBlock[] = toolResults.map(
-          ({ toolUse, result }) => ({
-            type: "tool_result" as const,
-            tool_use_id: toolUse.id,
-            content: result.content,
-            is_error: result.isError,
-            ...(result.contentBlocks
-              ? { contentBlocks: result.contentBlocks }
-              : {}),
-          }),
+          ({ toolUse, result }) =>
+            toolResultBlock(toolUse, result, mediaRetentionFor(toolUse.name)),
         );
 
         // Spool oversized results and run the `post-tool-use` hook chain
@@ -3234,15 +3269,12 @@ export class AgentLoop {
               }),
             );
             const rawCancelledBlocks: ContentBlock[] = outcomes.map(
-              ({ toolUse, content, isError, result }) => ({
-                type: "tool_result" as const,
-                tool_use_id: toolUse.id,
-                content,
-                is_error: isError,
-                ...(result?.contentBlocks
-                  ? { contentBlocks: result.contentBlocks }
-                  : {}),
-              }),
+              ({ toolUse, content, isError, result }) =>
+                toolResultBlock(
+                  toolUse,
+                  { content, isError, contentBlocks: result?.contentBlocks },
+                  mediaRetentionFor(toolUse.name),
+                ),
             );
             // A tool that finished inside the grace produced real output, which
             // can be arbitrarily large. Spool and truncate it the same way an

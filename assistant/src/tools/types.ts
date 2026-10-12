@@ -23,7 +23,7 @@ import type {
   ProxyApprovalCallback,
   SensitiveOutputBinding,
 } from "./tool-types.js";
-import { RiskLevel } from "./tool-types.js";
+import { MEDIA_RETENTION_VALUES, RiskLevel } from "./tool-types.js";
 
 export const DISK_PRESSURE_CLEANUP_TOOL_NAMES: ReadonlySet<string> = new Set([
   "bash",
@@ -556,6 +556,15 @@ export const ToolDefinitionSchema = z.object({
   /** Client operating systems that may expose this tool. Unset means all. */
   supportedClientOs: z.array(z.enum(CLIENT_OS_VALUES)).optional(),
   /**
+   * Retention class for media this tool returns in `contentBlocks`, applied by
+   * the outbound sanitizer on every later model call. `frame` (the default
+   * when omitted): views that supersede each other, such as screenshots; only
+   * the current tool step keeps them. `document`: distinct files the model may
+   * want side by side, such as file reads; kept across turns until the
+   * provider payload cap retires the oldest.
+   */
+  mediaRetention: z.enum(MEDIA_RETENTION_VALUES).optional(),
+  /**
    * Implementation invoked when the model calls the tool. Optional
    * because some `ToolDefinition` instances are schema-only (e.g.
    * {@link ../memory/graph/tools.graphRememberDefinition},
@@ -598,14 +607,15 @@ export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
 
 /**
  * Tool after the loader has derived its name and filled defaults. Every field
- * is required except `exclusive`, which stays optional — most tools never set
- * it, and the agent loop reads it as `?.exclusive === true`, so forcing every
- * hand-built `Tool` (MCP/meet/test fixtures) to carry it would be noise.
+ * is required except `exclusive`, `supportedClientOs`, and `mediaRetention`,
+ * which stay optional: most tools never set them, and their readers treat
+ * absence as the default, so forcing every hand-built `Tool` (MCP/meet/test
+ * fixtures) to carry them would be noise.
  */
 export type Tool = Required<
-  Omit<ToolDefinition, "exclusive" | "supportedClientOs">
+  Omit<ToolDefinition, "exclusive" | "supportedClientOs" | "mediaRetention">
 > &
-  Pick<ToolDefinition, "exclusive" | "supportedClientOs"> & {
+  Pick<ToolDefinition, "exclusive" | "supportedClientOs" | "mediaRetention"> & {
     /** Invocation-specific boundary for trusted tool implementations. */
     getExecutionTarget?: (
       input: Record<string, unknown>,

@@ -64,10 +64,24 @@ export enum RiskLevel {
  */
 export const RISK_LEVEL_UNCLASSIFIED = "unclassified";
 
+/**
+ * How the outbound sanitizer retains a tool result's media across later model
+ * calls. Declared on the tool definition and stamped onto the `tool_result`
+ * block by the agent loop; absent means `frame`.
+ * - `frame`: views of one evolving surface, such as screenshots. A newer frame
+ *   supersedes older ones, so only the current tool step keeps them.
+ * - `document`: distinct files the model may want side by side, such as file
+ *   reads. Kept across turns until the provider payload cap retires the oldest.
+ */
+export const MEDIA_RETENTION_VALUES = ["frame", "document"] as const;
+export type MediaRetention = (typeof MEDIA_RETENTION_VALUES)[number];
+
 export interface ToolDefinition {
   name: string;
   description: string;
   input_schema: object;
+  /** Retention class for media this tool returns; see {@link MediaRetention}. */
+  mediaRetention?: MediaRetention;
 }
 
 export type ErrorCategory =
