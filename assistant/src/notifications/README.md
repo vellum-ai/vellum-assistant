@@ -91,9 +91,11 @@ and skill-update receipts retain their existing feed behavior.
 `notifications.allAlertsEnabled` defaults to false. Setting it true makes every
 vellum local intent non-silent regardless of urgency, completion status, or
 From me promotion, so proactive sends and scheduled output banner too. Explicit
-`contextPayload.quiet` (the CLI's `--quiet`) and a disabled chat-reply
-preference keep precedence. The preference changes presentation only: channel
-routing, platform push, and the Home feed are unchanged. `completion-policy.ts`
+`contextPayload.quiet` (the CLI's `--quiet`, with the same meaning as a quiet
+schedule: no banner, and no mobile push added for a new From me chat) and a
+disabled chat-reply preference keep precedence. The preference changes
+presentation only: channel routing, platform push, and the Home feed are
+unchanged. `completion-policy.ts`
 reads it at send time, so a toggle applies to the next delivery.
 
 `background-result-producer.ts` owns successful subagent parent continuations

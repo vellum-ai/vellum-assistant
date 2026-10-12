@@ -77,7 +77,7 @@ Examples:
         {
           flags: "--quiet",
           description:
-            "Keep this notification off the OS banner even when the user banners every notification. It still reaches its conversation and Vellum Home; routing is unchanged.",
+            "Keep this notification quiet: no OS banner even when the user banners every notification, and no mobile push added for a new From me chat. It still reaches its conversation and Vellum Home.",
           defaultValue: false,
         },
         {
@@ -165,7 +165,7 @@ Examples:
 Arguments:
   --message            The notification body text (required, must be non-empty)
   --urgent             Shortcut that maps to urgency=critical + requires-action=true
-  --quiet              Keep the notification off the OS banner; it still lands in its conversation and Home
+  --quiet              Keep the notification quiet: no OS banner, no From me mobile push; it still lands in its conversation and Home
 
 Behavioral notes:
   - The signal is emitted through the full notification pipeline: event store,
@@ -174,8 +174,9 @@ Behavioral notes:
     is treated as critical and requires user action. Explicit --urgency /
     --requires-action flags still win for back-compat.
   - Without --urgent, --urgency defaults to low and --requires-action to false.
-  - --quiet wins over urgency for the local banner only. Channel routing,
-    pushes, and the Home feed are unchanged.
+  - --quiet wins over urgency for the local banner and skips the mobile push
+    a new From me chat would add, as a quiet schedule does. Selected channels,
+    allowlists, and the Home feed are unchanged.
   - --preferred-channels are additive hints; vellum stays in the selected set.
   - --channels is an exclusive allowlist. Only those connected channels are
     selected. Urgent delivery does not force vellum or platform, and Home
