@@ -40,7 +40,7 @@ assistant notifications send --title "..." --message "..." --urgent
 | `--message <message>`  | Yes             | Notification body. Markdown (GFM) renders in the detail panel; the OS banner shows plain text.                                                       |
 | `--title <title>`      | Yes in practice | Short headline (≤ 8 words). Omitting it triggers a body-truncation fallback that shows up as a duplicate of `--message` — always write a real title. |
 | `--urgent`             | No              | Mark as needing attention now/soon                                                                                                                   |
-| `--quiet`              | No              | Keep it quiet: no OS banner even when the user banners every notification, and no From me mobile push. Still lands in the conversation and Home.                                      |
+| `--quiet`              | No              | Keep it quiet: no OS banner even when the user banners every notification, and no From me mobile push. Still lands in the conversation and Home.     |
 | `--preferred-channels` | No              | Additive channel hints. Vellum stays selected.                                                                                                       |
 | `--channels`           | No              | Exclusive allowlist (e.g. `telegram`). Replaces the default set. Urgent delivery does not add vellum or platform. Wins over `--preferred-channels`.  |
 | `--json`               | No              | Output machine-readable JSON                                                                                                                         |
