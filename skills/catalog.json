@@ -644,7 +644,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-18T21:40:09.000Z"
+      "updatedAt": "2026-10-12T22:15:34.000Z"
     },
     {
       "id": "notion",
@@ -928,7 +928,7 @@
         }
       },
       "compatibility": "Needs Python in the assistant's environment with the XlsxWriter package for writing and openpyxl for verifying. Works on desktop and web.",
-      "updatedAt": "2026-09-24T00:15:17.000Z"
+      "updatedAt": "2026-09-24T20:11:20.000Z"
     },
     {
       "id": "start-the-day",
