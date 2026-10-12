@@ -289,9 +289,9 @@ describe("tool-result media retention", () => {
     );
   });
 
-  test("files serializers keep as workspace references add nothing to the total", () => {
-    // GIVEN a 50 MB video and a 9 MB text file the user attached, both of
-    // which every serializer names rather than inlines, then two 3 MB reads
+  test("files no adapter inlines add nothing to the total", () => {
+    // GIVEN a 50 MB video, a 9 MB text file, and a 9 MB m4a the user
+    // attached, none of which any adapter inlines, then two 3 MB reads
     const refsOnly = [
       {
         role: "user",
@@ -299,16 +299,17 @@ describe("tool-result media retention", () => {
           { type: "text", text: "here" },
           refFile("video/mp4", 50 * MB),
           refFile("text/plain", 9 * MB),
+          refFile("audio/x-m4a", 9 * MB),
         ],
       } as Message,
       ...toolStep("d1", "document", [inlineImage(3 * MB)]),
       ...toolStep("d2", "document", [inlineImage(3 * MB)]),
     ];
 
-    // THEN neither read is evicted: the references put no bytes on the wire
+    // THEN neither read is evicted: none of those files puts bytes on the wire
     expect(preModelCallSanitize(refsOnly)).toEqual(refsOnly);
 
-    // AND an audio file, which providers do inline, counts in full
+    // AND an MP3, which adapters do inline, counts in full
     const withAudio = [
       {
         role: "user",

@@ -7,7 +7,7 @@
  */
 
 import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
-import { keepFileAsWorkspaceRef } from "../providers/content-block-size.js";
+import { fileSourceMayBeInlined } from "../providers/inline-file-eligibility.js";
 import {
   MEDIA_PAYLOAD_LIMITS,
   type MediaPayloadLimits,
@@ -239,15 +239,19 @@ function isMediaBlock(block: ContentBlock): block is MediaBlock {
 
 /**
  * Bytes a media block occupies in the request, which carries media as base64.
- * A file every serializer names rather than inlines (video, over-cap text; see
- * {@link keepFileAsWorkspaceRef}) puts no payload on the wire and counts as
- * none here.
+ * A file no adapter would inline (video, over-cap text, audio outside every
+ * adapter's inline set; see {@link fileSourceMayBeInlined}) puts no payload on
+ * the wire and counts as none here.
  */
 function mediaWireBytes(block: MediaBlock): number {
-  if (block.type === "file" && keepFileAsWorkspaceRef(block.source)) {
+  const byteLength = mediaSourceByteLength(block.source);
+  if (
+    block.type === "file" &&
+    !fileSourceMayBeInlined(block.source, byteLength)
+  ) {
     return 0;
   }
-  return Math.ceil((mediaSourceByteLength(block.source) * 4) / 3);
+  return Math.ceil((byteLength * 4) / 3);
 }
 
 const FRAME_MEDIA_PLACEHOLDER =
