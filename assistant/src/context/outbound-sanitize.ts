@@ -23,7 +23,10 @@ import type {
   MediaRetention,
   Message,
 } from "../providers/types.js";
-import { isProviderReadableImageMimeType } from "../util/image-conversion.js";
+import {
+  isProviderReadableImageData,
+  isProviderReadableImageMimeType,
+} from "../util/image-conversion.js";
 
 /** Number of most-recent AX tree snapshots to keep in conversation history. */
 const MAX_AX_TREES_IN_HISTORY = 2;
@@ -241,28 +244,38 @@ function isMediaBlock(block: ContentBlock): block is MediaBlock {
 /**
  * What a media block costs the request, which carries media as base64: wire
  * bytes and whether it counts as an image.
+ * - An image whose bytes or declared format no provider reads is replaced by a
+ *   text note at send ({@link isProviderReadableImageData} for inline bytes,
+ *   {@link isProviderReadableImageMimeType} for a reference, whose declared
+ *   type storage has normalized to the sniffed one) and costs nothing.
  * - An inline image is already transport-optimized and is sent as is.
  * - An image reference is costed at the size the send path produces
  *   (`transportSizeBytes`, recorded at persist time by running the same
  *   transport optimization), falling back to its stored size on rows written
- *   before that hint existed. One whose format no provider reads
- *   ({@link isProviderReadableImageMimeType}) is replaced by a text note at
- *   send and costs nothing.
+ *   before that hint existed.
  * - A file costs nothing unless some adapter would inline it
  *   ({@link fileSourceMayBeInlined}: video, over-cap text, and audio outside
  *   every adapter's inline set put no payload on the wire).
  */
 function mediaWireCost(block: MediaBlock): { bytes: number; images: number } {
-  const storedBytes = mediaSourceByteLength(block.source);
+  const storedBytes = usableByteLength(mediaSourceByteLength(block.source));
   if (block.type === "image") {
     if (block.source.type !== "workspace_ref") {
+      if (!isProviderReadableImageData(block.source.data)) {
+        return NO_WIRE_COST;
+      }
       return { bytes: base64Bytes(storedBytes), images: 1 };
     }
     if (!isProviderReadableImageMimeType(block.source.media_type)) {
       return NO_WIRE_COST;
     }
+    const transportBytes = block.source.transportSizeBytes;
     return {
-      bytes: base64Bytes(block.source.transportSizeBytes ?? storedBytes),
+      bytes: base64Bytes(
+        transportBytes === undefined
+          ? storedBytes
+          : usableByteLength(transportBytes),
+      ),
       images: 1,
     };
   }
@@ -273,6 +286,19 @@ function mediaWireCost(block: MediaBlock): { bytes: number; images: number } {
 }
 
 const NO_WIRE_COST = { bytes: 0, images: 0 };
+
+/**
+ * A persisted byte count the accounting can use. The content schema validates
+ * these as nonnegative integers, but a block that fails validation is passed
+ * through to history by the legacy repair path, so a malformed hint can still
+ * arrive here. It must never reduce the running total: it counts as nothing
+ * rather than as a negative or non-finite amount. Understating one corrupt
+ * block is caught by the reactive overflow path on rejection; overstating it
+ * would evict every retained document for as long as the row exists.
+ */
+function usableByteLength(value: number): number {
+  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
 
 function base64Bytes(decodedBytes: number): number {
   return Math.ceil((decodedBytes * 4) / 3);

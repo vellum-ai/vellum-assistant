@@ -36,7 +36,7 @@ const workspaceRefMediaSourceSchema = z
     type: z.literal("workspace_ref"),
     media_type: z.string(),
     attachmentId: z.string(),
-    sizeBytes: z.number(),
+    sizeBytes: z.number().int().nonnegative(),
     filename: z.string().optional(),
     width: z.number().optional(),
     height: z.number().optional(),

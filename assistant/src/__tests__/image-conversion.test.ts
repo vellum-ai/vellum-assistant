@@ -16,6 +16,7 @@ import {
   hasValidJpegStructure,
   isCompleteJpeg,
   isHeifImage,
+  isProviderReadableImageData,
   isProviderReadableImageMimeType,
   jpegFilenameFor,
   normalizeImageBase64,
@@ -462,6 +463,18 @@ describe("isProviderReadableImageMimeType", () => {
     expect(isProviderReadableImageMimeType("IMAGE/PNG; charset=binary")).toBe(
       true,
     );
+  });
+
+  test("the byte-level check mirrors the resolver's head sniff for inline images", () => {
+    const pngHead = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d,
+    ]).toString("base64");
+    expect(isProviderReadableImageData(pngHead + "AAAA")).toBe(true);
+    const svg = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg"/>',
+    ).toString("base64");
+    expect(isProviderReadableImageData(svg)).toBe(false);
+    expect(isProviderReadableImageData("AAAAAAAAAAAAAAAA")).toBe(false);
   });
 
   test("rejects formats the resolver replaces with a text note", () => {

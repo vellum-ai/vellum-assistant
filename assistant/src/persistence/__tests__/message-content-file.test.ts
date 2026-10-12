@@ -9,7 +9,10 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { contentBlockArraySchema } from "../../providers/content-block-schema.js";
+import {
+  contentBlockArraySchema,
+  mediaSourceSchema,
+} from "../../providers/content-block-schema.js";
 import type { ContentBlock } from "../../providers/types.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import {
@@ -231,6 +234,21 @@ describe("resolveMessageContentBlocks", () => {
       }
       expect(repaired.source.sizeBytes).toBe(12_000_000);
       expect(repaired.source.transportSizeBytes).toBeUndefined();
+    }
+  });
+
+  test("a reference's stored size must be a nonnegative integer", () => {
+    const ref = {
+      type: "workspace_ref",
+      media_type: "image/png",
+      attachmentId: "att-1",
+      sizeBytes: 0,
+    };
+    expect(mediaSourceSchema.safeParse(ref).success).toBe(true);
+    for (const bad of [-1, 1.5, Number.NaN, "big"]) {
+      expect(
+        mediaSourceSchema.safeParse({ ...ref, sizeBytes: bad }).success,
+      ).toBe(false);
     }
   });
 

@@ -512,6 +512,18 @@ export function isProviderReadableImageMimeType(mediaType: string): boolean {
   );
 }
 
+/**
+ * Whether an inline image's bytes are ones the send path will put on the wire:
+ * the same head sniff `resolveMediaReferences` applies before substituting a
+ * text note for a format no provider reads. HEIF counts as readable because
+ * some providers accept it and a budget computed from this must not
+ * understate.
+ */
+export function isProviderReadableImageData(dataBase64: string): boolean {
+  const head = Buffer.from(dataBase64.slice(0, 16), "base64");
+  return sniffImageMimeType(head) !== null || isHeifImage(head);
+}
+
 /** Base64 variant of {@link sniffImageMimeType}; decodes only the head. */
 export function sniffBase64ImageMimeType(dataBase64: string): string | null {
   // 16 base64 chars decode to the 12 bytes the longest signature needs.

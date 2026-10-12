@@ -247,8 +247,11 @@ describe("image-fallback post-model-call vision recovery", () => {
 
   test("captions file reads the payload cap had thinned, so the retry carries no raw image", async () => {
     // GIVEN five 3 MB file reads: the cap keeps only the newest three on the
-    // rejected request (the band is 14 MB high, 9 MB low)
+    // rejected request (the band is 10 MB high, 6 MB low)
     const MB = 1024 * 1024;
+    // A PNG head the sanitizer's byte sniff recognizes, then bulk, sized so
+    // each payload is exactly 3 MB of base64 including its distinct suffix.
+    const PNG_HEAD = "iVBORw0KGgoAAAAN";
     const messages = Array.from({ length: 5 }, (_, i) =>
       userMessage({
         type: "tool_result",
@@ -261,7 +264,7 @@ describe("image-fallback post-model-call vision recovery", () => {
             source: {
               type: "base64",
               media_type: "image/png",
-              data: `${"A".repeat(3 * MB)}${i}`,
+              data: `${PNG_HEAD}${"A".repeat(3 * MB - PNG_HEAD.length - 1)}${i}`,
             },
           },
         ],

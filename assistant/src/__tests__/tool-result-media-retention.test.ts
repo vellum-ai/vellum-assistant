@@ -14,14 +14,33 @@ import type {
 
 const MB = 1024 * 1024;
 
-/** An inline image whose base64 payload is exactly `wireBytes` long. */
+/** Base64 of a 12-byte PNG head: the signature the send path sniffs, in exactly 16 characters. */
+const PNG_HEAD_B64 = "iVBORw0KGgoAAAAN";
+
+/** An inline PNG whose base64 payload is `wireBytes` long, or the 16-character head when smaller. */
 function inlineImage(wireBytes: number): ContentBlock {
   return {
     type: "image",
     source: {
       type: "base64",
       media_type: "image/png",
-      data: "A".repeat(wireBytes),
+      data:
+        PNG_HEAD_B64 + "A".repeat(Math.max(0, wireBytes - PNG_HEAD_B64.length)),
+    },
+  };
+}
+
+/** An inline image whose bytes are an SVG document, which no provider reads. */
+function inlineSvg(wireBytes: number): ContentBlock {
+  const head = Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg"/>',
+  ).toString("base64");
+  return {
+    type: "image",
+    source: {
+      type: "base64",
+      media_type: "image/svg+xml",
+      data: head + "A".repeat(Math.max(0, wireBytes - head.length)),
     },
   };
 }
@@ -357,6 +376,42 @@ describe("tool-result media retention", () => {
 
     // THEN neither read is evicted and the SVG counts as no image
     expect(preModelCallSanitize(history)).toEqual(history);
+  });
+
+  test("an inline image no provider reads adds nothing to the total", () => {
+    // GIVEN a 20 MB inline SVG, which the send path replaces with a text note
+    // after sniffing its bytes, followed by two 3 MB reads
+    const history = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "here" }, inlineSvg(20 * MB)],
+      } as Message,
+      ...toolStep("d1", "document", [inlineImage(3 * MB)]),
+      ...toolStep("d2", "document", [inlineImage(3 * MB)]),
+    ];
+
+    // THEN neither read is evicted
+    expect(preModelCallSanitize(history)).toEqual(history);
+  });
+
+  test("a malformed stored size never reduces the total", () => {
+    // GIVEN a reference whose stored size is negative (an imported or
+    // hand-edited blob the legacy repair path passed through) followed by
+    // three 4 MB reads, which trip the 10 MB mark on their own
+    const corrupt = refImage(-5 * MB);
+    const history = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "here" }, corrupt],
+      } as Message,
+      ...toolStep("d1", "document", [inlineImage(4 * MB)]),
+      ...toolStep("d2", "document", [inlineImage(4 * MB)]),
+      ...toolStep("d3", "document", [inlineImage(4 * MB)]),
+    ];
+
+    // THEN the corrupt size counts as nothing rather than as a credit, so the
+    // reads still trip the cap and only the newest survives
+    expect(retainedToolResultMediaKeys(history)).toEqual(new Set(["6:0"]));
   });
 
   test("files no adapter inlines add nothing to the total", () => {
