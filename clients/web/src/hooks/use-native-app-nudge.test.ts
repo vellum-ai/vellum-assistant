@@ -4,11 +4,14 @@ import {
   describe,
   expect,
   mock,
+  spyOn,
   test,
 } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
+import { clearUserScopedOverrides } from "@/utils/typed-storage";
 
 import {
+  __testing,
   ANDROID_PLAY_STORE_URL,
   incrementNativeAppAssistantTurnsSeen,
   openNativeAppStore,
@@ -30,12 +33,14 @@ const originalPlayStoreUrl = env.VITE_ANDROID_PLAY_STORE_URL;
 const originalWindowOpen = window.open;
 
 beforeEach(() => {
+  __testing.resetFlags();
   localStorage.clear();
   delete env.VITE_ANDROID_PLAY_STORE_URL;
 });
 
 afterEach(() => {
   cleanup();
+  __testing.resetFlags();
   window.open = originalWindowOpen;
   if (originalPlayStoreUrl === undefined) {
     delete env.VITE_ANDROID_PLAY_STORE_URL;
@@ -201,6 +206,59 @@ describe("native app nudge state", () => {
 });
 
 describe("cross-target nudge reads", () => {
+  test.each(["handleBannerDismiss", "handleDownload"] as const)(
+    "%s survives remounts and logout when storage rejects writes",
+    (action) => {
+      window.open = mock(() => null) as typeof window.open;
+      const write = spyOn(localStorage, "setItem").mockImplementation(() => {
+        throw new Error("Storage unavailable");
+      });
+      try {
+        const schedule = renderHook(() =>
+          useNativeAppNudgeState("ios", "schedule-created"),
+        );
+        const notifications = renderHook(() =>
+          useNativeAppNudgeState("android", "notifications-empty"),
+        );
+
+        act(() => schedule.result.current[action]());
+
+        expect(notifications.result.current.bannerShouldShow).toBe(false);
+        notifications.unmount();
+        clearUserScopedOverrides();
+        const remounted = renderHook(() => useNativeAppNudgeState("generic"));
+        expect(remounted.result.current.bannerShouldShow).toBe(false);
+      } finally {
+        write.mockRestore();
+      }
+    },
+  );
+
+  test("dismisses every mounted surface when one nudge is dismissed", () => {
+    const chat = renderHook(() => useNativeAppNudgeState("android"));
+    const schedule = renderHook(() =>
+      useNativeAppNudgeState("ios", "schedule-created"),
+    );
+    const notifications = renderHook(() =>
+      useNativeAppNudgeState("generic", "notifications-empty"),
+    );
+
+    act(() => schedule.result.current.handleBannerDismiss());
+
+    expect(chat.result.current.bannerShouldShow).toBe(false);
+    expect(notifications.result.current.bannerShouldShow).toBe(false);
+  });
+
+  test("hides mounted nudges when Settings records a download", () => {
+    const { result } = renderHook(() =>
+      useNativeAppNudgeState("ios", "notifications-empty"),
+    );
+
+    act(() => writeNativeAppDownloaded("android"));
+
+    expect(result.current.bannerShouldShow).toBe(false);
+  });
+
   test("carries an Android dismissal over to the generic banner", () => {
     localStorage.setItem("app.androidNudge.bannerDismissed", "true");
 
