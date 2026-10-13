@@ -1,12 +1,14 @@
 /**
- * Direct-from-browser TTS synthesis for the Text-to-Speech "Test" button on
+ * Direct-from-renderer TTS synthesis for the Text-to-Speech "Test" button on
  * the Models & Services settings page.
  *
- * The web client does not have a managed TTS backend endpoint (TTS runs
- * inside the desktop daemon on macOS). To actually exercise the user's
- * configured provider + voice ID, we call each provider's public HTTPS API
- * directly from the browser using the BYO API key stored in localStorage.
+ * The preview calls each provider's public HTTPS API with the BYO API key
+ * from the form (localStorage once saved). The desktop app loads this same
+ * bundle, so a provider that is implemented here works there too. The
+ * desktop content-security policy has to allow the provider host.
  */
+
+import { t } from "@/i18n";
 
 export interface TTSSynthesisRequest {
   provider: string;
@@ -39,17 +41,12 @@ export async function synthesizeTTS(
       return await synthesizeDeepgram(apiKey, text);
     }
     if (provider === "fish-audio") {
-      return {
-        kind: "unsupported",
-        message:
-          "Fish Audio TTS is only supported in the desktop app today. Use ElevenLabs or Deepgram to test from the browser.",
-      };
+      return await synthesizeFishAudio(apiKey, voiceId, text);
     }
     if (provider === "xai") {
       return {
         kind: "unsupported",
-        message:
-          "xAI TTS is only supported in the desktop app today. Use ElevenLabs or Deepgram to test from the browser.",
+        message: t("ttsProviderForm.xaiPreviewUnsupported"),
       };
     }
     return {
@@ -102,6 +99,47 @@ async function synthesizeElevenLabs(
       message: await extractErrorMessage(
         response,
         "ElevenLabs rejected the request.",
+      ),
+    };
+  }
+  return { kind: "audio", blob: await response.blob() };
+}
+
+async function synthesizeFishAudio(
+  apiKey: string,
+  voiceId: string,
+  text: string,
+): Promise<TTSSynthesisResult> {
+  const trimmedVoiceId = voiceId.trim();
+  if (trimmedVoiceId.length === 0) {
+    return {
+      kind: "error",
+      message: t("ttsProviderForm.fishVoiceIdRequired"),
+    };
+  }
+  const response = await fetch("https://api.fish.audio/v1/tts", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      // Fish Audio reads the model from this header. A body field is ignored,
+      // and a missing header falls back to the API default.
+      model: "s2-pro",
+      Accept: "audio/mpeg",
+    },
+    body: JSON.stringify({
+      text,
+      reference_id: trimmedVoiceId,
+      format: "mp3",
+      mp3_bitrate: 192,
+    }),
+  });
+  if (!response.ok) {
+    return {
+      kind: "error",
+      message: await extractErrorMessage(
+        response,
+        "Fish Audio rejected the request.",
       ),
     };
   }
