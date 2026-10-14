@@ -127,7 +127,7 @@ export function AppViewerContainer({
 
   // Only asked for when the viewer actually offers a deploy: read-only
   // (plugin-bundled) apps get no deploy handler and so need no status read.
-  const { deployedUrl } = useAppDeployment(assistantId, appId, {
+  const { deployedUrl, providerName } = useAppDeployment(assistantId, appId, {
     enabled: onDeploy != null,
   });
   const handleCopyDeployedLink = useCallback(() => {
@@ -154,6 +154,7 @@ export function AppViewerContainer({
           onDeploy={onDeploy}
           isDeploying={isDeploying}
           deployedUrl={deployedUrl}
+          deployProviderName={providerName}
           onCopyDeployedLink={handleCopyDeployedLink}
           onToggleFullscreen={enableFullscreen ? toggleFullscreen : undefined}
           onClose={onClose}

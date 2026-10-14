@@ -26,11 +26,11 @@
     "pin": "釘選",
     "share": "分享",
     "shareSub": "匯出為 .vellum 檔案",
-    "deployed": "已部署至 Vercel",
+    "deployed": "已部署至 {provider}",
     "copyLink": "複製連結",
     "redeploy": "重新部署",
     "redeploySub": "發佈目前版本",
-    "deploy": "部署至 Vercel",
+    "deploy": "部署至 {provider}",
     "deploySub": "發佈為靜態頁面",
     "delete": "刪除"
   },
