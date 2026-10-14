@@ -41,7 +41,7 @@
     "@anthropic-ai/sdk": "0.78.0",
     "@google/genai": "1.45.0",
     "@jitl/quickjs-singlefile-mjs-release-asyncify": "0.32.0",
-    "@modelcontextprotocol/sdk": "1.27.1",
+    "@modelcontextprotocol/sdk": "1.31.0",
     "@qdrant/js-client-rest": "1.17.0",
     "@resvg/resvg-js": "2.6.2",
     "@slack/types": "2.22.0",
