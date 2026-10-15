@@ -56,6 +56,11 @@ import { installWebContentsSecurity } from "./windows.client";
  * the app is ready.
  */
 
+// Window placement and focus restoration require X11 or XWayland.
+if (!app.commandLine.hasSwitch("ozone-platform")) {
+  app.commandLine.appendSwitch("ozone-platform", "x11");
+}
+
 // Dev-only: override the package `name` (`@vellumai/linux`) so
 // `app.getPath("userData")` resolves to its own directory, cleanly separate
 // from other Vellum installs. Packaged builds get a real `productName` from
