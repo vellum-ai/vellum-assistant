@@ -45,7 +45,6 @@ import { provisionCliForWrapper } from "./cli-path-installer";
 import { installMainFeatures } from "./features";
 import { handleSync } from "./ipc.client";
 import log from "./logger";
-import { ensureVisible } from "./main-window";
 import { installWebContentsSecurity } from "./windows.client";
 
 /**
@@ -273,10 +272,6 @@ app
   .catch((err: unknown) => {
     log.error("[app] whenReady setup failed:", err);
   });
-
-app.on("second-instance", () => {
-  ensureVisible();
-});
 
 app.on("window-all-closed", () => {
   // Keep the notification-area tray available to reopen the window.
