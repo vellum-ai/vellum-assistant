@@ -219,8 +219,9 @@ Examples:
       ],
       helpText: `
 Arguments:
-  title   Optional conversation title (string). If omitted, a default title is
-          assigned by the assistant.
+  title   Optional conversation title (string). A given title is kept like a
+          manual rename (auto-generated titles will not overwrite it). If
+          omitted, a title is generated automatically.
 
 The content file must be a JSON array of { role, content } messages.
 

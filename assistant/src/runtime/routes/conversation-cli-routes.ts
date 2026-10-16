@@ -22,6 +22,7 @@ import {
 } from "../../persistence/conversation-crud.js";
 import { setConversationKey } from "../../persistence/conversation-key-store.js";
 import { listConversations } from "../../persistence/conversation-queries.js";
+import { TITLE_USER_SET } from "../../persistence/conversation-title-service.js";
 import type { ConversationCreateType } from "../../persistence/conversation-types.js";
 import { getBindingByConversation } from "../../persistence/external-conversation-store.js";
 import { userFacingBlocksOfRow } from "../../persistence/user-facing-content.js";
@@ -86,7 +87,10 @@ function textContentJson(text: string): string {
 }
 
 async function handleCreateCli({ body = {} }: RouteHandlerArgs) {
-  const title = body.title as string | undefined;
+  if (body.title !== undefined && typeof body.title !== "string") {
+    throw new BadRequestError("title must be a string");
+  }
+  const title = body.title?.trim() || undefined;
   const messages =
     (body.messages as SeededConversationMessage[] | undefined) ?? [];
 
@@ -104,7 +108,14 @@ async function handleCreateCli({ body = {} }: RouteHandlerArgs) {
   }
 
   const conversation = await withSqliteRetry(
-    () => createConversation({ title, conversationType }),
+    () =>
+      createConversation({
+        title,
+        // An explicit name is user-set, like a rename: the auto-titler
+        // leaves it alone on every pass.
+        ...(title ? { isAutoTitle: TITLE_USER_SET } : {}),
+        conversationType,
+      }),
     { op: "createConversationCli" },
   );
   const conversationKey = uuid();
