@@ -18,6 +18,7 @@
  */
 
 import {
+  GuardianActionEmphasisSchema,
   type GuardianRequestStatus,
   GuardianRequestStatusSchema,
 } from "@vellumai/service-contracts/guardian-requests";
@@ -122,12 +123,27 @@ export type FeedItemGuardianIntent = z.infer<
 >;
 
 /**
+ * One decision a pending request's card offers, in card order. `id` is a
+ * guardian decision action (`GuardianDecisionActionIdSchema` in
+ * `@vellumai/service-contracts/guardian-requests`), carried as a string so an
+ * item written by a newer daemon still parses; clients skip an id they do not
+ * know. Labels are the client's own copy, keyed by `id`.
+ */
+export const FeedItemGuardianDecisionActionSchema = z.object({
+  id: z.string(),
+  emphasis: GuardianActionEmphasisSchema.optional(),
+});
+export type FeedItemGuardianDecisionAction = z.infer<
+  typeof FeedItemGuardianDecisionActionSchema
+>;
+
+/**
  * Read projection of one canonical guardian request onto its feed item.
  *
  * The feed item carrying this is the request's single "Needs attention"
  * home: exactly one item per `requestId`, kept current by the daemon's
  * status fan-out. Clients derive every affordance from `status` +
- * `intent`: a `pending` approval offers Approve/Reject (via
+ * `intent`: a `pending` approval offers its `decisionActions` (via
  * `POST /v1/guardian-actions/decision`), a `pending` question routes to
  * the source conversation, and a terminal status renders as a receipt.
  * Nothing here is an independent delivery record; it restates gateway
@@ -147,6 +163,11 @@ export const FeedItemGuardianRequestSchema = z.object({
   requesterLabel: z.string().optional(),
   /** Tool the request is about, when it is a tool approval/grant. */
   toolName: z.string().optional(),
+  /**
+   * The decisions the request's card offers, for an approval-intent request.
+   * An item without it is offered the generic `approve_once` / `reject` pair.
+   */
+  decisionActions: z.array(FeedItemGuardianDecisionActionSchema).optional(),
   /** Channel the request originated from (e.g. "slack"). */
   sourceChannel: z.string().optional(),
   /** Display label for the originating chat (e.g. "#user-feedback"). */

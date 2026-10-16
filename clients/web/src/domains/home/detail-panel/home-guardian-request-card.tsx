@@ -24,6 +24,7 @@ import {
   isDenyingGuardianAction,
 } from "@vellumai/service-contracts/guardian-requests";
 
+import { GuardianDecisionButtons } from "../guardian-decision-buttons";
 import {
   isCommittedDecision,
   isRetiredDecisionReason,
@@ -57,8 +58,8 @@ export interface HomeGuardianRequestCardProps {
  * Everything renders off the item's `guardianRequest` projection, which
  * the daemon keeps aligned with the gateway-owned request: the source
  * line says where it came from and the summary carries the ask itself.
- * A `pending` approval offers Approve/Reject through the canonical
- * decision route, a `pending` question points at the source conversation
+ * A `pending` approval offers the decisions its card offers through the
+ * canonical decision route, a `pending` question points at the source conversation
  * (the host panel's "Go to Conversation" link is the way there), and a
  * terminal status renders as a receipt in place of the buttons. A
  * decision that comes back not-applied means another surface resolved
@@ -117,8 +118,12 @@ export function HomeGuardianRequestCard({
     : resolvedElsewhere
       ? ALREADY_RESOLVED_RECEIPT
       : receiptView(
-          decidedLocally
-            ? { ...guardianRequest, status: decidedLocally }
+          decidedLocally && outcome
+            ? {
+                ...guardianRequest,
+                status: decidedLocally,
+                decidedAction: outcome.action,
+              }
             : guardianRequest,
         );
   const ReceiptIcon = receipt?.icon;
@@ -196,22 +201,22 @@ export function HomeGuardianRequestCard({
         </div>
       ) : null}
 
+      {/* Shown where the decision was made because it is shown nowhere
+          else: a verification code the guardian passes on reaches them only
+          in the decision's reply. */}
+      {outcome?.replyText ? (
+        <div data-testid="guardian-request-decision-reply">
+          <HomeMarkdownContent content={outcome.replyText} />
+        </div>
+      ) : null}
+
       {showsApprovalButtons ? (
         <div className="flex flex-wrap gap-[var(--app-spacing-sm)]">
-          <Button
-            variant="primary"
+          <GuardianDecisionButtons
+            guardianRequest={guardianRequest}
             disabled={isDecisionInFlight || !decision.canDecide}
-            onClick={() => decide("approve_once")}
-          >
-            {t("homeGuardianRequestCard.approve")}
-          </Button>
-          <Button
-            variant="outlined"
-            disabled={isDecisionInFlight || !decision.canDecide}
-            onClick={() => decide("reject")}
-          >
-            {t("homeGuardianRequestCard.reject")}
-          </Button>
+            onDecide={decide}
+          />
         </div>
       ) : null}
 
