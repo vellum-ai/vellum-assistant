@@ -1,12 +1,13 @@
 /**
  * Tests for pre-flush telemetry wire validation.
  *
- * Validation is observability only — it must count and warn, never mutate,
- * filter, or block — and its warn payloads must carry the event type and
- * issue `{ path, code }` shapes only, never field values. `daemon_event_id`
- * is a field value too: activation-funnel ids embed the onboarding session
- * id (traces/claims can hold PII). Issue paths are sanitized as well: dynamic
- * record keys (e.g. `client` bag keys) are redacted to `*` before logging.
+ * The function counts and warns. It does not mutate, filter, or block the
+ * batch. Warn payloads carry the event type and issue `{ path, code }` shapes
+ * only, never field values.
+ * `daemon_event_id` is a field value too: activation-funnel ids embed the
+ * onboarding session id (traces/claims can hold PII). Issue paths are
+ * sanitized as well: dynamic record keys (e.g. `client` bag keys) are
+ * redacted to `*` before logging.
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 

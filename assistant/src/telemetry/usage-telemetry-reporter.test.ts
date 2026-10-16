@@ -3437,7 +3437,7 @@ describe("UsageTelemetryReporter", () => {
       ),
     ).toBe(false);
 
-    // A second flush finds nothing pending — the event never re-ships.
+    // A second flush finds nothing pending. The event never re-ships.
     mockFetch.mockClear();
     await reporter.flush();
     expect(mockFetch).not.toHaveBeenCalled();
