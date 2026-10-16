@@ -29,6 +29,8 @@ import {
   fetchLatestHistoryPage,
   fetchOlderHistoryPage,
 } from "@/domains/chat/api/history";
+import { useCanQueryDaemon } from "@/hooks/conversation-queries";
+import { useOrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 import { shouldRetryDaemonError } from "@/utils/daemon-errors";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import { mergeAdjacentAssistantMessages } from "@/domains/chat/utils/message-merge";
@@ -138,6 +140,18 @@ export function modeSessionIdsForRefresh(
 /** The shape `useInfiniteQuery` stores under a conversation-history key. */
 export type HistoryCache = InfiniteData<PaginatedHistoryResult>;
 
+/**
+ * Whether the daemon can take this query's requests (see `useCanQueryDaemon`).
+ *
+ * - `"open"`: requests can run.
+ * - `"waiting"`: the pod is waking or asleep, or the org header is still
+ *   resolving. The query holds without fetching, and TanStack Query refetches
+ *   it when the gate opens.
+ * - `"unavailable"`: org resolution concluded without a usable id, so the
+ *   query cannot run until something re-triggers that resolution.
+ */
+export type DaemonGate = "open" | "waiting" | "unavailable";
+
 export function reconcileHistoryModeSessions(
   previous: HistoryCache | undefined,
   incoming: HistoryCache,
@@ -202,6 +216,8 @@ export interface HistoryPaginationResult {
   isError: boolean;
   /** The error, if any. */
   error: Error | null;
+  /** Whether the daemon can take this query's requests. */
+  daemonGate: DaemonGate;
   /** Older pages are available for infinite scroll. */
   hasMore: boolean;
   /** A fetch for older pages is in progress. */
@@ -235,6 +251,14 @@ export function useHistoryPagination({
   sessionGroupsEnabled,
 }: UseHistoryPaginationParams): HistoryPaginationResult {
   const queryClient = useQueryClient();
+  // Applied inside the hook so every observer of this key honors it: TanStack
+  // Query fetches when any observer is enabled.
+  const canQueryDaemon = useCanQueryDaemon(assistantId);
+  const orgReadiness = useOrgHeaderReadiness();
+  let daemonGate: DaemonGate = "open";
+  if (!canQueryDaemon) {
+    daemonGate = orgReadiness === "unavailable" ? "unavailable" : "waiting";
+  }
   const queryKey = useMemo(
     () => conversationHistoryQueryKey(assistantId, conversationId),
     [assistantId, conversationId],
@@ -265,7 +289,7 @@ export function useHistoryPagination({
       }
       return undefined;
     },
-    enabled: enabled && !!assistantId && !!conversationId,
+    enabled: enabled && canQueryDaemon && !!assistantId && !!conversationId,
     // Always refetch in the background — mirrors the existing
     // "restore from cache then fetch latest and reconcile" pattern.
     staleTime: 0,
@@ -347,10 +371,10 @@ export function useHistoryPagination({
 
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
   const fetchOlderPage = useCallback(() => {
-    if (hasNextPage && !isFetchingNextPage) {
+    if (canQueryDaemon && hasNextPage && !isFetchingNextPage) {
       void fetchNextPage();
     }
-  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
+  }, [canQueryDaemon, fetchNextPage, hasNextPage, isFetchingNextPage]);
 
   return {
     messages,
@@ -362,6 +386,7 @@ export function useHistoryPagination({
     isSuccess: query.isSuccess,
     isError: query.isError,
     error: query.error,
+    daemonGate,
     hasMore: query.hasNextPage ?? false,
     isFetchingOlderPages: query.isFetchingNextPage,
     isFetching: query.isFetching,
