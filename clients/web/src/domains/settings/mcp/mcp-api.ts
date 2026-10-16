@@ -7,6 +7,7 @@
  */
 
 import { client } from "@/generated/daemon/client.gen";
+import { extractErrorMessage, toApiError } from "@/utils/api-errors";
 
 // ---------------------------------------------------------------------------
 // Response shapes (mirror the daemon's responseBody Zod schemas)
@@ -144,13 +145,18 @@ export async function startMcpAuth(
   state: string;
   already_authenticated?: boolean;
 }> {
-  const { data, response } = await client.post({
+  const { data, error, response } = await client.post({
     url: "/v1/assistants/{assistant_id}/internal/mcp/auth/start" as "/v1/assistants/{assistant_id}/config",
     path: { assistant_id: assistantId },
     body: { serverId } as Record<string, unknown>,
   });
   if (!response?.ok) {
-    throw new Error(`Failed to start MCP auth: ${response?.status}`);
+    if (response) {
+      throw toApiError(error, response);
+    }
+    throw new Error(
+      extractErrorMessage(error, undefined, "Failed to start MCP auth."),
+    );
   }
   return (data as unknown) as {
     auth_url: string;
