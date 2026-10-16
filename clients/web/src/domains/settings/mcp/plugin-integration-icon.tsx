@@ -3,7 +3,7 @@ import { usePluginIconSrc } from "@/hooks/use-plugin-icon-src";
 
 import type { McpPluginDefinition } from "../integration-items";
 
-import { pluginLogoUrl } from "./plugin-logo";
+import { pluginLogoFallbackUrl, pluginLogoUrl } from "./plugin-logo";
 
 export function PluginIntegrationIcon({
   assistantId,
@@ -25,6 +25,7 @@ export function PluginIntegrationIcon({
       icon={definition.installed?.icon}
       iconSrc={iconSrc}
       iconUrl={pluginLogoUrl(definition) ?? undefined}
+      fallbackIconUrl={pluginLogoFallbackUrl(definition) ?? undefined}
       size="md"
     />
   );

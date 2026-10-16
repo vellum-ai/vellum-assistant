@@ -24,6 +24,8 @@ import { validatePluginIconBytes } from "./generate-plugin-icons.mjs";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "../..");
 const PLUGIN_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
+const FILENAME_VERSION_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
+const DERIVED_LOGO_RE = /^[a-z0-9][a-z0-9_-]*-mcp(?:-[A-Za-z0-9][A-Za-z0-9_.-]*)?\.png$/;
 const LOCAL_MCP_ROOT = "plugins/mcp-catalog";
 const DERIVED_SUFFIX = "-mcp.png";
 
@@ -73,13 +75,6 @@ function inspectLocalMcpIcons({ repoRoot, marketplacePath }) {
       continue;
     }
 
-    const expectedLogo = `${name}${DERIVED_SUFFIX}`;
-    if (entry.integration.logo !== expectedLogo) {
-      errors.push(
-        `local MCP plugin "${name}" must use integration.logo "${expectedLogo}"`,
-      );
-    }
-
     const packageRoot = join(repoRoot, expectedSourcePath);
     const pluginManifestPath = join(packageRoot, "plugin.json");
     const pluginManifest = readJson(
@@ -99,6 +94,32 @@ function inspectLocalMcpIcons({ repoRoot, marketplacePath }) {
       );
     }
 
+    const packageVersion = pluginManifest?.version;
+    const unversionedLogo = `${name}${DERIVED_SUFFIX}`;
+    const versionedLogo = FILENAME_VERSION_RE.test(packageVersion ?? "")
+      ? `${name}-mcp-${packageVersion}.png`
+      : undefined;
+    if (typeof packageVersion === "string" && !versionedLogo) {
+      errors.push(
+        `local MCP plugin "${name}" version must be safe for a logo filename`,
+      );
+    }
+    const logo = entry.integration.logo;
+    if (logo !== unversionedLogo) {
+      errors.push(
+        `local MCP plugin "${name}" must use integration.logo "${unversionedLogo}"`,
+      );
+    }
+    const advertisedVersionedLogo = entry.integration.versionedLogo;
+    if (
+      advertisedVersionedLogo !== undefined &&
+      advertisedVersionedLogo !== versionedLogo
+    ) {
+      errors.push(
+        `local MCP plugin "${name}" must use integration.versionedLogo "${versionedLogo}"`,
+      );
+    }
+
     const iconPath = join(packageRoot, "icon.png");
     if (!isFile(iconPath)) {
       errors.push(`local MCP plugin "${name}" has no package-owned icon.png`);
@@ -113,7 +134,10 @@ function inspectLocalMcpIcons({ repoRoot, marketplacePath }) {
       continue;
     }
 
-    icons.push({ name, bytes, logo: expectedLogo });
+    const logos = advertisedVersionedLogo
+      ? [logo, advertisedVersionedLogo]
+      : [logo];
+    icons.push({ name, bytes, logos });
   }
 
   return { errors, icons };
@@ -124,7 +148,7 @@ function listDerivedLogos(webAssetsDir) {
     return [];
   }
   return readdirSync(webAssetsDir)
-    .filter((name) => name.endsWith(DERIVED_SUFFIX))
+    .filter((filename) => DERIVED_LOGO_RE.test(filename))
     .sort();
 }
 
@@ -140,20 +164,24 @@ export function syncLocalPluginIcons({
   log = console,
 } = {}) {
   const { errors, icons } = inspectLocalMcpIcons({ repoRoot, marketplacePath });
-  const expectedLogos = new Set(icons.map(({ logo }) => logo));
+  const expectedLogos = new Set(icons.flatMap(({ logos }) => logos));
   const stale = listDerivedLogos(webAssetsDir).filter(
     (name) => !expectedLogos.has(name),
   );
 
   if (check && errors.length === 0) {
-    for (const { name, bytes, logo } of icons) {
-      const webPath = join(webAssetsDir, logo);
-      if (!isFile(webPath)) {
-        errors.push(`local MCP plugin "${name}" has no derived web logo ${logo}`);
-        continue;
-      }
-      if (!readFileSync(webPath).equals(bytes)) {
-        errors.push(`derived web logo ${logo} differs from ${name}/icon.png`);
+    for (const { name, bytes, logos } of icons) {
+      for (const logo of logos) {
+        const webPath = join(webAssetsDir, logo);
+        if (!isFile(webPath)) {
+          errors.push(
+            `local MCP plugin "${name}" has no derived web logo ${logo}`,
+          );
+          continue;
+        }
+        if (!readFileSync(webPath).equals(bytes)) {
+          errors.push(`derived web logo ${logo} differs from ${name}/icon.png`);
+        }
       }
     }
     for (const logo of stale) {
@@ -170,14 +198,16 @@ export function syncLocalPluginIcons({
   }
 
   mkdirSync(webAssetsDir, { recursive: true });
-  for (const { bytes, logo } of icons) {
-    writeFileSync(join(webAssetsDir, logo), bytes);
+  for (const { bytes, logos } of icons) {
+    for (const logo of logos) {
+      writeFileSync(join(webAssetsDir, logo), bytes);
+    }
   }
   for (const logo of stale) {
     rmSync(join(webAssetsDir, logo));
   }
 
-  const synced = icons.map(({ logo }) => logo).sort();
+  const synced = icons.flatMap(({ logos }) => logos).sort();
   log.log?.(`Synced ${synced.length} local MCP plugin icon(s).`);
   return { ok: true, errors: [], synced, removed: stale };
 }

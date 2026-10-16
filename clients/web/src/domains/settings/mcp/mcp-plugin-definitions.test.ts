@@ -83,6 +83,15 @@ describe("buildMcpPluginDefinitions", () => {
     expect(unfiled.category).toBeUndefined();
   });
 
+  test("carries an optional cache-safe catalog logo", () => {
+    const versioned = match();
+    versioned.integration!.versionedLogo = "example-mcp-1.0.0.png";
+
+    const [definition] = buildMcpPluginDefinitions([versioned], []);
+
+    expect(definition.versionedLogo).toBe("example-mcp-1.0.0.png");
+  });
+
   test("joins installed ownership only by the exact plugin name", () => {
     const [definition] = buildMcpPluginDefinitions(
       [match()],
