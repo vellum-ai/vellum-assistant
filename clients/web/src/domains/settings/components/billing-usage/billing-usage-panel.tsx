@@ -147,24 +147,14 @@ export function BillingUsagePanel() {
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <StatSquare
             icon={<Coins />}
-            value={
-              isLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              ) : (
-                formatUsd(totals?.total_usd)
-              )
-            }
+            loading={isLoading}
+            value={formatUsd(totals?.total_usd)}
             label={t("billingUsagePanel.spendLabel")}
           />
           <StatSquare
             icon={<Target />}
-            value={
-              isLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              ) : (
-                formatEventCount(totals?.event_count)
-              )
-            }
+            loading={isLoading}
+            value={formatEventCount(totals?.event_count)}
             label={t("billingUsagePanel.eventsLabel")}
           />
         </div>

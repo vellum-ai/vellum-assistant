@@ -84,9 +84,8 @@ export const Active: Story = {
 };
 
 /**
- * With its usage summary in hand, which is the only state that draws the cost
- * and run tiles. Every other story leaves `usage` in error, where the row
- * renders nothing at all.
+ * With its usage summary in hand. The stories without a `usage` of their own
+ * leave it in error, where the row renders nothing at all.
  */
 export const UsageReady: Story = {
   args: {
@@ -100,6 +99,12 @@ export const UsageReady: Story = {
       },
     },
   },
+  decorators: [withPanelBox, withQueryCache(seedCache)],
+};
+
+/** The cost and run tiles while the usage summary is on its way. */
+export const UsageLoading: Story = {
+  args: { usage: { status: "loading" } },
   decorators: [withPanelBox, withQueryCache(seedCache)],
 };
 
