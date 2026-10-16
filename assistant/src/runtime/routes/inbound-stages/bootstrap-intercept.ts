@@ -159,13 +159,16 @@ export async function handleBootstrapIntercept(
     // requireSourceSessionPending makes the claim atomic gateway-side: if a
     // concurrent /start for the same deep link already minted (revoking the
     // bootstrap session), this call conflicts instead of revoking the
-    // winner's freshly sent code.
+    // winner's freshly sent code. The replacement continues the bootstrap
+    // session, so it carries that session's purpose; the gateway pins the
+    // purpose to the claimed row's regardless.
     minted = await createOutboundSessionConditional({
       channel: sourceChannel,
       expectedExternalUserId: rawSenderId,
       expectedChatId: conversationExternalId,
       identityBindingStatus: "bound",
       destinationAddress: conversationExternalId,
+      verificationPurpose: bootstrapSession.verificationPurpose,
       requireSourceSessionPending: bootstrapSession.id,
     });
   } catch (err) {
