@@ -61,6 +61,40 @@ const NATIVE_MOBILE_HIDDEN_TEARDOWN_GRACE_MS = 60_000;
 // deliberately; below it the socket is assumed healthy and kept as is.
 const SUSPECT_SOCKET_AFTER_MS = 30_000;
 
+// Below `SUSPECT_SOCKET_AFTER_MS` the socket is kept, but "kept" is not
+// "known alive": iOS can drop a streaming fetch during a background of
+// any length, again with nothing surfaced to JavaScript. Rather than
+// bounce every brief app switch (a reconnect fans out a full reconcile
+// across domains), ask the transport to prove the socket is alive within
+// about one daemon heartbeat interval (7 s, plus margin). A live socket
+// answers with its next heartbeat and nothing else happens; a dead one
+// trips the watchdog and reconnects in ~12 s instead of the 45 s idle
+// window — which users otherwise see as "messages arrive late unless I
+// switch conversations".
+const RESUME_PROBE_TIMEOUT_MS = 12_000;
+
+// After the transport exhausts its reconnect budget (`onError`), nothing
+// else reopens the stream on a client that never changes visibility — a
+// tablet on a stand, a desktop window left open — until the user acts.
+// Keep trying at a slow cadence for as long as the attachment lives.
+const GIVE_UP_REOPEN_INTERVAL_MS = 30_000;
+
+// Test-only override of the give-up retry cadence; `null` means default.
+let giveUpReopenIntervalOverrideMs: number | null = null;
+const resolveGiveUpReopenIntervalMs = (): number =>
+  giveUpReopenIntervalOverrideMs ?? GIVE_UP_REOPEN_INTERVAL_MS;
+
+/**
+ * Override the give-up retry cadence. Test-only seam; pass `null` to
+ * restore the default. Never call from production code.
+ * @internal
+ */
+export function __setGiveUpReopenIntervalMsForTesting(
+  ms: number | null,
+): void {
+  giveUpReopenIntervalOverrideMs = ms;
+}
+
 // Test-only override of the resolved grace window; `null` means use the
 // platform default.
 let hiddenTeardownGraceOverrideMs: number | null = null;
@@ -153,6 +187,25 @@ export const sseService: SseService = {
     // Pending grace timer for a hidden-tab teardown, so a resume within
     // the grace window (or a detach / other teardown) can cancel it.
     let hiddenTeardownTimer: ReturnType<typeof setTimeout> | null = null;
+    // Pending slow retry after the transport gave up, so detach (or a
+    // reopen by any other path) can cancel it.
+    let giveUpReopenTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearGiveUpReopenTimer = () => {
+      if (giveUpReopenTimer !== null) {
+        clearTimeout(giveUpReopenTimer);
+        giveUpReopenTimer = null;
+      }
+    };
+    const scheduleGiveUpReopen = () => {
+      clearGiveUpReopenTimer();
+      giveUpReopenTimer = setTimeout(() => {
+        giveUpReopenTimer = null;
+        if (cancelled || current) {
+          return;
+        }
+        openConnection();
+      }, resolveGiveUpReopenIntervalMs());
+    };
     // When the pending grace teardown was armed, so a resume can tell a
     // quick app switch from a background long enough that the socket we
     // still hold is probably dead. Null whenever no background is pending.
@@ -236,6 +289,7 @@ export const sseService: SseService = {
       if (cancelled || current) {
         return;
       }
+      clearGiveUpReopenTimer();
       const causeAtOpen = nextOpenCause;
       nextOpenCause = "resume";
       // Did THIS stream ever genuinely establish (a frame arrived)? A transport
@@ -274,6 +328,7 @@ export const sseService: SseService = {
           setConnected(false);
           flushPendingEnvelopes();
           publish("sse.closed", { reason: err.message });
+          scheduleGiveUpReopen();
         },
         {
           onReconnect: (cause) => {
@@ -389,6 +444,17 @@ export const sseService: SseService = {
         return;
       }
       lastAppResumeAt = now;
+      if (current !== null && isForegroundResume) {
+        // The socket is kept, but it must prove it survived. This runs on
+        // every foreground resume outside the dedup window, whether or not
+        // a hidden mark was recorded: a locked screen with the app in
+        // front, or a sleep that never reached the JS thread, arrives here
+        // with no background to measure and a socket the OS may have
+        // killed all the same. A live socket answers with its next
+        // heartbeat and nothing else happens; a dead one is replaced in
+        // about one heartbeat interval instead of the full idle window.
+        current.probe(RESUME_PROBE_TIMEOUT_MS);
+      }
       // Daemon health check via the lifecycle store. The no-op
       // default covers the pre-registration window but no
       // foreground resume event can fire before `RootLayout` has
@@ -531,6 +597,7 @@ export const sseService: SseService = {
 
     return () => {
       cancelled = true;
+      clearGiveUpReopenTimer();
       clearSseReconnectHandler(reconnectForDebug);
       if (debugReconnectTimer !== null) {
         clearTimeout(debugReconnectTimer);
