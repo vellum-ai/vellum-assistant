@@ -44,7 +44,7 @@ export interface TurnDetectorConfig {
   maxTurnDurationMs?: number;
 }
 
-const DEFAULT_SILENCE_THRESHOLD_MS = 800;
+export const DEFAULT_SILENCE_THRESHOLD_MS = 800;
 const DEFAULT_MAX_TURN_DURATION_MS = 30_000;
 
 // ---------------------------------------------------------------------------
@@ -68,6 +68,18 @@ export interface TurnDetectorCallbacks {
    *   milliseconds (from the first speech chunk to the end trigger).
    */
   onTurnEnd?: (reason: "silence" | "max-duration", durationMs: number) => void;
+
+  /**
+   * Called when speech resumes within an active turn after a silence gap
+   * that had started the silence countdown but hadn't yet expired.
+   *
+   * Carries the gap duration so callers can observe the user's natural
+   * intra-utterance pause rhythm and adapt the silence threshold accordingly.
+   *
+   * @param pauseMs - Milliseconds between the last speech chunk and the
+   *   current resuming chunk.
+   */
+  onIntraTurnResume?: (pauseMs: number) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +99,17 @@ export class MediaTurnDetector {
 
   /** Wall-clock timestamp of the first speech chunk in the current turn. */
   private turnStartedAt = 0;
+
+  /** Wall-clock timestamp of the most recent speech-bearing chunk. */
+  private lastSpeechAt = 0;
+
+  /**
+   * True when at least one non-speech chunk has arrived since the last
+   * speech-bearing chunk within the active turn. Used to distinguish
+   * genuine silence gaps from continuous speech runs (where the silence
+   * timer is always armed but no actual silence occurred).
+   */
+  private hadSilenceSinceLastSpeech = false;
 
   /** Timer that fires when silence exceeds the threshold. */
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -157,21 +180,34 @@ export class MediaTurnDetector {
         this.active = true;
         this.hasSpeechInTurn = true;
         this.turnStartedAt = Date.now();
+        this.lastSpeechAt = this.turnStartedAt;
+        this.hadSilenceSinceLastSpeech = false;
         this.callbacks.onTurnStart?.();
 
         // Arm the max-duration hard cap.
         this.maxDurationTimer = setTimeout(() => {
           this.endTurn("max-duration");
         }, this.maxTurnDurationMs);
+      } else if (this.hadSilenceSinceLastSpeech) {
+        // Speech resuming after a genuine silence gap within the active turn.
+        // Report the pause so callers can adapt the silence threshold.
+        const pauseMs = Date.now() - this.lastSpeechAt;
+        this.callbacks.onIntraTurnResume?.(pauseMs);
+        this.hadSilenceSinceLastSpeech = false;
       }
 
+      this.lastSpeechAt = Date.now();
       // Reset the silence timer on speech chunks.
       this.resetSilenceTimer();
-    } else if (this.active && this.silenceTimer === null) {
-      // Active turn but no speech — start the silence countdown if
-      // not already running. This handles the transition from speech
-      // to silence within a continuous chunk stream.
-      this.resetSilenceTimer();
+    } else if (this.active) {
+      // Non-speech chunk during an active turn: mark that silence has
+      // occurred since the last speech chunk.
+      this.hadSilenceSinceLastSpeech = true;
+      if (this.silenceTimer === null) {
+        // First silence transition — start the countdown.
+        this.resetSilenceTimer();
+      }
+      // Subsequent silent chunks while countdown is running: no-op.
     }
     // Silent chunks while idle are ignored — no turn is started.
   }
@@ -227,6 +263,7 @@ export class MediaTurnDetector {
     this.clearTimers();
     this.active = false;
     this.hasSpeechInTurn = false;
+    this.hadSilenceSinceLastSpeech = false;
 
     this.callbacks.onTurnEnd?.(reason, durationMs);
   }
