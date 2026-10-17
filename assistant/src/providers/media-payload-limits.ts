@@ -1,5 +1,6 @@
 /**
- * Request payload marks for retained tool-result media.
+ * Request payload marks for retained media: tool-result documents and the
+ * user's attachments.
  *
  * Providers reject a request outright once its inline media crosses their
  * payload limits, so the outbound sanitizer (`context/outbound-sanitize.ts`)
@@ -30,17 +31,19 @@
  *   parallel screenshots.
  *   https://platform.claude.com/docs/en/build-with-claude/vision#request-limits
  *
- * The byte marks leave room under the 20 MB total for what the cap counts
- * but never evicts and for what it does not count at all:
+ * The byte marks leave room under the 20 MB total for what the cap does not
+ * count:
  * - the current step's frame media (a screenshot the model needs for its next
  *   action). It is left out of the running total so eviction decisions never
  *   depend on which step is current, which changes every send; one read-time
  *   optimized image is at most about 4.7 MB as base64
  *   (`agent/image-optimize.ts`), so that much is reserved for it;
  * - the request's text and tool definitions, a few MB at most.
- * A step that returns several large frames at once can still exceed the
- * total; the reactive overflow path (`plugins/defaults/compaction/
- * context-overflow-reducer.ts`) is the backstop for that case.
+ * A step that returns several large frames at once, or a single message whose
+ * own attachments outweigh the band (the cap never evicts the turn in
+ * progress), can still exceed the total; the reactive overflow path
+ * (`plugins/defaults/compaction/context-overflow-reducer.ts`) is the backstop
+ * for those cases.
  *
  * Per-image limits are enforced when the media is read, so only the aggregate
  * is governed here.

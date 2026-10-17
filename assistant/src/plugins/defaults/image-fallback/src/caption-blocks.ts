@@ -252,17 +252,18 @@ export async function captionImagesInMessages(
 /**
  * Caption the image blocks a rejected model call, or its retry, can carry
  * after the host's outbound media retention: every top-level image block (the
- * sanitizer never strips those) plus the tool_result media the retention
- * policy keeps before its payload cap ({@link retainedToolResultMediaKeysBeforeCap}:
- * the current step's screenshots and every file read). Stale screenshots are
- * left raw so the retry replaces them with the compact removed-media marker
- * rather than a full caption.
+ * user's attachments, which the policy keeps until its payload cap retires
+ * them) plus the tool_result media the retention policy keeps before its
+ * payload cap ({@link retainedToolResultMediaKeysBeforeCap}: the current
+ * step's screenshots and every file read). Stale screenshots are left raw so
+ * the retry replaces them with the compact removed-media marker rather than a
+ * full caption.
  *
- * File reads the cap had thinned from the rejected request are captioned too,
- * not left for the marker: captioning removes media bytes from history, the
- * retry recomputes the cap over the lighter history, and documents it had
- * evicted come back into the request as raw images, which the text-only
- * provider rejects again with the one-shot recovery already spent.
+ * Attachments and file reads the cap had thinned from the rejected request
+ * are captioned too, not left for the marker: captioning removes media bytes
+ * from history, the retry recomputes the cap over the lighter history, and
+ * media it had evicted comes back into the request as raw images, which the
+ * text-only provider rejects again with the one-shot recovery already spent.
  *
  * Text-only user content is then merged via {@link flattenTextOnlyBlocks}.
  */

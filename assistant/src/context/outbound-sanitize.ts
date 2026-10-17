@@ -17,17 +17,20 @@ import {
   mediaSourceByteLength,
   mediaSourceDescriptor,
 } from "../providers/media-resolve.js";
-import type {
-  ContentBlock,
-  FileContent,
-  ImageContent,
-  MediaRetention,
-  Message,
+import {
+  type ContentBlock,
+  type FileContent,
+  type ImageContent,
+  mediaBlockAttachmentId,
+  type MediaRetention,
+  type Message,
+  type TextContent,
 } from "../providers/types.js";
 import {
   isProviderReadableImageData,
   isProviderReadableImageMimeType,
 } from "../util/image-conversion.js";
+import { hasUserAuthoredContent } from "./user-authored-content.js";
 
 /** Number of most-recent AX tree snapshots to keep in conversation history. */
 const MAX_AX_TREES_IN_HISTORY = 2;
@@ -308,17 +311,51 @@ function base64Bytes(decodedBytes: number): number {
 const FRAME_MEDIA_PLACEHOLDER =
   "\n[Media (image/audio) was captured and shown previously; binary data removed to save context.]";
 
+/** What every payload-cap marker says happened to the media it stands in for. */
+const PAYLOAD_CAP_REMOVAL =
+  "shown in an earlier turn was removed from this request to stay within the provider's payload limit.";
+
 function documentMediaPlaceholder(media: MediaBlock[]): string {
   const described = media
     .map((block) => mediaSourceDescriptor(block.source))
     .join("; ");
-  return `\n[Media (${described}) shown in an earlier turn was removed from this request to stay within the provider's payload limit. Call the tool again to view it.]`;
+  return `\n[Media (${described}) ${PAYLOAD_CAP_REMOVAL} Call the tool again to view it.]`;
 }
 
 /**
- * Decide which tool-result media the outbound copy keeps and which it drops.
- * Blocks are keyed `${messageIndex}:${blockIndex}`; an evicted block carries
- * the retention class that picks its replacement marker.
+ * Marker for an evicted attachment. It names the file the attachment is
+ * stored in, so the model can bring it back with `file_read`, whose result
+ * the cap then keeps like any other document.
+ */
+function attachmentPlaceholder(
+  block: MediaBlock,
+  storedPath: string | undefined,
+): TextContent {
+  const recovery =
+    storedPath === undefined
+      ? "Ask the user to attach it again if you need it."
+      : `Read ${storedPath} with file_read to view it again.`;
+  return {
+    type: "text",
+    text: `[Attachment (${mediaSourceDescriptor(block.source)}) ${PAYLOAD_CAP_REMOVAL} ${recovery}]`,
+  };
+}
+
+/** How an evicted block is replaced: each class names its own way back. */
+type EvictionClass = MediaRetention | "attachment";
+
+/** One user message's media the payload cap may evict, and what it adds to the totals. */
+interface EvictableMedia {
+  msgIdx: number;
+  blocks: Map<string, EvictionClass>;
+  bytes: number;
+  images: number;
+}
+
+/**
+ * Decide which media the outbound copy keeps and which it drops. Blocks are
+ * keyed `${messageIndex}:${blockIndex}`; an evicted block carries the class
+ * that picks its replacement marker.
  *
  * Two retention classes, declared per tool (`mediaRetention` on the tool
  * definition) and stamped on the `tool_result` block by the agent loop:
@@ -329,46 +366,51 @@ function documentMediaPlaceholder(media: MediaBlock[]): string {
  *   reads. Retained across steps and turns until the payload cap retires the
  *   oldest.
  *
+ * The user's own attachments (media blocks directly in a user message) are
+ * retained the same way as documents.
+ *
  * The cap (`MEDIA_PAYLOAD_LIMITS`, byte marks overridable through the
- * workspace's `media.payloadCap`) is a hysteresis band over the media
- * the request carries: retained documents plus the user's own attachments,
- * which count toward the total but are never evicted here (the reactive
- * overflow path owns those). Walking the
- * history in order, once the running total crosses the high mark, whole
- * document-carrying messages are evicted oldest-first until the total is under
- * the low mark. A trip at message k evicts only messages before k, so whether
- * message j keeps its media depends only on the messages up to the trip that
- * evicted it, never on how the conversation continues: the projection of a
- * prefix is fixed once written, the prompt cache holds between trips, and the
- * agent loop and the compactor derive the same projection from the same
- * history with no shared state. Frames stay out of the running total for the
- * same reason: which frames go out depends on which step is current, which
- * changes every send, so counting them would make evictions flip from one
- * send to the next. The band's byte marks reserve room for the current step's
- * frames instead (see `MEDIA_PAYLOAD_LIMITS`).
+ * workspace's `media.payloadCap`) is a hysteresis band over the media the
+ * request carries: retained documents plus attachments. Walking the history
+ * in order, once the running total crosses the high mark, each message's
+ * documents and attachments are evicted together, oldest message first,
+ * until the total is under the low mark. A trip spares two messages: the one
+ * it happens at, and the one that started its turn, whose attachments the
+ * model is still answering. An attachment that puts nothing on the wire is
+ * never evicted: dropping it frees nothing, and for a file it would take the
+ * extracted text out of view.
+ *
+ * A trip at message k evicts only messages before k, and the turn k belongs
+ * to is fixed by the messages up to k, so whether message j keeps its media
+ * depends only on the messages up to the trip that evicted it, never on how
+ * the conversation continues: the projection of a prefix is fixed once
+ * written, the prompt cache holds between trips, and the agent loop and the
+ * compactor derive the same projection from the same history with no shared
+ * state. Frames stay out of the running total for the same reason: which
+ * frames go out depends on which step is current, which changes every send,
+ * so counting them would make evictions flip from one send to the next. The
+ * band's byte marks reserve room for the current step's frames instead (see
+ * `MEDIA_PAYLOAD_LIMITS`).
  *
  * That stability assumes history only grows between sends. A pass that
  * rewrites old messages in place (captioning images for a text-only model)
  * changes the totals, and a recomputation over the rewritten history can keep
- * documents this pass evicted. Such a pass must cover every block the policy
- * can keep, not just the ones one request carried: see
- * {@link retainedToolResultMediaKeysBeforeCap}.
+ * media this pass evicted. Such a pass must cover every block the policy can
+ * keep, not just the ones one request carried: every attachment, plus the
+ * tool results in {@link retainedToolResultMediaKeysBeforeCap}.
  */
 function planMediaRetention(
   history: Message[],
   limits: MediaPayloadLimits = mediaPayloadLimitsFromConfig(getConfig().media),
 ): {
-  evicted: Map<string, MediaRetention>;
+  evicted: Map<string, EvictionClass>;
   retained: Set<string>;
 } {
-  const evicted = new Map<string, MediaRetention>();
+  const evicted = new Map<string, EvictionClass>();
   const retained = new Set<string>();
   const currentStepIdx = lastToolResultUserMessageIndex(history);
-  const documentMessages: Array<{
-    keys: string[];
-    bytes: number;
-    images: number;
-  }> = [];
+  let evictable: EvictableMedia[] = [];
+  let turnStartIdx = -1;
   let totalBytes = 0;
   let totalImages = 0;
 
@@ -377,13 +419,25 @@ function planMediaRetention(
     if (msg.role !== "user") {
       continue;
     }
-    const documents = { keys: [] as string[], bytes: 0, images: 0 };
+    if (hasUserAuthoredContent(msg)) {
+      turnStartIdx = msgIdx;
+    }
+    const entry: EvictableMedia = {
+      msgIdx,
+      blocks: new Map(),
+      bytes: 0,
+      images: 0,
+    };
     for (let blockIdx = 0; blockIdx < msg.content.length; blockIdx++) {
       const block = msg.content[blockIdx];
+      const key = `${msgIdx}:${blockIdx}`;
       if (isMediaBlock(block)) {
         const cost = mediaWireCost(block);
-        totalBytes += cost.bytes;
-        totalImages += cost.images;
+        if (cost.bytes > 0 || cost.images > 0) {
+          entry.blocks.set(key, "attachment");
+          entry.bytes += cost.bytes;
+          entry.images += cost.images;
+        }
         continue;
       }
       if (block.type !== "tool_result") {
@@ -393,7 +447,6 @@ function planMediaRetention(
       if (media.length === 0) {
         continue;
       }
-      const key = `${msgIdx}:${blockIdx}`;
       // Anything but an explicit `document` is a frame: the default for
       // untagged results, and the safe reading of a value the persisted
       // content schema did not recognize.
@@ -405,59 +458,107 @@ function planMediaRetention(
         }
         continue;
       }
-      let bytes = 0;
-      let images = 0;
-      for (const cost of media.map(mediaWireCost)) {
-        bytes += cost.bytes;
-        images += cost.images;
-      }
-      totalBytes += bytes;
-      totalImages += images;
       retained.add(key);
-      documents.keys.push(key);
-      documents.bytes += bytes;
-      documents.images += images;
+      entry.blocks.set(key, "document");
+      for (const cost of media.map(mediaWireCost)) {
+        entry.bytes += cost.bytes;
+        entry.images += cost.images;
+      }
     }
+    totalBytes += entry.bytes;
+    totalImages += entry.images;
 
     if (totalBytes > limits.highBytes || totalImages > limits.highImages) {
-      while (
-        documentMessages.length > 0 &&
-        (totalBytes > limits.lowBytes || totalImages > limits.lowImages)
-      ) {
-        const victim = documentMessages.shift()!;
-        totalBytes -= victim.bytes;
-        totalImages -= victim.images;
-        for (const key of victim.keys) {
+      const spared: EvictableMedia[] = [];
+      for (const candidate of evictable) {
+        const overLow =
+          totalBytes > limits.lowBytes || totalImages > limits.lowImages;
+        if (!overLow || candidate.msgIdx === turnStartIdx) {
+          spared.push(candidate);
+          continue;
+        }
+        totalBytes -= candidate.bytes;
+        totalImages -= candidate.images;
+        for (const [key, eviction] of candidate.blocks) {
           retained.delete(key);
-          evicted.set(key, "document");
+          evicted.set(key, eviction);
         }
       }
+      evictable = spared;
     }
-    if (documents.keys.length > 0) {
-      documentMessages.push(documents);
+    if (entry.blocks.size > 0) {
+      evictable.push(entry);
     }
   }
   return { evicted, retained };
 }
 
 /**
+ * Stored file of each attachment among `blocks`, by attachment id. The
+ * attachment store is loaded on first use rather than imported: the plugin
+ * API re-exports this module, and a new static import from the store would
+ * fail to link in every suite that partial-mocks it (see
+ * `plugin-api/__tests__/import-graph-partial-mock.test.ts`).
+ */
+function storedAttachmentPaths(blocks: MediaBlock[]): Map<string, string> {
+  const attachmentIds = new Set<string>();
+  for (const block of blocks) {
+    const attachmentId = mediaBlockAttachmentId(block);
+    if (attachmentId !== undefined) {
+      attachmentIds.add(attachmentId);
+    }
+  }
+  if (attachmentIds.size === 0) {
+    return new Map();
+  }
+  const { getFilePathsForAttachments } =
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require("../persistence/attachments-store.js") as typeof import("../persistence/attachments-store.js");
+  return getFilePathsForAttachments([...attachmentIds]);
+}
+
+/**
  * Apply {@link planMediaRetention}: each evicted tool_result loses its media
  * blocks and gains a text marker saying what was dropped and, for a document,
- * how to get it back. The model saw the media on the step it was captured.
+ * how to get it back; each evicted attachment is replaced by a marker naming
+ * the file it is stored in. The model saw each one when it arrived.
  */
 function applyMediaRetention(history: Message[]): Message[] {
   const { evicted: evictions } = planMediaRetention(history);
   if (evictions.size === 0) {
     return history;
   }
+  const evictionOf = (msgIdx: number, blockIdx: number) =>
+    evictions.get(`${msgIdx}:${blockIdx}`);
+  const storedPaths = storedAttachmentPaths(
+    history.flatMap((msg, msgIdx) =>
+      msg.content.filter(
+        (block, blockIdx): block is MediaBlock =>
+          isMediaBlock(block) && evictionOf(msgIdx, blockIdx) === "attachment",
+      ),
+    ),
+  );
   return history.map((msg, msgIdx) => {
     if (msg.role !== "user") {
       return msg;
     }
     let changed = false;
-    const content = msg.content.map((block, blockIdx) => {
-      const retention = evictions.get(`${msgIdx}:${blockIdx}`);
-      if (retention === undefined || block.type !== "tool_result") {
+    const content = msg.content.map((block, blockIdx): ContentBlock => {
+      const eviction = evictionOf(msgIdx, blockIdx);
+      if (eviction === undefined) {
+        return block;
+      }
+      if (isMediaBlock(block)) {
+        changed = true;
+        const attachmentId = mediaBlockAttachmentId(block);
+        return attachmentPlaceholder(
+          block,
+          attachmentId === undefined
+            ? undefined
+            : storedPaths.get(attachmentId),
+        );
+      }
+      if (block.type !== "tool_result") {
         return block;
       }
       changed = true;
@@ -467,7 +568,7 @@ function applyMediaRetention(history: Message[]): Message[] {
         contentBlocks: undefined,
         content:
           (block.content || "") +
-          (retention === "frame"
+          (eviction === "frame"
             ? FRAME_MEDIA_PLACEHOLDER
             : documentMediaPlaceholder(media)),
       };
@@ -513,8 +614,9 @@ export function retainedToolResultMediaKeysBeforeCap(
  * history:
  * - {@link applyMediaRetention} drops stale frame media (screenshots outside
  *   the current step) and, once the request's media crosses the payload
- *   marks, the oldest document media (file reads), replacing each with a text
- *   marker. Beyond context bloat, an unbounded history can carry
+ *   marks, the oldest document media (file reads) and attachments from
+ *   earlier turns, replacing each with a text marker. Beyond context bloat,
+ *   an unbounded history can carry
  *   enough images to cross a provider's per-request limits, where a single
  *   request is rejected outright.
  * - {@link compactAxTreeHistory} collapses all but the most recent few

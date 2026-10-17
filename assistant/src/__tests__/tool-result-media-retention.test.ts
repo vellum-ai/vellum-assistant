@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
@@ -5,6 +8,8 @@ import {
   retainedToolResultMediaKeys,
   retainedToolResultMediaKeysBeforeCap,
 } from "../context/outbound-sanitize.js";
+import { uploadFileBackedAttachment } from "../persistence/attachments-store.js";
+import { initializeDb } from "../persistence/db-init.js";
 import type {
   ContentBlock,
   MediaRetention,
@@ -12,6 +17,8 @@ import type {
   ToolResultContent,
 } from "../providers/types.js";
 import { setConfig } from "./helpers/set-config.js";
+
+await initializeDb();
 
 const MB = 1024 * 1024;
 
@@ -123,6 +130,23 @@ const userText = (text: string): Message => ({
   role: "user",
   content: [{ type: "text", text }],
 });
+
+/** A user turn: its text, then the given attachments. */
+const userTurn = (text: string, ...attachments: ContentBlock[]): Message => ({
+  role: "user",
+  content: [{ type: "text", text }, ...attachments],
+});
+
+const assistantText = (text: string): Message => ({
+  role: "assistant",
+  content: [{ type: "text", text }],
+});
+
+/** The text a block was replaced with, or undefined when it is still media. */
+function markerText(history: Message[], msgIdx: number, blockIdx: number) {
+  const block = history[msgIdx].content[blockIdx];
+  return block.type === "text" ? block.text : undefined;
+}
 
 /** `n` sequential document steps of `wireBytes` each, ids `d1..dn`. */
 function documentSteps(n: number, wireBytes: number): Message[] {
@@ -290,8 +314,8 @@ describe("tool-result media retention", () => {
     expect(retained.has(`${2 * 61 - 1}:0`)).toBe(true);
   });
 
-  test("user attachments count toward the cap but are never evicted", () => {
-    // GIVEN a 6 MB user upload followed by two 3 MB reads
+  test("a trip spares the attachments of the turn it happens in", () => {
+    // GIVEN a 6 MB user upload followed by two 3 MB reads in the same turn
     const upload: Message = {
       role: "user",
       content: [{ type: "text", text: "here" }, inlineImage(6 * MB)],
@@ -531,6 +555,152 @@ describe("tool-result media retention", () => {
     // THEN the old frame is absent, the document and current frame present
     expect(retainedToolResultMediaKeys(history)).toEqual(
       new Set(["3:0", "5:0"]),
+    );
+  });
+});
+
+describe("attachment eviction under the payload cap", () => {
+  test("attachments from earlier turns are evicted oldest first", () => {
+    // GIVEN three turns that each attach a 4 MB image
+    const history = [
+      userTurn("first", inlineImage(4 * MB)),
+      assistantText("seen"),
+      userTurn("second", inlineImage(4 * MB)),
+      assistantText("seen"),
+      userTurn("third", inlineImage(4 * MB)),
+    ];
+
+    // WHEN the third upload crosses the 10 MB mark (12 MB)
+    const sent = preModelCallSanitize(history);
+
+    // THEN the two older uploads are replaced by markers (12 -> 8 -> 4 MB,
+    // under the 6 MB low mark) and the newest is kept
+    const marker = markerText(sent, 0, 1);
+    expect(marker).toStartWith("[Attachment (image/png, ");
+    expect(marker).toContain("payload limit");
+    // AND an upload with no stored attachment row cannot be pointed at a file
+    expect(marker).toContain("Ask the user to attach it again");
+    expect(markerText(sent, 2, 1)).toBeDefined();
+    expect(sent[4]).toEqual(history[4]);
+    // AND the durable history is untouched and the projection is stable
+    expect(history[0].content[1].type).toBe("image");
+    expect(preModelCallSanitize(sent)).toEqual(sent);
+  });
+
+  test("a trip mid-turn spares that turn's attachments, and a later turn can evict them", () => {
+    // GIVEN an earlier 3 MB upload, then a turn that attaches 5 MB and
+    // reads a 3 MB file
+    const turnTwo = [
+      userTurn("earlier", inlineImage(3 * MB)),
+      assistantText("seen"),
+      userTurn("compare these", inlineImage(5 * MB)),
+      ...toolStep("d1", "document", [inlineImage(3 * MB)]),
+    ];
+
+    // WHEN the read crosses the 10 MB mark (11 MB)
+    const sentTwo = preModelCallSanitize(turnTwo);
+
+    // THEN only the earlier turn's upload goes (11 -> 8 MB): the turn in
+    // progress keeps its upload and its read
+    expect(markerText(sentTwo, 0, 1)).toBeDefined();
+    expect(sentTwo[2]).toEqual(turnTwo[2]);
+    expect(hasMedia(toolResult(sentTwo, 4))).toBe(true);
+
+    // WHEN the conversation moves on to a text-only turn
+    const turnThree = [...turnTwo, assistantText("done"), userText("thanks")];
+    const sentThree = preModelCallSanitize(turnThree);
+
+    // THEN the earlier projection is byte-identical, so the prompt cache holds
+    expect(JSON.stringify(sentThree.slice(0, turnTwo.length))).toBe(
+      JSON.stringify(sentTwo),
+    );
+
+    // WHEN a read in the new turn crosses the mark again (11 MB)
+    const read = [
+      ...turnThree,
+      ...toolStep("d2", "document", [inlineImage(3 * MB)]),
+    ];
+    const sentRead = preModelCallSanitize(read);
+
+    // THEN the previous turn's upload is the oldest media left and goes
+    // (11 -> 6 MB), while both reads stay
+    expect(markerText(sentRead, 2, 1)).toBeDefined();
+    expect(hasMedia(toolResult(sentRead, 4))).toBe(true);
+    expect(hasMedia(toolResult(sentRead, 8))).toBe(true);
+  });
+
+  test("a system notice injected mid-turn does not start a new turn", () => {
+    // GIVEN a turn whose upload is followed by an empty-response nudge (a
+    // user-role message holding only a system notice) and then a read
+    const history = [
+      userTurn("earlier", inlineImage(3 * MB)),
+      assistantText("seen"),
+      userTurn("compare these", inlineImage(5 * MB)),
+      assistantText("..."),
+      userText(
+        "<system_notice>Your previous response was empty.</system_notice>",
+      ),
+      ...toolStep("d1", "document", [inlineImage(3 * MB)]),
+    ];
+
+    // WHEN the read crosses the 10 MB mark
+    const sent = preModelCallSanitize(history);
+
+    // THEN the turn's own upload is still spared and the earlier one goes
+    expect(markerText(sent, 0, 1)).toBeDefined();
+    expect(sent[2]).toEqual(history[2]);
+  });
+
+  test("an attachment that puts nothing on the wire is never evicted", () => {
+    // GIVEN an earlier turn that attached a text file no adapter inlines
+    // alongside a 4 MB image, then an 8 MB upload
+    const textFile = refFile("text/plain", 9 * MB);
+    const history = [
+      userTurn("earlier", textFile, inlineImage(4 * MB)),
+      assistantText("seen"),
+      userTurn("now", inlineImage(8 * MB)),
+    ];
+
+    // WHEN sanitized (12 MB crosses the mark)
+    const sent = preModelCallSanitize(history);
+
+    // THEN the image is replaced while the file, which frees nothing, stays
+    expect(sent[0].content[1]).toEqual(textFile);
+    expect(markerText(sent, 0, 2)).toBeDefined();
+  });
+
+  test("the marker names the file an evicted attachment is stored in", () => {
+    // GIVEN an earlier upload stored on disk, then an 8 MB upload
+    const dir = mkdtempSync(join(tmpdir(), "attachment-eviction-"));
+    const filePath = join(dir, "pair-01.png");
+    writeFileSync(filePath, Buffer.from(PNG_HEAD_B64, "base64"));
+    const stored = uploadFileBackedAttachment(
+      "pair-01.png",
+      "image/png",
+      filePath,
+      3 * MB,
+    );
+    const history = [
+      userTurn("earlier", {
+        type: "image",
+        source: {
+          type: "workspace_ref",
+          media_type: "image/png",
+          attachmentId: stored.id,
+          sizeBytes: 3 * MB,
+          transportSizeBytes: 3 * MB,
+        },
+      }),
+      assistantText("seen"),
+      userTurn("now", inlineImage(8 * MB)),
+    ];
+
+    // WHEN the newer upload crosses the mark (4 + 8 = 12 MB)
+    const sent = preModelCallSanitize(history);
+
+    // THEN the older upload's marker says where to read it back from
+    expect(markerText(sent, 0, 1)).toBe(
+      `[Attachment (image/png, ${3 * MB} bytes) shown in an earlier turn was removed from this request to stay within the provider's payload limit. Read ${filePath} with file_read to view it again.]`,
     );
   });
 });

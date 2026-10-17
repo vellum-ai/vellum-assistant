@@ -767,6 +767,30 @@ export function getFilePathForAttachment(attachmentId: string): string | null {
 }
 
 /**
+ * Returns a Map of attachment ID → file_path for attachments that have a
+ * non-null file_path, in one query however many ids are asked for.
+ */
+export function getFilePathsForAttachments(
+  attachmentIds: string[],
+): Map<string, string> {
+  if (attachmentIds.length === 0) {
+    return new Map();
+  }
+  const rows = getDb()
+    .select({ id: attachments.id, filePath: attachments.filePath })
+    .from(attachments)
+    .where(inArray(attachments.id, attachmentIds))
+    .all();
+  const paths = new Map<string, string>();
+  for (const row of rows) {
+    if (row.filePath) {
+      paths.set(row.id, row.filePath);
+    }
+  }
+  return paths;
+}
+
+/**
  * Returns a Map of attachment ID → source_path for attachments that have a non-null source_path.
  * Uses raw SQL since source_path is added via runtime migration and is not in the Drizzle schema.
  */

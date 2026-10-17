@@ -32,6 +32,10 @@
  */
 
 import type { ModeSessionActivity } from "../api/mode-session.js";
+import {
+  isSystemNoticeBlock,
+  isToolResultBlock,
+} from "../context/user-authored-content.js";
 import type { MessageRow } from "../persistence/conversation-crud.js";
 import { isStandaloneAssistantMessage } from "../persistence/conversation-crud.js";
 import {
@@ -85,18 +89,6 @@ function sameModeSessionOwnership(a: MessageRow, b: MessageRow): boolean {
 
 // ── Block predicates ────────────────────────────────────────────────
 
-function isToolResultType(type: string): boolean {
-  return type === "tool_result" || type === "web_search_tool_result";
-}
-
-function isSystemNoticeText(block: ContentBlock): boolean {
-  return (
-    block.type === "text" &&
-    block.text.startsWith("<system_notice>") &&
-    block.text.endsWith("</system_notice>")
-  );
-}
-
 /**
  * True when a user row's content is exclusively tool_result blocks
  * (and optional system_notice text). Such rows are suppressed by the
@@ -115,11 +107,11 @@ export function isToolResultOnlyUserMessage(msg: MessageRow): boolean {
   }
   let sawToolResult = false;
   for (const block of msg.content) {
-    if (isToolResultType(block.type)) {
+    if (isToolResultBlock(block)) {
       sawToolResult = true;
       continue;
     }
-    if (isSystemNoticeText(block)) {
+    if (isSystemNoticeBlock(block)) {
       continue;
     }
     return false;
@@ -233,7 +225,7 @@ export function mergeToolResultsIntoAssistantMessages(
     const toolResultBlocks: ContentBlock[] = [];
     const otherBlocks: ContentBlock[] = [];
     for (const block of msg.content) {
-      if (isToolResultType(block.type)) {
+      if (isToolResultBlock(block)) {
         toolResultBlocks.push(block);
       } else {
         otherBlocks.push(block);
@@ -272,7 +264,7 @@ export function mergeToolResultsIntoAssistantMessages(
     // suppress it entirely. Otherwise keep the non-tool-result content.
     // System notices don't count as real user content — they are only
     // injected alongside tool results in the agent loop.
-    const realUserContent = otherBlocks.filter((b) => !isSystemNoticeText(b));
+    const realUserContent = otherBlocks.filter((b) => !isSystemNoticeBlock(b));
     if (realUserContent.length > 0) {
       result.push({ ...msg, content: otherBlocks });
     }

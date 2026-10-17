@@ -1,3 +1,8 @@
+import {
+  hasUserAuthoredContent,
+  isSystemNoticeBlock,
+  isToolResultBlock,
+} from "../context/user-authored-content.js";
 import type { MessageRow } from "../persistence/conversation-crud.js";
 import {
   deleteLastExchange,
@@ -24,46 +29,15 @@ const log = getLogger("conversation-history");
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-export function isToolResultBlock(
-  block: ContentBlock | Record<string, unknown>,
-): boolean {
-  return (
-    block.type === "tool_result" || block.type === "web_search_tool_result"
-  );
-}
-
-function isSystemNoticeBlock(
-  block: ContentBlock | Record<string, unknown>,
-): boolean {
-  if (block.type !== "text") {
-    return false;
-  }
-  const text = (block as { text?: string }).text ?? "";
-  return (
-    text.startsWith("<system_notice>") && text.endsWith("</system_notice>")
-  );
-}
-
+// A user message is undoable if it contains user-authored content. One that
+// carries only tool results (and injected system notices) is an automated
+// tool response; one that also carries text (repairHistory merging a
+// tool_result turn with a user prompt) holds a real prompt and is undoable.
 function isUndoableUserMessage(message: Message): boolean {
-  if (message.role !== "user") {
-    return false;
-  }
   if (getSummaryFromContextMessage(message) != null) {
     return false;
   }
-  // A user message is undoable if it contains user-authored content (non-tool_result
-  // blocks). Messages that contain ONLY tool_result blocks (e.g. automated tool
-  // responses) are not undoable. Messages that have both tool_result and text blocks
-  // (e.g. after repairHistory merges a tool_result turn with a user prompt) are still
-  // undoable because they contain real user content.
-  // System notice text blocks (retry nudges, progress checks) are not user content.
-  const hasNonToolResultContent = message.content.some(
-    (block) => !isToolResultBlock(block) && !isSystemNoticeBlock(block),
-  );
-  if (!hasNonToolResultContent) {
-    return false;
-  }
-  return true;
+  return hasUserAuthoredContent(message);
 }
 
 export function findLastUndoableUserMessageIndex(messages: Message[]): number {
