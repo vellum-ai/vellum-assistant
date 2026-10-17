@@ -3,15 +3,16 @@
  * surfaces.
  *
  * Each entry documents one surface type: a one-phrase `purpose` (used in the
- * unknown-type index error) and the full data `shape` spec (returned inside a
- * teaching error when a payload is missing its load-bearing content). Keeping
- * the specs here rather than in the always-present tool description lets the
- * model recover the exact shape at the moment it gets one wrong.
+ * always-on type index) and the full data `shape` spec. The tool description
+ * ships the index only. The model fetches a nested shape by calling ui_show
+ * with that surface_type and incomplete data; the teaching error returns the
+ * exact spec. Markdown copies of each spec live in `shapes/` next to this
+ * module.
  *
  * Guards are advisory and intentionally minimal: they check only the fields
  * without which the surface renders blank or broken (mirroring the tolerant
- * contract in `api/surfaces.ts` — a renderable payload must never be
- * rejected). Normalization the daemon already performs (e.g. top-level
+ * contract in `api/surfaces.ts`: a renderable payload must never be
+ * rejected. Normalization the daemon already performs (e.g. top-level
  * `template`/`title` lifted into card data by `normalizeCardShowData`) must
  * stay accepted, so card has no guard here.
  */
@@ -197,7 +198,7 @@ export const SURFACE_SHAPE_DOCS: Record<string, SurfaceShapeDoc> = {
   },
   visual: {
     purpose:
-      "polished inline diagram/chart/explainer — PREFER this when explaining how something works or compares; load the `visualize` skill first",
+      "polished inline diagram/chart/explainer. Prefer this when explaining how something works or compares. Load the `visualize` skill first",
     shape:
       "{ html, height? } — one self-contained HTML/SVG fragment (no DOCTYPE/html/head/body, no external resources); every colour comes from the injected design-token CSS variables, so hex/rgb literals and invented `var()` names are rejected. Load the `visualize` skill with `skill_load` for the full contract and the token vocabulary",
   },
@@ -233,34 +234,15 @@ const SURFACE_TYPE_INDEX = SURFACE_TYPE_NAMES.map(
 ).join("; ");
 
 /**
- * Types whose full shape rides in the always-present tool description —
- * together they cover ~95% of fleet ui_show calls. The rest appear there as
- * a one-line index and get their shape from the teaching error on first
- * misuse.
+ * Always-on surface-types section of the ui_show tool description.
+ * Full nested `data` shapes stay out of the wire definition. Fetch one by
+ * calling ui_show with that surface_type and incomplete data; the teaching
+ * error returns the exact spec from {@link SURFACE_SHAPE_DOCS}.
  */
-const HOT_SURFACE_TYPES = [
-  "card",
-  "copy_block",
-  "choice",
-  "table",
-  "work_result",
-  "oauth_connect",
-  "dynamic_page",
-] as const;
-
-const COLD_SURFACE_INDEX = SURFACE_TYPE_NAMES.filter(
-  (name) => !(HOT_SURFACE_TYPES as readonly string[]).includes(name),
-)
-  .map((name) => `${name} (${SURFACE_SHAPE_DOCS[name]!.purpose})`)
-  .join(", ");
-
-/** The surface-types section of the ui_show tool description. */
 export const UI_SHOW_TYPE_DOCS = [
-  "Surface types (data shapes):",
-  ...HOT_SURFACE_TYPES.map(
-    (name) => `- ${name}: ${SURFACE_SHAPE_DOCS[name]!.shape}`,
-  ),
-  `Other types: ${COLD_SURFACE_INDEX}. Send your best-guess data — if required content is missing, the error returns the exact shape.`,
+  `Types: ${SURFACE_TYPE_INDEX}.`,
+  "To fetch a type's nested data shape, call ui_show with that surface_type and incomplete data (omit a required field). The error returns the exact shape. Then resend with those fields filled in.",
+  "Advance a task_progress card with ui_update on data.templateData.steps.",
 ].join("\n");
 
 /**
