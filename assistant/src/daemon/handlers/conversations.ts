@@ -650,12 +650,12 @@ export function denyPendingConfirmationsOnSupersession(
           state: "denied" as const,
           source: "auto_deny" as const,
         });
-        // Sync the gateway request so stale "pending" rows aren't matched
-        // by later guardian reply routing, and withdraw the request's
-        // delivered approval cards so no surface keeps offering a decision
-        // that can no longer resolve anything. Fire-and-forget from this
-        // sync path: the in-memory denial is authoritative, and a CAS miss
-        // (already decided elsewhere) is expected and harmless.
+        // System-initiated denial: a new message superseded this
+        // confirmation. There is no guardian actor making the decision, so
+        // applyGuardianDecision (which requires guardianPrincipalId for
+        // authorization) cannot be used here. syncTerminalGuardianRequestStatus
+        // is the correct path for machine-initiated terminal status writes
+        // that have no acting principal.
         void syncTerminalGuardianRequestStatus({
           requestId: interaction.requestId,
           status: "denied",
