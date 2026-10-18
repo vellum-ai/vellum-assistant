@@ -115,7 +115,7 @@ describe("markdown flavor", () => {
       '<p><strong>bold</strong> and <em>italic</em> and <del>gone</del>, a <a href="https://example.com">link</a>, and <code class="rounded">useState()</code>.</p>',
     );
     expect(text).toBe(
-      "**bold** and _italic_ and ~~gone~~, a [link](https://example.com), and `useState()`.",
+      "**bold** and *italic* and ~~gone~~, a [link](https://example.com), and `useState()`.",
     );
   });
 
@@ -128,7 +128,14 @@ describe("markdown flavor", () => {
     const { text } = payloadFor(
       "<p><em>italic <em>inner</em> tail</em> and <strong>bold <strong>inner</strong></strong></p>",
     );
-    expect(text).toBe("_italic *inner* tail_ and **bold __inner__**");
+    expect(text).toBe("*italic _inner_ tail* and **bold __inner__**");
+  });
+
+  test("keeps emphasis inside a word with markers that work there", () => {
+    const { text } = payloadFor(
+      "<p>un<em>believ</em>able and un<strong>stop</strong>pable</p>",
+    );
+    expect(text).toBe("un*believ*able and un**stop**pable");
   });
 
   test("renders task list items as GFM checkboxes", () => {

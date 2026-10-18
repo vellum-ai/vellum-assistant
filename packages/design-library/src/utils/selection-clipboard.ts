@@ -435,6 +435,8 @@ function renderCell(cell: Element): string {
 /**
  * Emphasis already open around a node. Nesting the same marker twice is
  * ambiguous in markdown, so the inner one switches to the other spelling.
+ * The outer spelling is the asterisk form, which, unlike underscores, can
+ * open and close inside a word.
  */
 interface EmphasisContext {
   em: boolean;
@@ -470,7 +472,7 @@ function renderInline(
     const inner = renderInlineChildren(node, { ...context, em: true });
     return inner.trim() === ""
       ? inner
-      : wrapEmphasis(inner, context.em ? "*" : "_");
+      : wrapEmphasis(inner, context.em ? "_" : "*");
   }
   const inner = renderInlineChildren(node, context);
   if (tag === "CODE") {
