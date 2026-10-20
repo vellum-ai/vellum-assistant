@@ -78,6 +78,16 @@ export interface ApprovalCardActionOption {
   style?: SurfaceAction["style"];
 }
 
+/**
+ * The decisions an in-app approval card offers when its producer names none:
+ * the generic pair every approval-mode request kind accepts.
+ */
+export const DEFAULT_APPROVAL_CARD_ACTIONS: readonly ApprovalCardActionOption[] =
+  [
+    { id: "approve_once", label: "Approve", style: "primary" },
+    { id: "reject", label: "Reject", style: "destructive" },
+  ];
+
 export interface ApprovalCardParams {
   /** Prefix for `surfaceId` — combined with `requestId` to form e.g. "access-request-abc123". */
   surfaceIdPrefix: string;
@@ -130,10 +140,8 @@ export function buildApprovalCardBlocks(
     fallbackText,
   } = params;
 
-  const actionOptions: ApprovalCardActionOption[] = params.actions ?? [
-    { id: "approve_once", label: "Approve", style: "primary" },
-    { id: "reject", label: "Reject", style: "destructive" },
-  ];
+  const actionOptions: readonly ApprovalCardActionOption[] =
+    params.actions ?? DEFAULT_APPROVAL_CARD_ACTIONS;
 
   const actions: SurfaceAction[] | undefined = requestId
     ? actionOptions.map((option) => ({

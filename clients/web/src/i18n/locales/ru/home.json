@@ -18,9 +18,7 @@
     "guardianRequest": "Запрос опекуна"
   },
   "homeRecapRow": {
-    "actionsTitle": "Действия по обновлению",
-    "approve": "Одобрить",
-    "reject": "Отклонить"
+    "actionsTitle": "Действия по обновлению"
   },
   "homeToolPermissionCard": {
     "missingScopes": "Не хватает разрешений",
@@ -54,8 +52,6 @@
     "back": "Назад к уведомлениям"
   },
   "homeGuardianRequestCard": {
-    "approve": "Одобрить",
-    "reject": "Отклонить",
     "answerHint": "Перейдите к диалогу, чтобы ответить на этот вопрос.",
     "decisionFailed": "Не удалось отправить решение. Попробуйте ещё раз.",
     "receipt": {
@@ -70,6 +66,15 @@
     "viewSourceThread": "Открыть исходный тред",
     "toolRequested": "Запрошен запуск <code>{toolName}</code>",
     "toolRequesting": "Запрашивает запуск <code>{toolName}</code>"
+  },
+  "guardianDecisionButtons": {
+    "approveOnce": "Одобрить",
+    "reject": "Отклонить",
+    "trust": "Доверять",
+    "trustAnyway": "Всё равно доверять",
+    "verifyCode": "Подтвердить кодом",
+    "leaveUnverified": "Оставить непроверенным",
+    "block": "Заблокировать"
   },
   "notificationsBellEmptyState": {
     "title": "Пока ничего.",
