@@ -166,14 +166,20 @@ describe("createOutboundSession", () => {
   test("throws on a malformed response", async () => {
     ipcResponse = { sessionId: "sess-2" };
     await expect(
-      client.createOutboundSession({ channel: "phone" }),
+      client.createOutboundSession({
+        channel: "phone",
+        verificationPurpose: "guardian",
+      }),
     ).rejects.toThrow("verification_sessions_create_outbound");
   });
 
   test("throws on transport failure", async () => {
     ipcError = new Error("gateway unavailable");
     await expect(
-      client.createOutboundSession({ channel: "phone" }),
+      client.createOutboundSession({
+        channel: "phone",
+        verificationPurpose: "guardian",
+      }),
     ).rejects.toThrow("gateway unavailable");
   });
 });
@@ -191,6 +197,7 @@ describe("createOutboundSessionConditional", () => {
 
     const result = await client.createOutboundSessionConditional({
       channel: "telegram",
+      verificationPurpose: "guardian",
       requireSourceSessionPending: "bootstrap-1",
       ifNoneActiveForExternalUserId: "user-1",
     });
@@ -198,6 +205,7 @@ describe("createOutboundSessionConditional", () => {
     expect(ipcCalls[0]?.method).toBe("verification_sessions_create_outbound");
     expect(ipcCalls[0]?.params).toEqual({
       channel: "telegram",
+      verificationPurpose: "guardian",
       requireSourceSessionPending: "bootstrap-1",
       ifNoneActiveForExternalUserId: "user-1",
     });
@@ -209,6 +217,7 @@ describe("createOutboundSessionConditional", () => {
 
     const result = await client.createOutboundSessionConditional({
       channel: "telegram",
+      verificationPurpose: "guardian",
       ifNoneActiveForExternalUserId: "user-1",
     });
 
@@ -221,13 +230,19 @@ describe("createOutboundSessionConditional", () => {
   test("throws on transport failure and malformed responses", async () => {
     ipcError = new Error("gateway unavailable");
     await expect(
-      client.createOutboundSessionConditional({ channel: "telegram" }),
+      client.createOutboundSessionConditional({
+        channel: "telegram",
+        verificationPurpose: "guardian",
+      }),
     ).rejects.toThrow("gateway unavailable");
 
     ipcError = null;
     ipcResponse = { conflict: true, reason: "not-a-known-reason" };
     await expect(
-      client.createOutboundSessionConditional({ channel: "telegram" }),
+      client.createOutboundSessionConditional({
+        channel: "telegram",
+        verificationPurpose: "guardian",
+      }),
     ).rejects.toThrow("verification_sessions_create_outbound");
   });
 });

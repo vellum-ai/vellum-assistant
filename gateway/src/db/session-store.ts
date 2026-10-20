@@ -10,7 +10,11 @@
 import type { Database } from "bun:sqlite";
 import { and, count, desc, eq, gt, gte, inArray, sql } from "drizzle-orm";
 
-import { bindsSameIdentity, boundIdentity } from "@vellumai/gateway-client";
+import {
+  bindsSameIdentity,
+  boundIdentity,
+  VerificationPurposeSchema,
+} from "@vellumai/gateway-client";
 import type {
   IdentityBindingStatus,
   IdentityBoundSession,
@@ -71,13 +75,35 @@ const INTERCEPTABLE_STATUSES_SQL = INTERCEPTABLE_STATUSES.map(
   (s) => `'${s}'`,
 ).join(", ");
 
+/**
+ * A row whose purpose is outside the contract is not a session to any read:
+ * it matches no code, counts toward no presence check, cannot be claimed,
+ * and never shadows a valid row as the newest. Applied in the query, before
+ * ordering and limiting, so the store never has to decide what such a row
+ * grants. Writes that clean up (revoke-prior, supersede) still reach it.
+ */
+const HAS_KNOWN_PURPOSE = inArray(
+  channelVerificationSessions.verificationPurpose,
+  VerificationPurposeSchema.options,
+);
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Every read filters on {@link HAS_KNOWN_PURPOSE}, so a row that fails the
+ * parse here reached the store some other way. It is still not a session,
+ * because reading it as any particular purpose would be a grant nobody
+ * asked for.
+ */
 function rowToSession(
   row: typeof channelVerificationSessions.$inferSelect,
-): VerificationSession {
+): VerificationSession | null {
+  const purpose = VerificationPurposeSchema.safeParse(row.verificationPurpose);
+  if (!purpose.success) {
+    return null;
+  }
   return {
     id: row.id,
     channel: row.channel,
@@ -98,18 +124,42 @@ function rowToSession(
     nextResendAt: row.nextResendAt ?? null,
     codeDigits: row.codeDigits ?? 6,
     maxAttempts: row.maxAttempts ?? 3,
-    verificationPurpose:
-      (row.verificationPurpose as VerificationPurpose) ?? "guardian",
+    verificationPurpose: purpose.data,
     bootstrapTokenHash: row.bootstrapTokenHash ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
 }
 
+/**
+ * Convert a row the store is about to insert. A create writes only what it
+ * can read back as a session, so the row is converted first and a failure
+ * throws before the insert: the store built the row itself, so an
+ * unreadable one is a defect here, not a lookup miss.
+ */
+function sessionForInsert(
+  row: typeof channelVerificationSessions.$inferSelect,
+): VerificationSession {
+  const session = rowToSession(row);
+  if (!session) {
+    throw new Error(
+      `Verification session ${row.id} was built without a known purpose`,
+    );
+  }
+  return session;
+}
+
 // ---------------------------------------------------------------------------
 // Inbound verification sessions
 // ---------------------------------------------------------------------------
 
+/**
+ * An inbound challenge is a guardian session by definition, not by default.
+ * It is bound to no identity and its only producer is the owner's own
+ * verification control plane, which refuses to mint one while a guardian is
+ * linked on the channel. Every trusted-contact code is an outbound,
+ * identity-bound session.
+ */
 export function createInboundSession(params: {
   id: string;
   channel: string;
@@ -119,18 +169,6 @@ export function createInboundSession(params: {
 }): VerificationSession {
   const db = getGatewayDb();
   const now = Date.now();
-
-  // Revoke any prior pending sessions for the same channel
-  // to close the replay window — only the latest session should be valid.
-  db.update(channelVerificationSessions)
-    .set({ status: "revoked", updatedAt: now })
-    .where(
-      and(
-        eq(channelVerificationSessions.channel, params.channel),
-        eq(channelVerificationSessions.status, "pending"),
-      ),
-    )
-    .run();
 
   const row = {
     id: params.id,
@@ -151,15 +189,27 @@ export function createInboundSession(params: {
     nextResendAt: null,
     codeDigits: 6,
     maxAttempts: 3,
-    verificationPurpose: "guardian" as const,
+    verificationPurpose: "guardian",
     bootstrapTokenHash: null,
     createdAt: now,
     updatedAt: now,
   };
+  const session = sessionForInsert(row);
 
+  // Revoke any prior pending sessions for the same channel
+  // to close the replay window: only the latest session should be valid.
+  db.update(channelVerificationSessions)
+    .set({ status: "revoked", updatedAt: now })
+    .where(
+      and(
+        eq(channelVerificationSessions.channel, params.channel),
+        eq(channelVerificationSessions.status, "pending"),
+      ),
+    )
+    .run();
   db.insert(channelVerificationSessions).values(row).run();
 
-  return rowToSession(row);
+  return session;
 }
 
 export function revokePendingSessions(channel: string): void {
@@ -191,6 +241,7 @@ export function findPendingSessionByHash(
         eq(channelVerificationSessions.challengeHash, challengeHash),
         inArray(channelVerificationSessions.status, INTERCEPTABLE_STATUSES),
         gt(channelVerificationSessions.expiresAt, now),
+        HAS_KNOWN_PURPOSE,
       ),
     )
     .get();
@@ -220,6 +271,7 @@ export function findPendingSessionForChannel(
         eq(channelVerificationSessions.channel, channel),
         eq(channelVerificationSessions.status, "pending"),
         gt(channelVerificationSessions.expiresAt, now),
+        HAS_KNOWN_PURPOSE,
       ),
     )
     .get();
@@ -249,6 +301,7 @@ export function findLatestSessionByStatuses(
         eq(channelVerificationSessions.channel, channel),
         inArray(channelVerificationSessions.status, statuses),
         gt(channelVerificationSessions.expiresAt, Date.now()),
+        HAS_KNOWN_PURPOSE,
         ...(filter.expectedExternalUserId
           ? [
               eq(
@@ -299,6 +352,7 @@ export function hasInterceptableSession(channel: string): boolean {
         eq(channelVerificationSessions.channel, channel),
         inArray(channelVerificationSessions.status, INTERCEPTABLE_STATUSES),
         gt(channelVerificationSessions.expiresAt, Date.now()),
+        HAS_KNOWN_PURPOSE,
       ),
     )
     .get();
@@ -356,6 +410,11 @@ export function consumeSession(
  * row carries whichever identity was bound onto it last, so two people
  * redeeming the same link leave it bound to the second one, and an
  * identity-matched revoke would miss it for the first.
+ *
+ * A bootstrap row with no known purpose cannot be claimed at all: the claim
+ * finds nothing, the mint conflicts, and the row is left to expire. The
+ * replacement would have to carry the claimed purpose, and a link whose
+ * purpose is unknown must not become a code of any kind.
  */
 export function claimBootstrapSession(
   id: string,
@@ -369,6 +428,7 @@ export function claimBootstrapSession(
         eq(channelVerificationSessions.id, id),
         eq(channelVerificationSessions.channel, channel),
         eq(channelVerificationSessions.status, "pending_bootstrap"),
+        HAS_KNOWN_PURPOSE,
       ),
     )
     .returning()
@@ -465,13 +525,11 @@ export function createOutboundSession(params: {
   destinationAddress?: string | null;
   codeDigits?: number;
   maxAttempts?: number;
-  verificationPurpose?: VerificationPurpose;
+  verificationPurpose: VerificationPurpose;
   bootstrapTokenHash?: string | null;
 }): VerificationSession {
   const db = getGatewayDb();
   const now = Date.now();
-
-  revokeSameIdentityOutbound(params.channel, params, now);
 
   const row = {
     id: params.id,
@@ -492,15 +550,19 @@ export function createOutboundSession(params: {
     nextResendAt: null,
     codeDigits: params.codeDigits ?? 6,
     maxAttempts: params.maxAttempts ?? 3,
-    verificationPurpose: params.verificationPurpose ?? "guardian",
+    verificationPurpose: params.verificationPurpose,
     bootstrapTokenHash: params.bootstrapTokenHash ?? null,
     createdAt: now,
     updatedAt: now,
   };
+  // Converted before the revoke: a create that cannot be read back must not
+  // take the identity's live codes away and then mint nothing.
+  const session = sessionForInsert(row);
 
+  revokeSameIdentityOutbound(params.channel, params, now);
   db.insert(channelVerificationSessions).values(row).run();
 
-  return rowToSession(row);
+  return session;
 }
 
 /** Look up a session by id regardless of status. */
@@ -509,7 +571,7 @@ export function getSessionById(id: string): VerificationSession | null {
   const row = db
     .select()
     .from(channelVerificationSessions)
-    .where(eq(channelVerificationSessions.id, id))
+    .where(and(eq(channelVerificationSessions.id, id), HAS_KNOWN_PURPOSE))
     .get();
 
   return row ? rowToSession(row) : null;
@@ -552,6 +614,7 @@ export function findSessionByBootstrapTokenHash(
         eq(channelVerificationSessions.bootstrapTokenHash, tokenHash),
         eq(channelVerificationSessions.status, "pending_bootstrap"),
         gt(channelVerificationSessions.expiresAt, now),
+        HAS_KNOWN_PURPOSE,
       ),
     )
     .get();

@@ -222,6 +222,7 @@ describe("Verification control messages are deterministic (guard)", () => {
 
     createOutboundSession({
       channel: "telegram",
+      verificationPurpose: "guardian",
       identityBindingStatus: "pending_bootstrap",
       destinationAddress: "test_user",
       bootstrapTokenHash,
@@ -322,6 +323,7 @@ describe("Verification control messages are deterministic (guard)", () => {
 
     createOutboundSession({
       channel: "telegram",
+      verificationPurpose: "guardian",
       identityBindingStatus: "pending_bootstrap",
       destinationAddress: blockedIdentity.externalUserId,
       bootstrapTokenHash,
