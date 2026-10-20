@@ -28,7 +28,7 @@
     "app-builder-lib": "26.8.1",
     "builder-util": "26.8.1",
     "concurrently": "9.1.2",
-    "electron": "42.2.0",
+    "electron": "42.10.0",
     "electron-builder": "26.8.1",
     "electron-vite": "5.0.0",
     "node-addon-api": "8.9.0",
