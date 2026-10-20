@@ -32,6 +32,20 @@ import { createStreamWatchdog } from "@/lib/streaming/stream-watchdog";
 export interface EventStream {
   /** Cancel the stream. Safe to call multiple times. */
   cancel: () => void;
+  /**
+   * Demand proof of life from the established connection: if no SSE
+   * traffic (a data frame or a heartbeat comment) arrives within
+   * `timeoutMs`, the idle watchdog fires early and the ordinary
+   * reconnect path runs. The first frame that does arrive restores the
+   * steady-state idle window. A no-op while no attempt is established
+   * (initial connect in flight, backoff window) or after cancel.
+   *
+   * For a socket the caller has reason to distrust — the app came back
+   * from background and the OS may have killed the connection without
+   * surfacing an error — this turns a `STREAM_IDLE_TIMEOUT_MS` wait into
+   * roughly one heartbeat interval.
+   */
+  probe: (timeoutMs: number) => void;
 }
 
 /**
@@ -191,6 +205,11 @@ export function subscribeEvents(
   // The top-level cancel() targets whichever attempt is currently
   // active.
   let activeAbortController: AbortController | null = null;
+  // Whether the attempt owning `activeAbortController` has received a
+  // frame. `probe()` only shortens the deadline on an established
+  // stream; shortening it during a slow initial connect would abort a
+  // fetch that is still handshaking.
+  let activeStreamOpened = false;
 
   const watchdog = createStreamWatchdog({
     idleTimeoutMs,
@@ -202,6 +221,13 @@ export function subscribeEvents(
     cancelled = true;
     watchdog.clear();
     activeAbortController?.abort();
+  };
+
+  const probe = (timeoutMs: number) => {
+    if (cancelled || !activeAbortController || !activeStreamOpened) {
+      return;
+    }
+    watchdog.arm(activeAbortController, reconnectCount, timeoutMs);
   };
 
   const reconnect = async (): Promise<boolean> => {
@@ -227,6 +253,7 @@ export function subscribeEvents(
     }
     const abortController = new AbortController();
     activeAbortController = abortController;
+    activeStreamOpened = false;
     const sseDebugClientId = registerSseClient(abortController.signal);
     // Reset per-attempt liveness counters so each watchdog fire
     // reports state for ITS attempt, not for the entire subscribe
@@ -267,6 +294,9 @@ export function subscribeEvents(
             // the real "connected" boundary. Pairs with onStreamClose.
             if (!cancelled && !streamOpened) {
               streamOpened = true;
+              if (activeAbortController === abortController) {
+                activeStreamOpened = true;
+              }
               options.onStreamOpen?.();
             }
             const isData =
@@ -406,5 +436,5 @@ export function subscribeEvents(
     }
   });
 
-  return { cancel };
+  return { cancel, probe };
 }

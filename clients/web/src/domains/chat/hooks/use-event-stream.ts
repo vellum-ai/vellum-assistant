@@ -185,7 +185,7 @@ export function useEventStream({
     // whether SSE will deliver the response. We write a sentinel whose
     // `cancel()` is a no-op — the real teardown is the bus unsubscribe
     // in `useBusSubscription`.
-    const presence: EventStream = { cancel: () => {} };
+    const presence: EventStream = { cancel: () => {}, probe: () => {} };
     ss.setStream(presence);
 
     return () => {

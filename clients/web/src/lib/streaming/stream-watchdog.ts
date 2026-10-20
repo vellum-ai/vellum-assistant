@@ -47,8 +47,13 @@ export interface StreamWatchdog {
    * immediately before the for-await loop and on every parsed SSE
    * chunk — including heartbeat comments. If no traffic arrives
    * within `idleTimeoutMs`, the controller is aborted.
+   *
+   * `timeoutMs` overrides the deadline for this arm only. The next arm
+   * (the next frame) restores `idleTimeoutMs`, so a caller can demand
+   * proof of life on a shorter clock without changing the steady-state
+   * window.
    */
-  arm(controller: AbortController, attempt: number): void;
+  arm(controller: AbortController, attempt: number, timeoutMs?: number): void;
   /** Cancel any pending timer. */
   clear(): void;
   /** Reset per-attempt liveness counters (call on each new connect). */
@@ -93,7 +98,11 @@ export function createStreamWatchdog(
     }
   };
 
-  const arm = (controller: AbortController, attempt: number) => {
+  const arm = (
+    controller: AbortController,
+    attempt: number,
+    timeoutMs: number = idleTimeoutMs,
+  ) => {
     clear();
     timer = setTimeout(() => {
       timer = null;
@@ -119,7 +128,7 @@ export function createStreamWatchdog(
       recordLifecycleDiagnostic("sse_watchdog_fired", {
         assistantId,
         attempt,
-        idleTimeoutMs,
+        idleTimeoutMs: timeoutMs,
         wasTurnSending,
         lastByteAgeMs,
         keepalivesReceivedSinceConnect,
@@ -139,7 +148,7 @@ export function createStreamWatchdog(
         data: {
           assistantId,
           attempt,
-          idleTimeoutMs,
+          idleTimeoutMs: timeoutMs,
           wasTurnSending,
           lastByteAgeMs,
           keepalivesReceivedSinceConnect,
@@ -148,7 +157,7 @@ export function createStreamWatchdog(
       });
 
       controller.abort();
-    }, idleTimeoutMs);
+    }, timeoutMs);
   };
 
   const resetCounters = () => {
