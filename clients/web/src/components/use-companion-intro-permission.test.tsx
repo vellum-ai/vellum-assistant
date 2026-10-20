@@ -109,29 +109,35 @@ async function known(view: ReturnType<typeof setup>) {
 }
 
 describe("companion tour permission setup", () => {
-  test.each([
-    ["key", "inputMonitoring"],
-    ["share", "screen"],
-  ] as const)(
-    "%s opens the drag guide when the shell supports it",
-    async (beat, kind) => {
-      setupSupported = true;
-      const view = setup(beat);
-      await known(view);
-      act(() => view.result.current?.enable());
-      await known(view);
-      expect(beginGuide).toHaveBeenCalledWith(kind, undefined);
-      expect(request).not.toHaveBeenCalled();
-      expect(settings).not.toHaveBeenCalled();
-      current = permissions("granted");
-      await act(async () => listener?.(current));
-      expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
-      expect(cancelGuide).toHaveBeenCalledTimes(1);
-      expect(foreground).toHaveBeenCalledTimes(1);
-      await act(async () => listener?.(current));
-      expect(foreground).toHaveBeenCalledTimes(1);
-    },
-  );
+  test("the voice-key lesson opens the drag guide when the shell supports it", async () => {
+    setupSupported = true;
+    const view = setup("key");
+    await known(view);
+    act(() => view.result.current?.enable());
+    await known(view);
+    expect(beginGuide).toHaveBeenCalledWith("inputMonitoring", undefined);
+    expect(request).not.toHaveBeenCalled();
+    expect(settings).not.toHaveBeenCalled();
+    current = permissions("granted");
+    await act(async () => listener?.(current));
+    expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
+    expect(cancelGuide).toHaveBeenCalledTimes(1);
+    expect(foreground).toHaveBeenCalledTimes(1);
+    await act(async () => listener?.(current));
+    expect(foreground).toHaveBeenCalledTimes(1);
+  });
+
+  test("Share requests Screen Recording through the permission service", async () => {
+    setupSupported = true;
+    const view = setup("share");
+    await known(view);
+
+    act(() => view.result.current?.enable());
+    await known(view);
+
+    expect(request).toHaveBeenCalledWith("screen");
+    expect(beginGuide).not.toHaveBeenCalled();
+  });
 
   test("detaches from the coachmark and cancels when its step is left", async () => {
     setupSupported = true;
@@ -156,10 +162,12 @@ describe("companion tour permission setup", () => {
       act(() => view.result.current?.enable());
       await known(view);
     }
-    expect(request.mock.calls.map(([kind]) => kind)).toEqual(["microphone"]);
+    expect(request.mock.calls.map(([kind]) => kind)).toEqual([
+      "screen",
+      "microphone",
+    ]);
     expect(beginGuide.mock.calls.map(([kind]) => kind)).toEqual([
       "inputMonitoring",
-      "screen",
     ]);
     expect(settings).not.toHaveBeenCalled();
   });
