@@ -115,6 +115,29 @@
       "updatedAt": "2026-06-03T03:10:07.000Z"
     },
     {
+      "id": "cohesivity-backend-tools",
+      "name": "cohesivity-backend-tools",
+      "description": "Hosting, Postgres, object storage, auth, an email inbox, and AI model APIs that the assistant provisions and uses for you through the hosted Cohesivity MCP server. No account or API keys required to start",
+      "metadata": {
+        "icon": "assets/icon.svg",
+        "emoji": "🧱",
+        "vellum": {
+          "category": "integrations",
+          "display-name": "Cohesivity Backend Tools",
+          "user-invocable": "true",
+          "activation-hints": [
+            "A task needs a backend: a database, file storage, website hosting, user login, or an email inbox",
+            "User mentions Cohesivity"
+          ],
+          "avoid-when": [
+            "User asked to deploy to Vercel (use deploy-fullstack-vercel)"
+          ]
+        }
+      },
+      "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Connects a hosted MCP server; nothing is installed locally.",
+      "updatedAt": "2026-10-16T06:49:05.000Z"
+    },
+    {
       "id": "conversation-launcher",
       "name": "conversation-launcher",
       "description": "Offer the user several spin-off conversations as clickable buttons on a single persistent card. Each click spawns a fresh seeded conversation in the sidebar; the user keeps their place in the current conversation. Use when you want to branch into N focused threads (research directions, draft choices, pending replies, triage of N items) without losing the current context. Not for single-destination pivots — just reply inline.",
@@ -644,7 +667,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-10-12T22:15:34.000Z"
+      "updatedAt": "2026-10-12T22:28:40.000Z"
     },
     {
       "id": "notion",
