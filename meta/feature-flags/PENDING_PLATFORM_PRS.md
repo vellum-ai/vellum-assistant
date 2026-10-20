@@ -16,7 +16,7 @@ key exists in `terraform/gcp/env/prod/vellum-assistant/main.tf`.
 | `mcp-add-server` | not opened; default off |
 | `mcp-catalog-qa-integrations` | not opened; default off; scope assistant |
 | `paired-devices-ui` | not opened; default off |
-| `quiet-turn-activity` | not opened; default off; scope client |
+| `quiet-turn-activity` | [vellum-assistant-platform #10756](https://github.com/vellum-ai/vellum-assistant-platform/pull/10756); default off; scope client |
 | `quickbooks-oauth` | not opened (Terraform entry drafted alongside the platform change); default off |
 | `schedule-result-notify` | not opened; default on |
 | `session-groups` | [vellum-assistant-platform #10577](https://github.com/vellum-ai/vellum-assistant-platform/pull/10577); default off; scope both |
