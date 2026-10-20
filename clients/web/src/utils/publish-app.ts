@@ -1,11 +1,14 @@
 /**
- * Publish an app to Vercel and enrich the response with publish-status data.
+ * Publish an app and enrich the response with publish-status data.
  *
  * When the publish endpoint returns `success: true` but omits `publicUrl`,
  * performs a best-effort follow-up call to the publish-status endpoint to
  * retrieve the deployed URL and deployment ID. This enrichment is
  * transparent to callers — the returned result always has the most
  * complete data available.
+ *
+ * Which target the app lands on is the assistant's `apps.publish.provider`
+ * setting; `publish-provider.ts` reads it back off the response.
  */
 
 import {
