@@ -41,36 +41,37 @@ describe("useSupportsActivationProgress", () => {
     expect(check("")).toBe(false);
   });
 
-  // The 0.11.8 release predates the routes, and a non-build pre-release of it
-  // is that same release, so neither may light the surface up.
+  // 0.12.0 was cut before the routes reached `main` and 0.12.1 was patched
+  // from that branch, and a non-build pre-release of a release is that same
+  // release, so none of them may light the surface up.
   test("returns false for release lines without the routes", () => {
-    expect(check("0.11.8")).toBe(false);
-    expect(check("0.11.8-staging.2")).toBe(false);
-    expect(check("0.11.5")).toBe(false);
+    expect(check("0.12.1")).toBe(false);
+    expect(check("0.12.1-staging.2")).toBe(false);
+    expect(check("0.12.0")).toBe(false);
+    expect(check("0.11.10")).toBe(false);
     expect(check("0.10.12")).toBe(false);
   });
 
-  // Builds cut from the same base before the route commit do not carry it,
-  // which is why the floor names a minute rather than `dev.0`.
-  test("returns false for builds stamped before the routes landed", () => {
-    expect(check("0.11.8-dev.202609010000.d77d014")).toBe(false);
-    expect(check("0.11.8-dev.202609030106.aaaaaaa")).toBe(false);
-    expect(check("0.11.8-local.20260903010600.aaaaaaa")).toBe(false);
+  // The floor names a minute rather than `dev.0`, so builds stamped before
+  // it stay dark, earlier bases included.
+  test("returns false for builds stamped before the floor", () => {
+    expect(check("0.12.0-dev.202609120000.d77d014")).toBe(false);
+    expect(check("0.12.1-dev.202609141910.aaaaaaa")).toBe(false);
+    expect(check("0.12.1-local.20260914191000.aaaaaaa")).toBe(false);
   });
 
   // Dogfood and same-source builds are the whole point of a dev floor: they
-  // carry the routes while `assistant/package.json` still reads 0.11.8.
-  test("returns true for builds carrying the routes on the 0.11.8 base", () => {
+  // carry the routes while `assistant/package.json` still reads 0.12.1.
+  test("returns true for builds carrying the routes on the 0.12.1 base", () => {
     expect(check(MIN_VERSION)).toBe(true);
-    expect(check("0.11.8-dev.202609030700.abcdef1")).toBe(true);
-    expect(check("0.11.8-local.20260903120000.abcdef1")).toBe(true);
+    expect(check("0.12.1-dev.202609150700.abcdef1")).toBe(true);
+    expect(check("0.12.1-local.20260915120000.abcdef1")).toBe(true);
   });
 
   test("returns true for every later release", () => {
-    expect(check("0.11.9")).toBe(true);
-    expect(check("0.11.9-dev.202609020000.fedcba9")).toBe(true);
-    expect(check("0.11.10")).toBe(true);
-    expect(check("0.12.0")).toBe(true);
+    expect(check("0.12.2")).toBe(true);
+    expect(check("0.12.2-dev.202609170000.fedcba9")).toBe(true);
+    expect(check("0.13.0")).toBe(true);
     expect(check("1.0.0")).toBe(true);
   });
 
