@@ -1,4 +1,4 @@
-import { Coins, Loader2 } from "lucide-react";
+import { Coins } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -123,25 +123,28 @@ export function BillingPanel() {
   );
 
   const renderBalanceBox = (): ReactNode => {
-    if (!summary) {
-      return null;
+    let value: ReactNode;
+    let effectiveNeg = false;
+    if (summary) {
+      // The tile names only the credit bought or earned on top of the usage
+      // grants; the bar on the Plan tile measures those.
+      const shown = displayedCreditsUsd(
+        summary.effective_balance,
+        summary.available_usage_balance,
+      );
+      effectiveNeg = parseFloat(shown) < 0;
+      const formatted = formatCreditsShort(shown);
+      const display = formatted.startsWith("-")
+        ? `-$${formatted.slice(1)}`
+        : `$${formatted}`;
+      value = <span data-testid="effective-balance">{display}</span>;
     }
-    // The tile names only the credit bought or earned on top of the usage
-    // grants; the bar on the Plan tile measures those.
-    const shown = displayedCreditsUsd(
-      summary.effective_balance,
-      summary.available_usage_balance,
-    );
-    const effectiveNeg = parseFloat(shown) < 0;
-    const formatted = formatCreditsShort(shown);
-    const display = formatted.startsWith("-")
-      ? `-$${formatted.slice(1)}`
-      : `$${formatted}`;
     return (
       <div className="mt-4">
         <StatSquare
           icon={<Coins />}
-          value={<span data-testid="effective-balance">{display}</span>}
+          loading={!summary}
+          value={value}
           label={t("billingPanel.balanceLabel")}
           tone={effectiveNeg ? "negative" : "default"}
         />
@@ -151,12 +154,7 @@ export function BillingPanel() {
 
   const renderBalanceBody = (): ReactNode => {
     if (isLoading) {
-      return (
-        <div className="mt-4 flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          {t("billingPanel.loading")}
-        </div>
-      );
+      return renderBalanceBox();
     }
     if (isError) {
       return (
