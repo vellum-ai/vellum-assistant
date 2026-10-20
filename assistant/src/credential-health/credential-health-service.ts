@@ -440,9 +440,8 @@ async function checkManagedProvider(
     ) as Array<{ id: string; account_label?: string; status?: string }>;
 
     if (allConnections.length === 0) {
-      // No connections of any status — the user has never connected this
-      // provider. The suggested-prompts system handles prompting them to
-      // connect; this is not a health issue.
+      // No connections of any status: the user has never connected this
+      // provider, which is not a health issue.
       return results;
     }
 

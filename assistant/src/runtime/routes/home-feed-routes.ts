@@ -34,9 +34,6 @@ import {
   patchFeedItemStatus,
   readHomeFeed,
 } from "../../home/feed-writer.js";
-import { revalidateHomeContentInBackground } from "../../home/home-content-refresh.js";
-import { getPersonalizedGreeting } from "../../home/home-greeting.js";
-import { getSuggestedPrompts } from "../../home/suggested-prompts.js";
 import {
   addMessage,
   createConversation,
@@ -151,9 +148,9 @@ function timeAwayBucket(seconds: number): string {
 // Handlers
 // ---------------------------------------------------------------------------
 
-export async function handleGetHomeFeed({
+export function handleGetHomeFeed({
   queryParams = {},
-}: RouteHandlerArgs): Promise<Record<string, unknown>> {
+}: RouteHandlerArgs): Record<string, unknown> {
   const raw = queryParams.timeAwaySeconds;
   if (raw === undefined) {
     throw new BadRequestError(
@@ -175,22 +172,8 @@ export async function handleGetHomeFeed({
   // `sourceLabel`) so clients can filter the feed by what produced it.
   const filtered = enrichFeedItemsWithSource(feed.items);
 
-  const now = new Date();
-
-  // Stale-while-revalidate: serve whatever is cached right now and kick
-  // off a bounded background regeneration of any stale LLM content. The
-  // refresh publishes `home_feed_updated` when fresh content lands, so
-  // connected clients refetch and the personalized content swaps in.
-  // This is the accepted exception to GET-handler idempotency documented
-  // in `src/runtime/AGENTS.md` — the handler itself stays read-only and
-  // returns immediately with cached/fallback copy.
-  revalidateHomeContentInBackground();
-
-  const personalizedGreeting = getPersonalizedGreeting();
-  const suggestedPrompts = await getSuggestedPrompts();
-
   const contextBanner = {
-    greeting: personalizedGreeting ?? computeGreeting(now),
+    greeting: computeGreeting(new Date()),
     timeAwayLabel: formatRelativeTime(timeAwaySeconds),
     newCount: filtered.filter((i) => i.status === "new").length,
   };
@@ -201,7 +184,6 @@ export async function handleGetHomeFeed({
       totalItems: feed.items.length,
       filteredItems: filtered.length,
       newCount: contextBanner.newCount,
-      suggestedPromptsCount: suggestedPrompts.length,
     },
     "GET /v1/home/feed",
   );
@@ -210,7 +192,8 @@ export async function handleGetHomeFeed({
     items: filtered,
     updatedAt: feed.updatedAt,
     contextBanner,
-    suggestedPrompts,
+    // Always empty; part of the stable response shape.
+    suggestedPrompts: [],
   };
 }
 

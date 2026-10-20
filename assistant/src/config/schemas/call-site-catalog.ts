@@ -331,20 +331,6 @@ const CATALOG_RECORD: CatalogRecord = {
       "Names the background task that finishes a live-voice reply the user interrupted.",
     domain: "ui",
   },
-  homeGreeting: {
-    id: "homeGreeting",
-    displayName: "Home Greeting",
-    description:
-      "Generates the personalized greeting shown on the Home page in the assistant's tone/persona.",
-    domain: "ui",
-  },
-  homeSuggestedPrompts: {
-    id: "homeSuggestedPrompts",
-    displayName: "Home Suggested Prompts",
-    description:
-      "Generates contextual conversation-starter suggestions for the Home page.",
-    domain: "ui",
-  },
 };
 
 // Source of truth for call-site display metadata. API responses and usage

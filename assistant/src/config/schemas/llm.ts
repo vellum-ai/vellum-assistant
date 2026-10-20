@@ -248,8 +248,6 @@ export const LLMCallSiteEnum = z.enum([
   "voiceContinuationLabel",
   "autoProfileRouter",
   "trustRuleSuggestion",
-  "homeGreeting",
-  "homeSuggestedPrompts",
   "workflowLeaf",
 ]);
 export type LLMCallSite = z.infer<typeof LLMCallSiteEnum>;

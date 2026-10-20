@@ -775,28 +775,18 @@ The web client implements these flows in `clients/web/src/domains/chat/voice/`: 
 - Terminology: "STT", "transcription", and "speech recognition" all refer to the same operation (converting audio to text).
 - **Onboarding**: For a step-by-step guide to adding a new STT provider, see `docs/stt-provider-onboarding.md`.
 
-### On-Demand Home Content Generation
+### On-Demand Client Content Generation
 
-LLM-generated content shown by clients (personalized home greeting, suggested prompts, conversation starters) is produced on demand, never at daemon startup or on unconditional timers.
+LLM-generated content shown by clients (conversation starters) is produced on demand, never at daemon startup or on unconditional timers.
 
-**Data flow (home greeting + suggested prompts):**
-
-1. **Read** — `GET /v1/home/feed` reads both caches synchronously: the greeting from `memory_checkpoints` (`home:greeting:*`, 4-hour TTL, busted when identity files change) and suggested prompts from `memory_checkpoints` (`home:suggested_prompts:*`, 4-hour TTL, invalidated on OAuth connect/disconnect). When a cache is empty the handler falls back to a time-of-day greeting and an empty prompt list.
-2. **Revalidate** — The same GET fires `revalidateHomeContentInBackground()` (`src/home/home-content-refresh.ts`) fire-and-forget. It is single-flight (concurrent GETs share one run) and each refresher no-ops while its cache is fresh, so generation happens at most once per TTL window — and only when a user actually views Home.
-3. **Notify** — When fresh content lands, the coordinator publishes a `home_feed_updated` event; connected clients refetch the feed and the personalized content swaps in.
-
-Conversation starters follow the same pattern via `GET /v1/conversation-starters`, which enqueues a `generate_conversation_starters` memory job when the starter set is stale (cooldown-gated, deduped against in-flight jobs).
+`GET /v1/conversation-starters` enqueues a `generate_conversation_starters` memory job when the starter set is stale (cooldown-gated, deduped against in-flight jobs). `GET /v1/home/feed` makes no LLM calls: its context-banner greeting is a time-of-day string and its `suggestedPrompts` list is always empty.
 
 **Key source files:**
 
-| File                                                | Purpose                                                                  |
-| --------------------------------------------------- | ------------------------------------------------------------------------ |
-| `src/home/home-content-refresh.ts`                  | Single-flight on-demand revalidation coordinator + SSE notify            |
-| `src/home/home-greeting.ts`                         | Greeting generation (BTW side-chain, `homeGreeting` call site)           |
-| `src/home/home-greeting-cache.ts`                   | Checkpoint-backed greeting cache with identity-hash invalidation         |
-| `src/home/suggested-prompts.ts`                     | Prompt generation + checkpoint-backed cache + OAuth invalidation         |
-| `src/runtime/routes/home-feed-routes.ts`            | `GET /v1/home/feed` — cached read + fire-and-forget revalidation trigger |
-| `src/runtime/routes/conversation-starter-routes.ts` | On-demand starter refresh via memory job enqueue                         |
+| File                                                | Purpose                                                    |
+| --------------------------------------------------- | ---------------------------------------------------------- |
+| `src/runtime/routes/conversation-starter-routes.ts` | On-demand starter refresh via memory job enqueue           |
+| `src/home/job-handlers/conversation-starters.ts`    | Starter generation from memory items and the skill catalog |
 
 ---
 

@@ -188,21 +188,6 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     effort: "low",
     thinking: { enabled: false },
   },
-  homeGreeting: {
-    profile: "cost-optimized",
-    maxTokens: 60,
-    effort: "low",
-    thinking: { enabled: false },
-    temperature: 0.7,
-    disableCache: true,
-  },
-  homeSuggestedPrompts: {
-    profile: "cost-optimized",
-    maxTokens: 512,
-    effort: "low",
-    thinking: { enabled: false },
-    disableCache: true,
-  },
   // Anonymous and schema leaves inherit the workspace default config (no pinned
   // profile) so they always resolve to a credentialed provider. Pinning a
   // managed profile like `cost-optimized` breaks BYOK installs where the managed

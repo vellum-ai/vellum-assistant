@@ -298,7 +298,7 @@ There is currently **no release-note surfacing mechanism**. The update-bulletin 
 
 ## No LLM Work at Daemon Startup
 
-The daemon must not invoke LLM providers at startup or on unconditional timers — boot-time generation costs the user money before they have asked for anything. Generated content that clients display (home greeting, suggested prompts, conversation starters, identity intro) is produced on demand: GET handlers serve cached content and trigger a bounded, single-flight, TTL-gated background refresh only when a client actually fetches (see the GET-idempotency exceptions in `assistant/src/runtime/AGENTS.md`). User-facing scheduled work (heartbeat, user-created schedules) is exempt — it is explicit, user-visible, and user-disableable.
+The daemon must not invoke LLM providers at startup or on unconditional timers. Boot-time generation costs the user money before they have asked for anything. Generated content that clients display (conversation starters, identity intro) is produced on demand: GET handlers serve cached content and trigger a bounded, single-flight, TTL-gated background refresh only when a client actually fetches (see the GET-idempotency exceptions in `assistant/src/runtime/AGENTS.md`). User-facing scheduled work (heartbeat, user-created schedules) is exempt because it is explicit, user-visible, and user-disableable.
 
 ## Companion Repos
 

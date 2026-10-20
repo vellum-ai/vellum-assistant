@@ -1,7 +1,7 @@
 /**
  * Home activity feed data contract.
  *
- * The feed-item and suggested-prompt wire shapes are owned by the
+ * The feed-item wire shapes are owned by the
  * canonical `@vellumai/assistant-api` package (`api/responses/home.ts`)
  * so the daemon route handlers, the OpenAPI generator, and external
  * clients all derive from one source. This module re-exports those
@@ -43,9 +43,6 @@ export {
   FeedItemUpdateSchema as feedItemUpdateSchema,
   type FeedItemUrgency,
   isPendingGuardianFeedItem,
-  type SuggestedPrompt,
-  SuggestedPromptSchema as suggestedPromptSchema,
-  type SuggestedPromptSource,
 } from "../api/responses/home.js";
 
 /**

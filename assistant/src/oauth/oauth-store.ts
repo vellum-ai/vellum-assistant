@@ -19,7 +19,6 @@ import {
 import { and, desc, eq, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { invalidateAssistantSuggestedPromptsCache } from "../home/suggested-prompts-cache.js";
 import { getDb } from "../persistence/db-connection.js";
 import { rawChanges } from "../persistence/raw-query.js";
 import {
@@ -1238,10 +1237,6 @@ export async function disconnectOAuthProvider(
   }
 
   deleteConnection(conn.id);
-
-  // Best-effort cache invalidation so Home suggestions track the disconnect;
-  // the call swallows its own failures and never blocks disconnect.
-  invalidateAssistantSuggestedPromptsCache();
 
   return "disconnected";
 }

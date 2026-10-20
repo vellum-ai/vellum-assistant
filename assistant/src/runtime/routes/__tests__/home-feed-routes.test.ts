@@ -10,7 +10,15 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 
 // ─── Module mocks ──────────────────────────────────────────────────────────
 // Stub the assistantEventHub so the feed writer's SSE publish does not
@@ -65,14 +73,6 @@ mock.module("../../../persistence/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-// Stub the home-content revalidation coordinator: the GET handler fires
-// it fire-and-forget, and the real module would reach into the LLM
-// provider layer and checkpoint store.
-const revalidateSpy = mock<() => void>(() => {});
-mock.module("../../../home/home-content-refresh.js", () => ({
-  revalidateHomeContentInBackground: revalidateSpy,
-}));
-
 // Dynamic imports so module mocks are wired before evaluation.
 const {
   computeGreeting,
@@ -105,7 +105,7 @@ async function handleGetHomeFeed(req: Request) {
     queryParams[key] = value;
   }
   try {
-    const result = await _handleGetHomeFeed({ queryParams });
+    const result = _handleGetHomeFeed({ queryParams });
     return fakeResponse(result);
   } catch (err) {
     if (err instanceof RouteError) {
@@ -346,13 +346,22 @@ describe("handleGetHomeFeed", () => {
     expect(res.status).toBe(400);
   });
 
-  test("triggers fire-and-forget home content revalidation", async () => {
-    revalidateSpy.mockClear();
-    const res = await handleGetHomeFeed(
-      new Request("http://localhost/v1/home/feed?timeAwaySeconds=0"),
-    );
-    expect(res.status).toBe(200);
-    expect(revalidateSpy).toHaveBeenCalledTimes(1);
+  test("serves the time-of-day greeting and no suggested prompts", async () => {
+    setSystemTime(new Date(2026, 3, 14, 9, 0, 0));
+    try {
+      const res = await handleGetHomeFeed(
+        new Request("http://localhost/v1/home/feed?timeAwaySeconds=0"),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        contextBanner: { greeting: string };
+        suggestedPrompts: unknown[];
+      };
+      expect(body.contextBanner.greeting).toBe("Good morning");
+      expect(body.suggestedPrompts).toEqual([]);
+    } finally {
+      setSystemTime();
+    }
   });
 
   test("empty feed returns empty items and zero newCount", async () => {

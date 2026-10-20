@@ -1485,17 +1485,13 @@ describe("resolveCallSiteConfig sampling-param provenance (temperature / top_p)"
     expect(resolved.topP).toBeNull();
   });
 
-  test("homeGreeting / commitMessage resolve to a temperature with NO top_p", () => {
-    const greeting = resolveCallSiteConfig("homeGreeting", balancedActive);
-    expect(greeting.model).toBe("claude-haiku-4-5-20251001");
-    // Per-call-site temperature from CALL_SITE_DEFAULTS survives.
-    expect(greeting.temperature).toBe(0.7);
-    // The balanced profile's top_p does NOT — both together would trip
-    // Anthropic's "temperature and top_p cannot both be specified".
-    expect(greeting.topP).toBeNull();
-
+  test("commitMessage resolves to a temperature with NO top_p", () => {
     const commit = resolveCallSiteConfig("commitMessage", balancedActive);
+    expect(commit.model).toBe("claude-haiku-4-5-20251001");
+    // Per-call-site temperature from CALL_SITE_DEFAULTS survives.
     expect(commit.temperature).toBe(0.2);
+    // The balanced profile's top_p does NOT: both together would trip
+    // Anthropic's "temperature and top_p cannot both be specified".
     expect(commit.topP).toBeNull();
   });
 
