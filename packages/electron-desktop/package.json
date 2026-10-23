@@ -74,6 +74,7 @@
     "./presence-runtime": "./src/presence-runtime.ts",
     "./quick-input-window": "./src/quick-input-window.ts",
     "./redact": "./src/redact.ts",
+    "./renderer-crash-reload": "./src/renderer-crash-reload.ts",
     "./sentry": "./src/sentry.ts",
     "./settings": "./src/settings.ts",
     "./session-token-store": "./src/session-token-store.ts",

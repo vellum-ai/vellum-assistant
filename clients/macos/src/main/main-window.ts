@@ -1,5 +1,6 @@
 import { BrowserWindow, app, autoUpdater, shell } from "electron";
 import { z } from "zod";
+import { reloadOnRendererCrash } from "@vellumai/electron-desktop/renderer-crash-reload";
 import { createWindowReadiness } from "@vellumai/electron-desktop/window-readiness";
 import {
   readOnboardingActive,
@@ -222,6 +223,7 @@ const createMainWindow = (): BrowserWindow => {
   // unconditionally — a resize during onboarding is a legitimate "main"
   // size and should survive the transition and the next launch.
   trackWindowState("main", win);
+  reloadOnRendererCrash(win);
 
   // Readiness resolves only after BOTH the renderer has loaded AND
   // the window has shown + focused. Per-window state keyed via

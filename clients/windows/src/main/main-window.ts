@@ -17,6 +17,7 @@ import {
   writeOnboardingActive,
   writeTitleBarOverlayTheme,
 } from "@vellumai/electron-desktop/window-state";
+import { reloadOnRendererCrash } from "@vellumai/electron-desktop/renderer-crash-reload";
 import { createWindowReadiness } from "@vellumai/electron-desktop/window-readiness";
 import { z } from "zod";
 
@@ -88,6 +89,7 @@ const createMainWindow = (): BrowserWindow => {
   });
   win.setTitle(currentTitle);
   trackWindowState("main", win);
+  reloadOnRendererCrash(win);
 
   const ready = readiness.arm(win);
   win.webContents.once("did-finish-load", () => {
