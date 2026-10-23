@@ -94,6 +94,7 @@ import {
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
 } from "./routes/guardian-expiry-sweep.js";
+import { stopGuardianReminderSweep } from "./routes/guardian-reminder-sweep.js";
 import {
   dbMigrationUnavailableResponse,
   handleHealth,
@@ -734,6 +735,7 @@ export class RuntimeHttpServer {
 
   async stop(): Promise<void> {
     stopGuardianExpirySweep();
+    stopGuardianReminderSweep();
     stopAppPinReconcileSweep();
     stopInferenceProfileSessionReaper();
     stopTelegramWebhookHealthSweep();
