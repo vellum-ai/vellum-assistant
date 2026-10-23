@@ -50,6 +50,7 @@ export const SEARCH_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   tinyfish: "TINYFISH_API_KEY",
   exa: "EXA_API_KEY",
   serply: "SERPLY_API_KEY",
+  you: "YDC_API_KEY",
 };
 
 /**

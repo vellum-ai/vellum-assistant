@@ -55,6 +55,11 @@ const SERPLY_MAX_RESULTS = 10;
 const KEENABLE_API_BASE_URL = "https://api.keenable.ai";
 const KEENABLE_PUBLIC_SEARCH_PATH = "/v1/search/public";
 const KEENABLE_KEYED_SEARCH_PATH = "/v1/search";
+// You.com is keyless by default: the free agents endpoint needs no key
+// (100 searches a day per IP); a key switches to the keyed index endpoint.
+const YOU_KEYLESS_SEARCH_URL = "https://api.you.com/v1/agents/search";
+const YOU_KEYED_SEARCH_URL = "https://ydc-index.io/v1/search";
+const YOU_USER_AGENT = "youdotcom-integration/vellum-ai-vellum-assistant";
 
 type WebSearchProvider =
   | "perplexity"
@@ -66,7 +71,8 @@ type WebSearchProvider =
   | "searxng"
   | "tinyfish"
   | "exa"
-  | "serply";
+  | "serply"
+  | "you";
 
 /**
  * Arguments passed to every {@link WebSearchAdapter}. The full superset is
@@ -103,6 +109,11 @@ interface WebSearchAdapter {
    * with an empty API key instead of erroring on a missing key.
    */
   readonly keyless?: boolean;
+  /**
+   * Provider that runs only when the user explicitly selects it. It is
+   * excluded from the missing-key fallback chain even when a key is stored.
+   */
+  readonly explicitOnly?: boolean;
   /** Execute one search against the provider's API. */
   execute(args: WebSearchAdapterArgs): Promise<ToolExecutionResult>;
 }
@@ -231,6 +242,18 @@ interface SerplySearchResponse {
   results?: SerplySearchResult[];
 }
 
+interface YouSearchResult {
+  url?: string;
+  title?: string | null;
+  description?: string | null;
+  snippets?: string[] | null;
+  page_age?: string | null;
+}
+
+interface YouSearchResponse {
+  results?: { web?: YouSearchResult[] };
+}
+
 const SEARXNG_MISSING_INSTANCE_MESSAGE =
   "SearXNG needs an instance URL. Set API Base in Settings under Web Search.";
 const SEARXNG_JSON_DISABLED_MESSAGE =
@@ -265,7 +288,8 @@ function fallbackProvidersFor(
   provider: WebSearchProvider,
 ): readonly WebSearchProvider[] {
   return WEB_SEARCH_FALLBACK_ORDER.filter(
-    (candidate) => candidate !== provider,
+    (candidate) =>
+      candidate !== provider && !WEB_SEARCH_ADAPTERS[candidate].explicitOnly,
   );
 }
 
@@ -901,6 +925,82 @@ function serplyTbsForFreshness(
       return "qdr:m";
     case "py":
       return "qdr:y";
+    default:
+      return undefined;
+  }
+}
+
+function youSnippet(result: YouSearchResult): string | undefined {
+  const snippet = result.snippets?.find((s) => s.trim().length > 0)?.trim();
+  return snippet || result.description?.trim() || undefined;
+}
+
+function formatYouResults(data: YouSearchResponse, query: string): string {
+  const results = data.results?.web ?? [];
+  if (results.length === 0) {
+    return `No results found for "${query}".`;
+  }
+
+  const lines: string[] = [`Web search results for "${query}":\n`];
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    const title =
+      result.title?.trim() || result.url?.trim() || "Untitled result";
+    lines.push(`${i + 1}. ${title}`);
+    if (result.url) {
+      lines.push(`   URL: ${result.url}`);
+    }
+    if (result.page_age) {
+      lines.push(`   Age: ${result.page_age}`);
+    }
+    const snippet = youSnippet(result);
+    if (snippet) {
+      lines.push(`   ${snippet}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
+function buildYouMetadata(
+  data: YouSearchResponse,
+  query: string,
+  durationMs: number,
+): WebSearchMetadata {
+  const results = data.results?.web ?? [];
+  const items: WebSearchResultItem[] = results.map((result, index) => {
+    const url = result.url ?? "";
+    const domain = extractDomain(url);
+    return {
+      rank: index + 1,
+      title: result.title?.trim() || url.trim() || "Untitled result",
+      url,
+      domain,
+      faviconUrl: faviconUrlForDomain(domain),
+      snippet: youSnippet(result),
+    };
+  });
+  return {
+    query,
+    provider: "you",
+    resultCount: items.length,
+    durationMs,
+    results: items,
+  };
+}
+
+function youFreshnessForFreshness(
+  freshness: string | undefined,
+): string | undefined {
+  switch (freshness) {
+    case "pd":
+      return "day";
+    case "pw":
+      return "week";
+    case "pm":
+      return "month";
+    case "py":
+      return "year";
     default:
       return undefined;
   }
@@ -2239,6 +2339,148 @@ async function executeSerplySearch(
   );
 }
 
+async function executeYouSearch(
+  query: string,
+  count: number,
+  freshness: string | undefined,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<ToolExecutionResult> {
+  const startedAt = Date.now();
+  const trimmedKey = apiKey.trim();
+  const youFreshness = youFreshnessForFreshness(freshness);
+
+  let url: string;
+  let init: RequestInit;
+  if (trimmedKey) {
+    const body: Record<string, unknown> = { query, count };
+    if (youFreshness) {
+      body.freshness = youFreshness;
+    }
+    url = YOU_KEYED_SEARCH_URL;
+    init = {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "User-Agent": YOU_USER_AGENT,
+        "X-API-Key": trimmedKey,
+      },
+      body: JSON.stringify(body),
+      signal,
+    };
+  } else {
+    const params = new URLSearchParams({ query, count: String(count) });
+    if (youFreshness) {
+      params.set("freshness", youFreshness);
+    }
+    url = `${YOU_KEYLESS_SEARCH_URL}?${params.toString()}`;
+    init = {
+      method: "GET",
+      headers: { Accept: "application/json", "User-Agent": YOU_USER_AGENT },
+      signal,
+    };
+  }
+
+  for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(url, init);
+    } catch (err) {
+      return networkFailureResult(query, "you", startedAt, err, signal);
+    }
+
+    const bodyText = await response.text();
+    if (response.ok) {
+      let data: YouSearchResponse;
+      try {
+        data = JSON.parse(bodyText) as YouSearchResponse;
+      } catch {
+        return errorResult(
+          query,
+          "you",
+          startedAt,
+          "You.com Search returned an invalid JSON payload.",
+        );
+      }
+      const web = data.results?.web;
+      if (web && web.length > count) {
+        data.results = { ...data.results, web: web.slice(0, count) };
+      }
+      const durationMs = Date.now() - startedAt;
+      return {
+        content:
+          wrapUntrustedContent(formatYouResults(data, query), {
+            source: "search",
+            sourceDetail: "you",
+          }) + CITATION_INSTRUCTION,
+        isError: false,
+        activityMetadata: {
+          webSearch: buildYouMetadata(data, query, durationMs),
+        },
+      };
+    }
+
+    if (response.status === 401) {
+      return errorResult(
+        query,
+        "you",
+        startedAt,
+        "Invalid or expired You.com API key",
+      );
+    }
+    if (response.status === 402) {
+      return errorResult(
+        query,
+        "you",
+        startedAt,
+        "You.com account has no remaining credits.",
+      );
+    }
+    if (response.status === 403) {
+      return errorResult(
+        query,
+        "you",
+        startedAt,
+        "You.com rejected the API key. Check that it is valid and has Search access.",
+      );
+    }
+
+    if (response.status === 429 && attempt < DEFAULT_MAX_RETRIES) {
+      const delayMs = getHttpRetryDelay(
+        response,
+        attempt,
+        DEFAULT_BASE_DELAY_MS,
+      );
+      log.warn(
+        { attempt: attempt + 1, delayMs },
+        "You.com Search rate limited, retrying",
+      );
+      await sleep(delayMs);
+      continue;
+    }
+
+    log.warn({ status: response.status }, "You.com Search API error");
+    return backendFailureResult(
+      query,
+      "you",
+      startedAt,
+      { statusCode: response.status, error: rawBodyDetail(bodyText) },
+      response.status === 429
+        ? "You.com Search rate limit exceeded after retries. Try again shortly."
+        : `You.com Search API returned status ${response.status}`,
+    );
+  }
+
+  return backendFailureResult(
+    query,
+    "you",
+    startedAt,
+    { statusCode: 429 },
+    "You.com Search rate limit exceeded after retries. Try again shortly.",
+  );
+}
+
 // ----------------------------------------------------------------------------
 // Adapter registry
 //
@@ -2338,6 +2580,17 @@ const serplySearchAdapter: WebSearchAdapter = {
     executeSerplySearch(query, count, freshness, apiKey, signal),
 };
 
+const youSearchAdapter: WebSearchAdapter = {
+  id: "you",
+  providerKeyName: "you",
+  fallbackOrder: 11,
+  keyless: true,
+  // You.com runs only when selected; never as a fallback for another provider.
+  explicitOnly: true,
+  execute: ({ query, count, freshness, apiKey, signal }) =>
+    executeYouSearch(query, count, freshness, apiKey, signal),
+};
+
 /**
  * All built-in web-search adapters keyed by provider id. The
  * `Record<WebSearchProvider, ...>` shape forces TypeScript to flag any
@@ -2354,6 +2607,7 @@ const WEB_SEARCH_ADAPTERS: Record<WebSearchProvider, WebSearchAdapter> = {
   tinyfish: tinyfishSearchAdapter,
   exa: exaSearchAdapter,
   serply: serplySearchAdapter,
+  you: youSearchAdapter,
 };
 
 /**
@@ -2385,7 +2639,7 @@ export const webSearchTool = {
       count: {
         type: "number",
         description:
-          "Number of results to return (1-20, default 10). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, Exa, and Serply providers.",
+          "Number of results to return (1-20, default 10). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, Exa, Serply, and You.com providers.",
       },
       offset: {
         type: "number",
@@ -2395,7 +2649,7 @@ export const webSearchTool = {
       freshness: {
         type: "string",
         description:
-          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, Exa, and Serply providers. SearXNG maps day/month/year and omits week.',
+          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, Exa, Serply, and You.com providers. SearXNG maps day/month/year and omits week.',
       },
     },
     required: ["query"],
@@ -2513,7 +2767,7 @@ export const webSearchTool = {
           query,
           provider,
           startedAt,
-          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, `keys set tavily <key>`, `keys set firecrawl <key>`, or `keys set fastcrw <key>`, or `keys set tinyfish <key>`, or `keys set exa <key>`, or `keys set serply <key>`, or configure it from the Settings page under API Keys. Or switch the web-search provider to Keenable, which works without a key, or SearXNG with your instance URL.",
+          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, `keys set tavily <key>`, `keys set firecrawl <key>`, or `keys set fastcrw <key>`, or `keys set tinyfish <key>`, or `keys set exa <key>`, or `keys set serply <key>`, or configure it from the Settings page under API Keys. Or switch the web-search provider to Keenable or You.com, which work without a key, or SearXNG with your instance URL.",
         );
       }
     }

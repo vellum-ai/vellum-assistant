@@ -45,6 +45,10 @@ import {
   useStoredCredentialPresence,
 } from "@/domains/settings/ai/use-stored-credential-presence";
 import { supportsWebSearchVellumProvider } from "@/lib/backwards-compat/use-supports-web-search-vellum-provider";
+import {
+  supportsWebSearchYouProvider,
+  useSupportsWebSearchYouProvider,
+} from "@/lib/backwards-compat/use-supports-web-search-you-provider";
 import { whenAssistantVersionKnown } from "@/lib/backwards-compat/utils";
 
 export function WebSearchCard() {
@@ -52,6 +56,7 @@ export function WebSearchCard() {
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
   const isOrgReady = useIsOrgReady();
+  const supportsYouProvider = useSupportsWebSearchYouProvider();
 
   const { data: daemonConfig } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId } }),
@@ -175,6 +180,13 @@ export function WebSearchCard() {
       // writes only the legacy managed mode and lets the deep-merge keep the
       // stored provider — the read bridge renders that pair as Vellum again.
       await whenAssistantVersionKnown();
+      // Daemons predating the You.com catalog entry reject `provider: "you"`,
+      // so never write it to them (the picker hides it too).
+      if (webSearchProvider === "you" && !supportsWebSearchYouProvider()) {
+        toast.error(t("webSearchCard.configUpdateFailedToast"));
+        setSaving(false);
+        return;
+      }
       const webSearchService: {
         provider?: string;
         mode: "managed" | "your-own";
@@ -268,7 +280,12 @@ export function WebSearchCard() {
             aria-label={t("webSearchCard.providerAriaLabel")}
             value={webSearchProvider}
             onChange={setDraftWebSearchProvider}
-            options={WEB_SEARCH_PROVIDER_IDS.map((p) => ({
+            options={WEB_SEARCH_PROVIDER_IDS.filter(
+              (p) =>
+                p !== "you" ||
+                supportsYouProvider ||
+                serverWebSearchProvider === "you",
+            ).map((p) => ({
               value: p,
               label: WEB_SEARCH_PROVIDER_DISPLAY_NAMES[p] ?? p,
             }))}

@@ -207,6 +207,17 @@ export const SEARCH_PROVIDER_CATALOG: readonly SearchProviderCatalogEntry[] = [
     fallbackOrder: 10,
     privacyPolicyUrl: "https://serply.io/privacy",
   },
+  {
+    id: "you",
+    displayName: "You.com",
+    kind: "byok",
+    keyless: true,
+    apiKeyPrefix: "You.com API key (optional)",
+    envVar: "YDC_API_KEY",
+    secretKey: "you",
+    fallbackOrder: 11,
+    privacyPolicyUrl: "https://you.com/legal/privacy",
+  },
 ];
 
 /** Provider ids accepted by the web-search config schema. */
