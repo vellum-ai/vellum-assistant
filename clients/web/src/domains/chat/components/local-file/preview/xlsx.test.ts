@@ -1511,6 +1511,7 @@ describe("parseWorkbook", () => {
 
     expect(grid.rows).toEqual([
       ["1735689600000"],
+      // generic-examples:ignore-next-line - reason: numeric cell value (ms timestamp), not a phone number
       ["1000000000"],
       ["-5"],
       ["9999-12-31"],
