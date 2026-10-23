@@ -852,6 +852,8 @@
   "ttsProviderForm": {
     "apiKey": "API Key",
     "apiKeyRequired": "Save an API key for this provider before testing.",
+    "fishVoiceIdRequired": "Enter a Voice ID before testing Fish Audio.",
+    "xaiPreviewUnsupported": "xAI text-to-speech can't be previewed here yet. Use ElevenLabs or Deepgram to test a voice.",
     "chooseFromCatalog": "Choose from catalog",
     "customVoiceIdAriaLabel": "Custom voice ID",
     "noManagedVoices": "No managed voices are currently available.",
