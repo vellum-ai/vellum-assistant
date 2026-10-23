@@ -7,6 +7,7 @@ on:
       - 'plugins/marketplace.json'
       - 'plugins/mcp-catalog/**'
       - 'clients/web/public/images/integrations/*-mcp.png'
+      - 'clients/web/public/images/integrations/*-mcp-*.png'
       - 'scripts/check-marketplace-prefix.mjs'
       - 'meta/feature-flags/feature-flag-registry.json'
       - 'meta/sync-bundled-copies.ts'
