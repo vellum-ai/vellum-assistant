@@ -21,6 +21,7 @@ import { isChunkLoadError } from "@/lib/chunk-errors";
 import { setupClientFlagScopeSync } from "@/lib/feature-flags/client-flag-scope";
 import { installConsentRefreshListeners } from "@/lib/consent/consent-refresh";
 import { isLocalClient, loadLockfile } from "@/lib/local-mode";
+import { installReactDevMeasureSweeper } from "@/lib/react-dev-measure-sweeper";
 import { captureError } from "@/lib/sentry/capture-error";
 import { initSentry } from "@/lib/sentry/sentry-init";
 import { markBoot } from "@/lib/telemetry/boot-telemetry";
@@ -47,6 +48,7 @@ async function boot() {
   // mutations from browser page translation.
   installTranslateDomGuard();
 
+  installReactDevMeasureSweeper();
   initInputModality();
   initNativePlatformAttributes();
   initWindowsTitleBarOverlay();
