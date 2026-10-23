@@ -10,6 +10,8 @@
 import { z } from "zod";
 
 import { PendingToolQuestionSchema } from "../../api/responses/conversation-message.js";
+import { applyGuardianDecision } from "../../approvals/guardian-decision-primitive.js";
+import type { ActorContext } from "../../approvals/guardian-request-resolvers.js";
 import { syncTerminalGuardianRequestStatus } from "../../approvals/guardian-request-status-sync.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import type {
@@ -24,6 +26,7 @@ import {
 } from "../../security/secret-normalize.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import type { ApprovalAction } from "../channel-approval-types.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -44,7 +47,7 @@ function canonicalizeConfirmDecision(params: {
 /**
  * POST /v1/confirm — resolve a pending confirmation by requestId.
  */
-function handleConfirm({ body }: RouteHandlerArgs) {
+async function handleConfirm({ body, headers }: RouteHandlerArgs) {
   const requestId = body?.requestId as string | undefined;
   const decision = body?.decision as string | undefined;
 
@@ -84,6 +87,52 @@ function handleConfirm({ body }: RouteHandlerArgs) {
     "Confirmation resolved",
   );
 
+  const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
+
+  // Canonical path: route through applyGuardianDecision so the CAS, resolver
+  // dispatch, and card withdrawal run awaited rather than fire-and-forget. The
+  // resolver handles both the directResolve (ACP) case and the in-conversation
+  // case, so neither directResolve nor handleConfirmationResponse is called
+  // directly here when this path succeeds.
+  //
+  // Falls through to the legacy in-memory path when:
+  //   - No actor principal is available (IPC callers that send no identity
+  //     headers) — the primitive requires guardianPrincipalId for authorization.
+  //   - The guardian request was not found (not_found) — the confirmation exists
+  //     only in-memory; the sync would CAS-miss anyway.
+  //   - The request was already resolved elsewhere (already_resolved) — the
+  //     resolver may not have run yet; resolving the in-memory interaction
+  //     preserves the current unblocking behavior for the agent loop.
+  if (actorPrincipalId) {
+    const action: ApprovalAction =
+      effectiveDecision === "allow" ? "approve_once" : "reject";
+    const actorContext: ActorContext = {
+      actorPrincipalId,
+      actorExternalUserId: undefined,
+      channel: "vellum",
+      guardianPrincipalId: actorPrincipalId,
+    };
+    const decisionResult = await applyGuardianDecision({
+      requestId,
+      action,
+      actorContext,
+      // Thread the acting conversation so card withdrawal suppresses only
+      // the origin card's completion broadcast. ACP interactions have no
+      // paired conversation, so originConversationId is omitted there.
+      ...(interaction.directResolve
+        ? {}
+        : { originConversationId: interaction.conversationId }),
+      emissionContext: { source: "button" },
+    });
+    if (decisionResult.applied && !decisionResult.resolverFailed) {
+      return { accepted: true };
+    }
+    // Non-applied results (not_found, already_resolved, etc.) and resolver
+    // failures (gateway unreachable, resolver threw mid-run): fall through.
+    // Fall through to the legacy in-memory path below.
+  }
+
+  // Legacy in-memory path: no actor principal (IPC callers) or no gateway row.
   // ACP permissions: resolve directly without a Conversation object.
   // No PermissionPrompter involved, so the route owns deregistration.
   if (interaction.directResolve) {
