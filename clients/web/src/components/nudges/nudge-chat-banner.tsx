@@ -32,6 +32,8 @@ export interface NudgeChatBannerProps {
   onAction: () => void;
   /** Fired when the user dismisses the banner. */
   onDismiss: () => void;
+  /** Optional actions below the copy for compact surfaces. */
+  actions?: ReactNode;
 }
 
 export function NudgeChatBanner({
@@ -44,6 +46,7 @@ export function NudgeChatBanner({
   ariaLabel,
   onAction,
   onDismiss,
+  actions,
 }: NudgeChatBannerProps) {
   const { t } = useTranslation();
   return (
@@ -67,7 +70,7 @@ export function NudgeChatBanner({
           {icon}
         </span>
 
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 text-left">
           <p
             className="text-body-medium-default leading-tight"
             style={{ color: "var(--content-default)" }}
@@ -75,22 +78,31 @@ export function NudgeChatBanner({
             {title}
           </p>
           <p
-            className="text-label-medium-default md:text-label-small-default mt-0.5"
+            className={
+              actions
+                ? "mt-0.5 text-body-small-lighter"
+                : "text-label-medium-default md:text-label-small-default mt-0.5"
+            }
             style={{ color: "var(--content-tertiary)" }}
           >
             {subtitle}
           </p>
+          {actions ? (
+            <div className="mt-3 flex flex-wrap gap-2">{actions}</div>
+          ) : null}
         </div>
 
-        <Button
-          variant="primary"
-          size="regular"
-          leftIcon={ctaLeftIcon}
-          onClick={onAction}
-          aria-label={ctaAriaLabel}
-        >
-          {ctaLabel}
-        </Button>
+        {!actions && (
+          <Button
+            variant="primary"
+            size="regular"
+            leftIcon={ctaLeftIcon}
+            onClick={onAction}
+            aria-label={ctaAriaLabel}
+          >
+            {ctaLabel}
+          </Button>
+        )}
 
         <Button
           className="ml-1 md:ml-0"
