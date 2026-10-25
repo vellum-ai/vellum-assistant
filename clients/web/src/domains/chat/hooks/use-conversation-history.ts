@@ -835,27 +835,45 @@ export function useConversationHistory({
   // -------------------------------------------------------------------------
   // Cached history stays usable when a refresh or older-page fetch fails.
   // Only an initial load can surface an error, after the resume grace window.
+  //
+  // While the daemon gate is waiting (the pod is waking or asleep), the
+  // transcript keeps its loading state: a failure from that window is the wake
+  // itself, which the status banner reports, and the query refetches when the
+  // gate opens. An unavailable gate never opens on its own, so it fails the
+  // initial load like a query error does.
   // -------------------------------------------------------------------------
   const isResumeGraceActive = useResumeGrace();
   const historyErrorRef = useRef<ChatError | null>(null);
   useEffect(() => {
-    if (historyErrorRef.current && (pagination.isSuccess || isResumeGraceActive)) {
+    const isWaitingForDaemon = pagination.daemonGate === "waiting";
+    if (
+      historyErrorRef.current &&
+      (pagination.isSuccess || isResumeGraceActive || isWaitingForDaemon)
+    ) {
       const historyError = historyErrorRef.current;
       setError((current) => (current === historyError ? null : current));
       historyErrorRef.current = null;
     }
 
-    if (!pagination.isError || !pagination.error) {
+    const hasLoadedHistory = pagination.latestPage !== undefined;
+    if (isWaitingForDaemon) {
+      if (!hasLoadedHistory) {
+        setIsLoadingHistory(true);
+      }
       return;
     }
 
-    const hasLoadedHistory = pagination.latestPage !== undefined;
-    captureError(pagination.error, {
-      context: hasLoadedHistory
-        ? "conversation_history_refresh"
-        : "conversation_history_initial",
-      bestEffort: hasLoadedHistory,
-    });
+    if (pagination.daemonGate === "open") {
+      if (!pagination.isError || !pagination.error) {
+        return;
+      }
+      captureError(pagination.error, {
+        context: hasLoadedHistory
+          ? "conversation_history_refresh"
+          : "conversation_history_initial",
+        bestEffort: hasLoadedHistory,
+      });
+    }
 
     if (!hasLoadedHistory) {
       setIsLoadingHistory(false);
@@ -872,6 +890,7 @@ export function useConversationHistory({
     pagination.isSuccess,
     pagination.error,
     pagination.latestPage,
+    pagination.daemonGate,
     isResumeGraceActive,
     setIsLoadingHistory,
     setError,

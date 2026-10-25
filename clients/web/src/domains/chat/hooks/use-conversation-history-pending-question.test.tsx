@@ -108,6 +108,7 @@ function paginationStub(): HistoryPaginationResult {
     isSuccess: true,
     isError: false,
     error: null,
+    daemonGate: "open",
     hasMore: false,
     isFetchingOlderPages: false,
     isFetching: false,
