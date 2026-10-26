@@ -21,6 +21,7 @@ import { type AppSummary, isReadOnlyApp } from "@/types/app-types";
 import { getCachedAppHtml } from "@/utils/app-html-cache";
 import { formatFriendlyDate } from "@/utils/format-date";
 import { cn } from "@/utils/misc";
+import { DEFAULT_PUBLISH_PROVIDER_NAME } from "@/utils/publish-provider";
 import { useShareApp } from "@/hooks/use-share-app";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
 import { ActionMenu, Button } from "@vellumai/design-library";
@@ -73,7 +74,7 @@ export function LibraryAppCard({
   // menu is reopened, including right after a deploy.
   const [deployStatusArmed, setDeployStatusArmed] = useState(false);
   const armDeployStatus = useCallback(() => setDeployStatusArmed(true), []);
-  const { deployedUrl } = useAppDeployment(assistantId, app.id, {
+  const { deployedUrl, providerName } = useAppDeployment(assistantId, app.id, {
     enabled: deployStatusArmed && deployAction != null,
   });
   const handleCopyDeployedLink = useCallback(() => {
@@ -154,6 +155,7 @@ export function LibraryAppCard({
             onShare={readOnly ? undefined : share}
             onDeploy={deployAction}
             deployedUrl={deployedUrl}
+            deployProviderName={providerName}
             onCopyDeployedLink={handleCopyDeployedLink}
           />
         </div>
@@ -189,11 +191,16 @@ export interface LibraryAppCardActionsMenuProps {
   onShare?: () => void;
   onDeploy?: () => void;
   /**
-   * Live URL of the app's active Vercel deployment, when it has one. Swaps
-   * the deploy entry for a "Deployed to Vercel" entry that hands back the
+   * Live URL of the app's active deployment, when it has one. Swaps the
+   * deploy entry for a "Deployed to <provider>" entry that hands back the
    * link, plus an explicit Redeploy.
    */
   deployedUrl?: string | null;
+  /**
+   * Display name of the publish target, used wherever it is named. Falls back
+   * to {@link DEFAULT_PUBLISH_PROVIDER_NAME} until the status read answers.
+   */
+  deployProviderName?: string;
   /** Invoked by the deployed-state entry; copies the link and shows it. */
   onCopyDeployedLink?: () => void;
 }
@@ -208,6 +215,7 @@ export function LibraryAppCardActionsMenu({
   onShare,
   onDeploy,
   deployedUrl,
+  deployProviderName = DEFAULT_PUBLISH_PROVIDER_NAME,
   onCopyDeployedLink,
 }: LibraryAppCardActionsMenuProps) {
   const { t } = useTranslation("library");
@@ -246,7 +254,9 @@ export function LibraryAppCardActionsMenu({
           <>
             <ActionMenu.Item
               icon={Link2}
-              label={t("libraryAppCard.deployed")}
+              label={t("libraryAppCard.deployed", {
+                provider: deployProviderName,
+              })}
               description={<span className="break-all">{deployedUrl}</span>}
               trailing={t("libraryAppCard.copyLink")}
               onSelect={() => onCopyDeployedLink?.()}
@@ -261,7 +271,9 @@ export function LibraryAppCardActionsMenu({
         ) : onDeploy ? (
           <ActionMenu.Item
             icon={Globe}
-            label={t("libraryAppCard.deploy")}
+            label={t("libraryAppCard.deploy", {
+              provider: deployProviderName,
+            })}
             description={t("libraryAppCard.deploySub")}
             onSelect={onDeploy}
           />

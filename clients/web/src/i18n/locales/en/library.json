@@ -26,11 +26,11 @@
     "pin": "Pin",
     "share": "Share",
     "shareSub": "Export as .vellum file",
-    "deployed": "Deployed to Vercel",
+    "deployed": "Deployed to {provider}",
     "copyLink": "Copy link",
     "redeploy": "Redeploy",
     "redeploySub": "Publish the current version",
-    "deploy": "Deploy to Vercel",
+    "deploy": "Deploy to {provider}",
     "deploySub": "Publish as a static page",
     "delete": "Delete"
   },

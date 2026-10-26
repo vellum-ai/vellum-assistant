@@ -28,6 +28,7 @@ mock.module("../apps/app-store.js", () => ({
 
 let mockPublishedPage: {
   id: string;
+  deploymentId?: string;
   projectSlug?: string;
   htmlHash: string;
 } | null = null;
@@ -54,11 +55,16 @@ mock.module("../tools/credentials/broker.js", () => ({
       execute,
     }: {
       execute: (token: string) => Promise<unknown>;
-    }) => {
-      await execute("test-token");
-      return { success: true };
-    },
+    }) => ({ success: true, result: await execute("test-token") }),
   },
+}));
+
+// Default config: the Vercel provider, so the updater exercises the same path
+// it does for an untouched workspace.
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({
+    apps: { publish: { provider: "vercel", webhook: {} } },
+  }),
 }));
 
 const { updatePublishedAppDeployment } =
@@ -84,7 +90,12 @@ describe("updatePublishedAppDeployment", () => {
     writeFileSync(join(realAppDir, "dist", "index.html"), "<html></html>");
     mockApp = makeApp();
     mockEffectiveHtml = "";
-    mockPublishedPage = { id: "pp-1", projectSlug: "slug", htmlHash: "old" };
+    mockPublishedPage = {
+      id: "pp-1",
+      deploymentId: "dep-0",
+      projectSlug: "slug",
+      htmlHash: "old",
+    };
     mockAppDir = realAppDir;
     deploySpy.mockClear();
     updatePublishedPageSpy.mockClear();
@@ -106,6 +117,9 @@ describe("updatePublishedAppDeployment", () => {
     expect(deploySpy.mock.calls[0][0].html).toBe(
       "<html><body>real app</body></html>",
     );
+    // The redeploy reuses the record's project slug so it lands on the
+    // project the first publish created.
+    expect(deploySpy.mock.calls[0][0].name).toBe("slug");
   });
 
   test("skips deploy when the app has no compiled output", async () => {
