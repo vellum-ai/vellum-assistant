@@ -464,6 +464,140 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/assistants/{assistant_id}/disk-export/:
+    get:
+      operationId: assistants_disk_export_retrieve
+      description: |-
+        Upload the caller's hosted assistant disk and poll for a download link.
+
+        The caller must own the assistant. Recovery Mode is not admin-locked, so
+        the owner can resume the assistant after the download.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: query
+        name: object_path
+        schema:
+          type: string
+        description: Object key returned when the upload started. It must be under
+          disk-exports/{assistant_id}/. When omitted, a running upload or the newest
+          stored archive is returned.
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiskExportStatus'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+    post:
+      operationId: assistants_disk_export_create
+      description: |-
+        Upload the caller's hosted assistant disk and poll for a download link.
+
+        The caller must own the assistant. Recovery Mode is not admin-locked, so
+        the owner can resume the assistant after the download.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiskExportStatus'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/assistants/{assistant_id}/doctor/history/:
     get:
       operationId: assistants_doctor_history_list
@@ -7369,6 +7503,55 @@ components:
         mapping:
           ios: '#/components/schemas/IosDevicePushTokenUpsertRequest'
           android: '#/components/schemas/AndroidDevicePushTokenUpsertRequest'
+    DiskExportStatus:
+      type: object
+      description: |-
+        Status of an assistant disk archive.
+
+        Owner responses leave ``bucket`` and ``gs_uri`` blank. Staff responses
+        include the object location.
+      properties:
+        state:
+          $ref: '#/components/schemas/DiskExportStatusStateEnum'
+        bucket:
+          type: string
+        object_path:
+          type: string
+        gs_uri:
+          type: string
+        bytes_uploaded:
+          type: integer
+          minimum: 0
+        bytes_total:
+          type: integer
+          minimum: 0
+          nullable: true
+        detail:
+          type: string
+        download_url:
+          type: string
+          nullable: true
+      required:
+      - bucket
+      - bytes_total
+      - bytes_uploaded
+      - detail
+      - download_url
+      - gs_uri
+      - object_path
+      - state
+    DiskExportStatusStateEnum:
+      enum:
+      - absent
+      - running
+      - succeeded
+      - failed
+      type: string
+      description: |-
+        * `absent` - absent
+        * `running` - running
+        * `succeeded` - succeeded
+        * `failed` - failed
     DoctorMessage:
       type: object
       description: Serializer for a single persisted Doctor message ledger entry.
