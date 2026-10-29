@@ -29,52 +29,39 @@ describe("computeWorkerForceRamSizeBytes", () => {
     );
   });
 
-  test("falls back to host total memory when no container limit applies", () => {
-    const result = computeWorkerForceRamSizeBytes(null);
-    expect(result).toBeGreaterThanOrEqual(WORKER_FORCE_RAM_MIN_BYTES);
-    expect(result).toBeLessThanOrEqual(WORKER_FORCE_RAM_MAX_BYTES);
+  test("gives no hint when no container limit applies", () => {
+    expect(computeWorkerForceRamSizeBytes(null)).toBeNull();
   });
 });
 
 describe("workerMemoryEnv", () => {
-  const savedForceRamSize = process.env.BUN_JSC_forceRAMSize;
-  const savedGcTimerDisable = process.env.BUN_GC_TIMER_DISABLE;
+  const savedEnv = {
+    BUN_JSC_forceRAMSize: process.env.BUN_JSC_forceRAMSize,
+    VELLUM_MEMORY_LIMIT: process.env.VELLUM_MEMORY_LIMIT,
+  };
 
   afterEach(() => {
-    if (savedForceRamSize === undefined) {
-      delete process.env.BUN_JSC_forceRAMSize;
-    } else {
-      process.env.BUN_JSC_forceRAMSize = savedForceRamSize;
-    }
-    if (savedGcTimerDisable === undefined) {
-      delete process.env.BUN_GC_TIMER_DISABLE;
-    } else {
-      process.env.BUN_GC_TIMER_DISABLE = savedGcTimerDisable;
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
     }
   });
 
-  test("adds a clamped BUN_JSC_forceRAMSize on top of the parent environment", () => {
+  test("adds the container-derived BUN_JSC_forceRAMSize on top of the parent environment", () => {
+    // VELLUM_MEMORY_LIMIT takes precedence over cgroup files: 4 GiB → 1 GiB.
     delete process.env.BUN_JSC_forceRAMSize;
+    process.env.VELLUM_MEMORY_LIMIT = "4Gi";
     const env = workerMemoryEnv();
     expect(env.PATH).toBe(process.env.PATH);
-    const hint = Number(env.BUN_JSC_forceRAMSize);
-    expect(hint).toBeGreaterThanOrEqual(WORKER_FORCE_RAM_MIN_BYTES);
-    expect(hint).toBeLessThanOrEqual(WORKER_FORCE_RAM_MAX_BYTES);
+    expect(env.BUN_JSC_forceRAMSize).toBe(String(GIB));
   });
 
   test("keeps an operator-provided BUN_JSC_forceRAMSize", () => {
     process.env.BUN_JSC_forceRAMSize = "12345";
-    const env = workerMemoryEnv();
-    expect(env.BUN_JSC_forceRAMSize).toBe("12345");
-  });
-
-  test("disables the worker GC timer unless the operator set it", () => {
-    delete process.env.BUN_GC_TIMER_DISABLE;
-    expect(workerMemoryEnv().BUN_GC_TIMER_DISABLE).toBe("1");
-  });
-
-  test("keeps an operator-provided BUN_GC_TIMER_DISABLE", () => {
-    process.env.BUN_GC_TIMER_DISABLE = "0";
-    expect(workerMemoryEnv().BUN_GC_TIMER_DISABLE).toBe("0");
+    process.env.VELLUM_MEMORY_LIMIT = "4Gi";
+    expect(workerMemoryEnv().BUN_JSC_forceRAMSize).toBe("12345");
   });
 });

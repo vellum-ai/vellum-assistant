@@ -10,12 +10,15 @@
  * heuristic to a fraction of the actual container limit instead.
  *
  * The hint is a soft target, not a hard cap: a job that needs more memory
- * still gets it, at the cost of heavier GC pressure near the target. Workers
- * are latency-insensitive background processes, so the GC-throughput trade is
- * acceptable — the same reasoning behind spawning them with `--smol`.
+ * still gets it, but a heap near the target makes JSC promote collections to
+ * full ones. Bun 1.3 requests a collection on every event-loop tick where the
+ * heap size changed, including the change a finished collection makes, so a
+ * worker that outgrows its hint marks its whole heap continuously on several
+ * cores. Bun reads `BUN_GC_TIMER_DISABLE` before it loads the process
+ * environment, so that switch cannot stop the requests. Hosts without a
+ * container limit report their real RAM to JSC, so workers there get no hint,
+ * the same as the daemon.
  */
-
-import { totalmem } from "node:os";
 
 import { getContainerMemoryLimitBytes } from "./cgroup-memory.js";
 
@@ -43,15 +46,17 @@ export const WORKER_FORCE_RAM_MIN_BYTES = 512 * MIB;
 export const WORKER_FORCE_RAM_MAX_BYTES = 2048 * MIB;
 
 /**
- * RAM-size hint for a background worker, derived from the container memory
- * limit (host total memory when no container limit applies, e.g. local dev),
+ * RAM-size hint for a background worker under a container memory limit,
  * clamped to [{@link WORKER_FORCE_RAM_MIN_BYTES}, {@link WORKER_FORCE_RAM_MAX_BYTES}].
+ * Returns null when no container limit applies.
  */
 export function computeWorkerForceRamSizeBytes(
   limitBytes: number | null,
-): number {
-  const base = limitBytes ?? totalmem();
-  const target = Math.floor(base * WORKER_RAM_FRACTION);
+): number | null {
+  if (limitBytes === null) {
+    return null;
+  }
+  const target = Math.floor(limitBytes * WORKER_RAM_FRACTION);
   return Math.min(
     WORKER_FORCE_RAM_MAX_BYTES,
     Math.max(WORKER_FORCE_RAM_MIN_BYTES, target),
@@ -60,24 +65,19 @@ export function computeWorkerForceRamSizeBytes(
 
 /**
  * Environment for spawning a background worker `bun` process: the parent
- * environment plus `BUN_JSC_forceRAMSize` and `BUN_GC_TIMER_DISABLE`. An
- * operator-provided value for either in the parent environment wins.
- *
- * `BUN_GC_TIMER_DISABLE=1` turns off Bun's repeating GC timer in the worker.
- * Under a `forceRAMSize` heap that timer, together with the per-tick
- * collection request, keeps a long-lived worker collecting continuously at
- * roughly one full core; the workers' own allocation still triggers
- * collection normally.
+ * environment plus, under a container memory limit, `BUN_JSC_forceRAMSize`.
+ * An operator-provided `BUN_JSC_forceRAMSize` in the parent environment wins.
  *
  * Bun.spawn replaces (rather than merges) the child environment when `env` is
  * passed, so this spreads the full parent environment.
  */
 export function workerMemoryEnv(): Record<string, string | undefined> {
-  return {
-    ...process.env,
-    BUN_JSC_forceRAMSize:
-      process.env.BUN_JSC_forceRAMSize ??
-      String(computeWorkerForceRamSizeBytes(getContainerMemoryLimitBytes())),
-    BUN_GC_TIMER_DISABLE: process.env.BUN_GC_TIMER_DISABLE ?? "1",
-  };
+  const env = { ...process.env };
+  if (env.BUN_JSC_forceRAMSize === undefined) {
+    const hint = computeWorkerForceRamSizeBytes(getContainerMemoryLimitBytes());
+    if (hint !== null) {
+      env.BUN_JSC_forceRAMSize = String(hint);
+    }
+  }
+  return env;
 }
