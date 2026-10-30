@@ -18,9 +18,7 @@
     "guardianRequest": "Guardian request"
   },
   "homeRecapRow": {
-    "actionsTitle": "Update Actions",
-    "approve": "Approve",
-    "reject": "Reject"
+    "actionsTitle": "Update Actions"
   },
   "homeToolPermissionCard": {
     "missingScopes": "Missing scopes",
@@ -54,8 +52,6 @@
     "back": "Back to notifications"
   },
   "homeGuardianRequestCard": {
-    "approve": "Approve",
-    "reject": "Reject",
     "answerHint": "Go to the conversation to answer this question.",
     "decisionFailed": "The decision could not be submitted. Try again.",
     "receipt": {
@@ -70,6 +66,15 @@
     "viewSourceThread": "View source thread",
     "toolRequested": "Requested to run <code>{toolName}</code>",
     "toolRequesting": "Requesting to run <code>{toolName}</code>"
+  },
+  "guardianDecisionButtons": {
+    "approveOnce": "Approve",
+    "reject": "Reject",
+    "trust": "Trust",
+    "trustAnyway": "Trust anyway",
+    "verifyCode": "Verify with a code",
+    "leaveUnverified": "Leave unverified",
+    "block": "Block"
   },
   "notificationsBellEmptyState": {
     "title": "Nothing yet.",

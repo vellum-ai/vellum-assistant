@@ -18,9 +18,7 @@
     "guardianRequest": "监护人请求"
   },
   "homeRecapRow": {
-    "actionsTitle": "更新操作",
-    "approve": "批准",
-    "reject": "拒绝"
+    "actionsTitle": "更新操作"
   },
   "homeToolPermissionCard": {
     "missingScopes": "缺少范围",
@@ -54,8 +52,6 @@
     "back": "返回通知"
   },
   "homeGuardianRequestCard": {
-    "approve": "批准",
-    "reject": "拒绝",
     "answerHint": "前往对话回答这个问题。",
     "decisionFailed": "无法提交决定。请重试。",
     "receipt": {
@@ -70,6 +66,15 @@
     "viewSourceThread": "查看来源消息串",
     "toolRequested": "已请求运行 <code>{toolName}</code>",
     "toolRequesting": "请求运行 <code>{toolName}</code>"
+  },
+  "guardianDecisionButtons": {
+    "approveOnce": "批准",
+    "reject": "拒绝",
+    "trust": "信任",
+    "trustAnyway": "仍然信任",
+    "verifyCode": "用验证码验证",
+    "leaveUnverified": "保持未验证",
+    "block": "阻止"
   },
   "notificationsBellEmptyState": {
     "title": "暂无内容。",
