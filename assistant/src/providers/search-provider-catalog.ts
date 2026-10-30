@@ -207,6 +207,16 @@ export const SEARCH_PROVIDER_CATALOG: readonly SearchProviderCatalogEntry[] = [
     fallbackOrder: 10,
     privacyPolicyUrl: "https://serply.io/privacy",
   },
+  {
+    id: "flashdata",
+    displayName: "FlashData",
+    kind: "byok",
+    apiKeyPrefix: "FlashData API key...",
+    envVar: "FLASHDATA_API_KEY",
+    secretKey: "flashdata",
+    fallbackOrder: 11,
+    privacyPolicyUrl: "https://flashdata.dev/legal/privacy",
+  },
 ];
 
 /** Provider ids accepted by the web-search config schema. */

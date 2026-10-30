@@ -1,0 +1,9 @@
+{
+  "source": "google_news",
+  "query": "battery recycling",
+  "params": {
+    "gl": "us",
+    "hl": "en",
+    "num": 10
+  }
+}

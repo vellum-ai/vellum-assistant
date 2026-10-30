@@ -373,6 +373,102 @@
       "updatedAt": "2026-09-03T18:19:51.000Z"
     },
     {
+      "id": "google-images-flashdata",
+      "name": "google-images-flashdata",
+      "description": "Find Google Images results with image URLs, dimensions and original source pages. Build an attributable image research inventory. Uses the paid FlashData API.",
+      "metadata": {
+        "author": "FlashData",
+        "emoji": "🔎",
+        "icon": "assets/logo.svg",
+        "vellum": {
+          "category": "browsing",
+          "display-name": "Google Images"
+        }
+      },
+      "compatibility": "Local Vellum assistant with a configured credential proxy",
+      "updatedAt": "2026-10-24T20:30:27.000Z"
+    },
+    {
+      "id": "google-news-flashdata",
+      "name": "google-news-flashdata",
+      "description": "Search Google News for articles, publishers, date labels and source links. Turn a topic into a traceable news briefing. Uses the paid FlashData API.",
+      "metadata": {
+        "author": "FlashData",
+        "emoji": "🔎",
+        "icon": "assets/logo.svg",
+        "vellum": {
+          "category": "browsing",
+          "display-name": "Google News"
+        }
+      },
+      "compatibility": "Local Vellum assistant with a configured credential proxy",
+      "updatedAt": "2026-10-24T20:30:27.000Z"
+    },
+    {
+      "id": "google-places-flashdata",
+      "name": "google-places-flashdata",
+      "description": "Search for local businesses and places with addresses, available ratings and review counts. Build location-specific research shortlists. Uses the paid FlashData API.",
+      "metadata": {
+        "author": "FlashData",
+        "emoji": "🔎",
+        "icon": "assets/logo.svg",
+        "vellum": {
+          "category": "browsing",
+          "display-name": "Google Places"
+        }
+      },
+      "compatibility": "Local Vellum assistant with a configured credential proxy",
+      "updatedAt": "2026-10-24T20:30:27.000Z"
+    },
+    {
+      "id": "google-search-flashdata",
+      "name": "google-search-flashdata",
+      "description": "Search Google for ranked web pages, titles, URLs and snippets. Build localized SERP snapshots for research and comparison. Uses the paid FlashData API.",
+      "metadata": {
+        "author": "FlashData",
+        "emoji": "🔎",
+        "icon": "assets/logo.svg",
+        "vellum": {
+          "category": "browsing",
+          "display-name": "Google Search"
+        }
+      },
+      "compatibility": "Local Vellum assistant with a configured credential proxy",
+      "updatedAt": "2026-10-24T20:30:27.000Z"
+    },
+    {
+      "id": "google-shopping-flashdata",
+      "name": "google-shopping-flashdata",
+      "description": "Search Google Shopping for products, merchants and price labels. Collect comparable offer snapshots with product IDs and source links. Uses the paid FlashData API.",
+      "metadata": {
+        "author": "FlashData",
+        "emoji": "🔎",
+        "icon": "assets/logo.svg",
+        "vellum": {
+          "category": "browsing",
+          "display-name": "Google Shopping"
+        }
+      },
+      "compatibility": "Local Vellum assistant with a configured credential proxy",
+      "updatedAt": "2026-10-24T20:30:27.000Z"
+    },
+    {
+      "id": "google-video-search-flashdata",
+      "name": "google-video-search-flashdata",
+      "description": "Search Google Videos across websites. Retrieve video titles, links, sources and available durations for a cross-site video inventory. Uses the paid FlashData API.",
+      "metadata": {
+        "author": "FlashData",
+        "emoji": "🔎",
+        "icon": "assets/logo.svg",
+        "vellum": {
+          "category": "browsing",
+          "display-name": "Google Video Search"
+        }
+      },
+      "compatibility": "Local Vellum assistant with a configured credential proxy",
+      "updatedAt": "2026-10-24T20:30:27.000Z"
+    },
+    {
       "id": "guardian-verify-setup",
       "name": "guardian-verify-setup",
       "description": "Set up channel verification for phone, Telegram, Slack, Discord, or email channels via outbound verification flow",
@@ -644,7 +740,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-10-12T22:15:34.000Z"
+      "updatedAt": "2026-10-12T22:28:40.000Z"
     },
     {
       "id": "notion",
@@ -1443,6 +1539,150 @@
       },
       "compatibility": "Designed for Vellum personal assistants on Windows",
       "updatedAt": "2026-08-27T23:10:01.000Z"
+    },
+    {
+      "id": "youtube-autocomplete-flashdata",
+      "name": "youtube-autocomplete-flashdata",
+      "description": "Get YouTube search suggestions for a query prefix, language and region. Build keyword idea sheets from actual autocomplete phrases. Uses the paid FlashData API.",
+      "metadata": {
+        "author": "FlashData",
+        "emoji": "🔎",
+        "icon": "assets/logo.svg",
+        "vellum": {
+          "category": "browsing",
+          "display-name": "YouTube Autocomplete"
+        }
+      },
+      "compatibility": "Local Vellum assistant with a configured credential proxy",
+      "updatedAt": "2026-10-24T20:30:27.000Z"
+    },
+    {
+      "id": "youtube-captions-flashdata",
+      "name": "youtube-captions-flashdata",
+      "description": "Retrieve YouTube uploader captions with timed segments. Prepare subtitle exports and inspect the language and caption-track type. Uses the paid FlashData API.",
+      "metadata": {
+        "author": "FlashData",
+        "emoji": "🔎",
+        "icon": "assets/logo.svg",
+        "vellum": {
+          "category": "browsing",
+          "display-name": "YouTube Captions"
+        }
+      },
+      "compatibility": "Local Vellum assistant with a configured credential proxy",
+      "updatedAt": "2026-10-24T20:30:27.000Z"
+    },
+    {
+      "id": "youtube-channel-flashdata",
+      "name": "youtube-channel-flashdata",
+      "description": "Read a YouTube channel profile and recent videos by handle. Capture channel identifiers and a bounded recent-upload inventory. Uses the paid FlashData API.",
+      "metadata": {
+        "author": "FlashData",
+        "emoji": "🔎",
+        "icon": "assets/logo.svg",
+        "vellum": {
+          "category": "browsing",
+          "display-name": "YouTube Channel Data"
+        }
+      },
+      "compatibility": "Local Vellum assistant with a configured credential proxy",
+      "updatedAt": "2026-10-24T20:30:27.000Z"
+    },
+    {
+      "id": "youtube-cloud-storage-flashdata",
+      "name": "youtube-cloud-storage-flashdata",
+      "description": "Plan YouTube video, audio or clip delivery to user-owned cloud storage and inspect an existing FlashData download job. Submission needs a protected storage-credential workflow.",
+      "metadata": {
+        "author": "FlashData",
+        "emoji": "🔎",
+        "icon": "assets/logo.svg",
+        "vellum": {
+          "category": "browsing",
+          "display-name": "YouTube Download to Cloud Storage"
+        }
+      },
+      "compatibility": "Local Vellum assistant with a configured credential proxy",
+      "updatedAt": "2026-10-24T20:30:27.000Z"
+    },
+    {
+      "id": "youtube-extended-search-flashdata",
+      "name": "youtube-extended-search-flashdata",
+      "description": "Search larger YouTube video result sets, with up to 700 requested results. Map recurring channels and topics from structured video records. Uses the paid FlashData API.",
+      "metadata": {
+        "author": "FlashData",
+        "emoji": "🔎",
+        "icon": "assets/logo.svg",
+        "vellum": {
+          "category": "browsing",
+          "display-name": "YouTube Extended Search"
+        }
+      },
+      "compatibility": "Local Vellum assistant with a configured credential proxy",
+      "updatedAt": "2026-10-24T20:30:27.000Z"
+    },
+    {
+      "id": "youtube-metadata-flashdata",
+      "name": "youtube-metadata-flashdata",
+      "description": "Read YouTube video details, descriptions, statistics and available chapters. Inspect formats or prepare timestamped chapter navigation. Uses the paid FlashData API.",
+      "metadata": {
+        "author": "FlashData",
+        "emoji": "🔎",
+        "icon": "assets/logo.svg",
+        "vellum": {
+          "category": "browsing",
+          "display-name": "YouTube Metadata"
+        }
+      },
+      "compatibility": "Local Vellum assistant with a configured credential proxy",
+      "updatedAt": "2026-10-24T20:30:27.000Z"
+    },
+    {
+      "id": "youtube-search-flashdata",
+      "name": "youtube-search-flashdata",
+      "description": "Search YouTube videos by keyword with date, duration, feature and sorting filters. Return video IDs, channels and available statistics. Uses the paid FlashData API.",
+      "metadata": {
+        "author": "FlashData",
+        "emoji": "🔎",
+        "icon": "assets/logo.svg",
+        "vellum": {
+          "category": "browsing",
+          "display-name": "YouTube Search"
+        }
+      },
+      "compatibility": "Local Vellum assistant with a configured credential proxy",
+      "updatedAt": "2026-10-24T20:30:27.000Z"
+    },
+    {
+      "id": "youtube-trainability-flashdata",
+      "name": "youtube-trainability-flashdata",
+      "description": "Inspect a YouTube video’s Creative Commons license classification. Record the returned license-label signal for a separate rights review. Uses the paid FlashData API.",
+      "metadata": {
+        "author": "FlashData",
+        "emoji": "🔎",
+        "icon": "assets/logo.svg",
+        "vellum": {
+          "category": "browsing",
+          "display-name": "YouTube Creative Commons License Metadata"
+        }
+      },
+      "compatibility": "Local Vellum assistant with a configured credential proxy",
+      "updatedAt": "2026-10-24T20:30:27.000Z"
+    },
+    {
+      "id": "youtube-transcript-flashdata",
+      "name": "youtube-transcript-flashdata",
+      "description": "Retrieve available YouTube transcript text with start and end timestamps. Build cited summaries, searchable notes and transcript exports. Uses the paid FlashData API.",
+      "metadata": {
+        "author": "FlashData",
+        "emoji": "🔎",
+        "icon": "assets/logo.svg",
+        "vellum": {
+          "category": "browsing",
+          "display-name": "YouTube Transcript"
+        }
+      },
+      "compatibility": "Local Vellum assistant with a configured credential proxy",
+      "updatedAt": "2026-10-24T20:30:27.000Z"
     }
   ]
 }

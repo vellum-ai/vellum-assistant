@@ -1,0 +1,7 @@
+{
+  "source": "google_places",
+  "query": "coffee shops in Singapore",
+  "params": {
+    "num": 20
+  }
+}
