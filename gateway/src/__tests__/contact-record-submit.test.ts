@@ -675,7 +675,7 @@ describe("contact record submit", () => {
         operation: "delete",
         contactId: "c-unmoved",
         // Address case is not a change: the ACL keys channels case-insensitively.
-        expectedChannels: [{ type: "email", address: "Alice@Example.com" }],
+        expectedChannels: [{ type: "email", address: "Alice@example.com" }],
       }),
     );
 
