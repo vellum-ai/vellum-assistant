@@ -200,4 +200,10 @@ describe("computeLearnedEdgeGraph", () => {
     expect(graph.adjacency.size).toBe(0);
     expect(graph.hubs.size).toBe(0);
   });
+
+  test("returns empty graph when no behavioral data exists", () => {
+    // No seedCall: selection log is empty → empty graph.
+    const graph = graphOf();
+    expect(graph.adjacency.size).toBe(0);
+  });
 });
