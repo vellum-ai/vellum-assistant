@@ -86,6 +86,17 @@ mock.module(
     supportsWebSearchVellumProvider: () => daemonSupportsVellumProvider,
   }),
 );
+// Version gate for `provider: "you"`: supported by default; the old-daemon
+// tests flip it off.
+let daemonSupportsYouProvider = true;
+mock.module(
+  "@/lib/backwards-compat/use-supports-web-search-you-provider",
+  () => ({
+    MIN_VERSION: "0.12.7",
+    supportsWebSearchYouProvider: () => daemonSupportsYouProvider,
+    useSupportsWebSearchYouProvider: () => daemonSupportsYouProvider,
+  }),
+);
 mock.module("@/lib/backwards-compat/utils", () => ({
   whenAssistantVersionKnown: () => Promise.resolve(),
 }));
@@ -140,6 +151,7 @@ describe("WebSearchCard — provider-only configuration", () => {
     provisionedKeys.length = 0;
     hasStoredCredential = false;
     daemonSupportsVellumProvider = true;
+    daemonSupportsYouProvider = true;
     daemonConfigData = { services: {} };
   });
 
@@ -175,6 +187,7 @@ describe("WebSearchCard — provider-only configuration", () => {
       "TinyFish",
       "Exa",
       "Serply",
+      "You.com",
     ]);
   });
 
@@ -364,6 +377,35 @@ describe("WebSearchCard — provider-only configuration", () => {
       services: { "web-search": Record<string, unknown> };
     };
     expect(body.services["web-search"]).toEqual({ mode: "managed" });
+  });
+
+  test("a daemon predating the you provider hides You.com from the picker", () => {
+    daemonSupportsYouProvider = false;
+    renderCard();
+
+    fireEvent.click(providerTrigger());
+    expect(visibleOptions()).not.toContain("You.com");
+    expect(visibleOptions()).toContain("Serply");
+  });
+
+  test("a daemon predating the you provider never receives a you write", async () => {
+    // Already stored as `you` (e.g. set by the CLI), so the picker keeps the
+    // option visible, but the save path must still refuse the write.
+    daemonSupportsYouProvider = false;
+    daemonConfigData = {
+      services: { "web-search": { mode: "your-own", provider: "you" } },
+    };
+    renderCard();
+
+    expect(providerTrigger().textContent).toContain("You.com");
+    const saveButton = screen.getByRole("button", { name: "Save" });
+    fireEvent.change(screen.getByPlaceholderText("You.com API key (optional)"), {
+      target: { value: "ydc-secret" },
+    });
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(saveButton.hasAttribute("disabled")).toBe(false));
+    expect(configPatchCalls.length).toBe(0);
   });
 
   // A config written by the legacy mode toggle marks managed via `mode`
