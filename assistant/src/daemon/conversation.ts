@@ -2721,13 +2721,11 @@ export class Conversation {
       statusText: "Resuming after approval",
     });
 
-    // Sync the gateway request status so stale "pending" records don't get
-    // matched by later guardian reply routing, and withdraw the request's
-    // approval cards when this sync is the write that landed. Fire-and-forget:
-    // this method is sync with many callers (HTTP handlers, /v1/confirm,
-    // channel bridges), the in-memory resolution above is authoritative, and
-    // a CAS miss (the decision primitive already resolved it and withdrew the
-    // cards itself, e.g. the channel approval path) is expected and harmless.
+    // Legacy sync for callers that reach handleConfirmationResponse directly
+    // without going through applyGuardianDecision (voice bridge, channel
+    // bridge). When called from the tool_approval resolver inside
+    // applyGuardianDecision, this CAS misses (already committed) and returns
+    // early as a no-op; the primitive owns the authoritative withdrawal.
     void syncTerminalGuardianRequestStatus({
       requestId,
       status: resolvedState,
