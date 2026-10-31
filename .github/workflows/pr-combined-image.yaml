@@ -1,0 +1,23 @@
+name: PR Combined Image Checks
+
+on:
+  pull_request:
+    types: [synchronize, opened, reopened]
+    paths:
+      - 'docker/combined/**'
+      - '.github/workflows/pr-combined-image.yaml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-combined-image-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  supervisor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Exercise startup, readiness, failure, and process-group shutdown
+        run: python3 -m unittest discover -s docker/combined -p 'test_*.py'
