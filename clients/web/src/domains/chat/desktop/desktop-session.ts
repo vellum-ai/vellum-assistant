@@ -69,6 +69,7 @@ export function openDesktopSession({
   };
   const updateViewOnly = (): void => {
     if (rfb) {
+      rfb.qualityLevel = currentViewOnly ? 3 : 6;
       rfb.viewOnly = currentViewOnly;
       rfb.focusOnClick = !currentViewOnly;
       updateViewport();
@@ -118,6 +119,8 @@ export function openDesktopSession({
     rfb = client;
     client.background = "transparent";
     client.resizeSession = false;
+    // Keep encoding CPU low while retaining compression for solid UI regions.
+    client.compressionLevel = 1;
     updateViewOnly();
 
     const connectTimer = setTimeout(() => end("lost"), CONNECT_TIMEOUT_MS);
