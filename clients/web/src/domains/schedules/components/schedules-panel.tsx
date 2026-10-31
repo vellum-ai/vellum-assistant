@@ -44,6 +44,7 @@ export interface SchedulesPanelProps {
    * when there are no system tasks to show.
    */
   systemTasksSlot?: ReactNode;
+  nudgeSlot?: ReactNode;
 }
 
 export function SchedulesPanel({
@@ -64,6 +65,7 @@ export function SchedulesPanel({
   onRebaseProfiles,
   defaultProfileLabel,
   systemTasksSlot,
+  nudgeSlot,
 }: SchedulesPanelProps) {
   const { t } = useTranslation("schedules");
   const renderScheduleRow = (schedule: Schedule) => (
@@ -209,6 +211,7 @@ export function SchedulesPanel({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
+      {nudgeSlot}
       {renderBody()}
       {systemTasksSlot ? (
         <div className="mt-[var(--app-spacing-lg)]">{systemTasksSlot}</div>

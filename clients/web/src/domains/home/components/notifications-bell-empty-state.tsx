@@ -7,6 +7,7 @@ import {
   EmptyStateRecipeGrid,
   EmptyStateScene,
 } from "@/components/empty-state-scene";
+import { NativeAppReminderNudge } from "@/components/nudges/native-app-reminder-nudge";
 import { useTranslation } from "@/i18n";
 import { navigateToNewConversation } from "@/utils/conversation-navigation";
 
@@ -18,34 +19,14 @@ export interface NotificationsBellEmptyStateProps {
    * advertisement for schedules, so it is shown only to people who have none.
    */
   showBriefingRecipe?: boolean;
+  showNativeAppNudge?: boolean;
 }
 
-/**
- * The bell popover with nothing in it.
- *
- * An empty popover is not a waiting state, but neither is it a diagnosis:
- * permission requests, replies that arrived while the user was away, inbound
- * channel requests, credential alerts, and heartbeat failures all post here
- * without a schedule involved. So the scene says only that there is nothing
- * yet, and the copy claims nothing about why.
- *
- * Under that it may offer the schedule that would fill the panel, seeding a
- * fresh conversation with the prompt that asks the assistant to build it. That
- * offer is aimed at people who have not adopted schedules, so
- * `showBriefingRecipe` gates it, and anyone who has one gets the icon well and
- * the title alone, which is the whole scene an established user ever needs.
- *
- * Cut to what fits a popover: no description and no secondary action. The
- * panel already names itself "Notifications" above this, so a description
- * would restate the heading and a second call to action would compete with the
- * recipe.
- *
- * The recipe carries `Sparkles` for the same reason `PromptLaunchButton` does:
- * the control spends tokens, and the icon is how the app says so.
- */
+/** Empty notifications with optional schedule and phone app recommendations. */
 export function NotificationsBellEmptyState({
   onLaunchRecipe,
   showBriefingRecipe = false,
+  showNativeAppNudge = false,
 }: NotificationsBellEmptyStateProps) {
   const { t } = useTranslation("home");
   const navigate = useNavigate();
@@ -62,19 +43,24 @@ export function NotificationsBellEmptyState({
       hero={<EmptyStateIconWell icon={Bell} />}
       title={t("notificationsBellEmptyState.title")}
       recipes={
-        showBriefingRecipe ? (
-          <EmptyStateRecipeGrid>
-            <EmptyStateRecipeCard
-              icon={Sparkles}
-              title={t("notificationsBellEmptyState.briefingRecipeTitle")}
-              meta={t("notificationsBellEmptyState.briefingRecipeMeta")}
-              description={t(
-                "notificationsBellEmptyState.briefingRecipeDescription",
-              )}
-              onSelect={handleSelectBriefing}
-            />
-          </EmptyStateRecipeGrid>
-        ) : undefined
+        <>
+          {showBriefingRecipe ? (
+            <EmptyStateRecipeGrid>
+              <EmptyStateRecipeCard
+                icon={Sparkles}
+                title={t("notificationsBellEmptyState.briefingRecipeTitle")}
+                meta={t("notificationsBellEmptyState.briefingRecipeMeta")}
+                description={t(
+                  "notificationsBellEmptyState.briefingRecipeDescription",
+                )}
+                onSelect={handleSelectBriefing}
+              />
+            </EmptyStateRecipeGrid>
+          ) : null}
+          {showNativeAppNudge ? (
+            <NativeAppReminderNudge surface="notifications-empty" />
+          ) : null}
+        </>
       }
     />
   );
