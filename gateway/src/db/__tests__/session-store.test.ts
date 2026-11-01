@@ -82,6 +82,7 @@ function createOutbound(
     challengeHash: `hash-${id}`,
     expiresAt: FUTURE(),
     status: "awaiting_response",
+    verificationPurpose: "guardian",
     ...overrides,
   });
 }
@@ -293,6 +294,18 @@ describe("claimBootstrapSession", () => {
     expect(claimBootstrapSession("live", "telegram")).toBeNull();
     expect(getRow("live")?.status).toBe("awaiting_response");
   });
+
+  test("a row with no known purpose cannot be claimed and is left to expire", () => {
+    insertRaw({
+      id: "bootstrap",
+      channel: "telegram",
+      status: "pending_bootstrap",
+      verificationPurpose: null,
+    });
+
+    expect(claimBootstrapSession("bootstrap", "telegram")).toBeNull();
+    expect(getRow("bootstrap")?.status).toBe("pending_bootstrap");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -329,6 +342,24 @@ describe("findPendingSessionByHash", () => {
         `s-${status}`,
       );
     }
+  });
+
+  test("a row with no known purpose is not a session", () => {
+    // Nothing a lookup returns carries a purpose the code did not state, so
+    // a row with none, or with a value outside the contract, matches nothing.
+    insertRaw({
+      id: "s-null",
+      challengeHash: "h-null",
+      verificationPurpose: null,
+    });
+    insertRaw({
+      id: "s-unknown",
+      challengeHash: "h-unknown",
+      verificationPurpose: "owner",
+    });
+
+    expect(findPendingSessionByHash("telegram", "h-null")).toBeNull();
+    expect(findPendingSessionByHash("telegram", "h-unknown")).toBeNull();
   });
 
   test("ignores non-interceptable statuses", () => {
@@ -395,6 +426,20 @@ describe("findActiveSession", () => {
     expect(findActiveSession("telegram")?.id).toBe("new");
   });
 
+  test("a newest row with no known purpose does not shadow an older session", () => {
+    // The purpose predicate runs in the query, before the ORDER BY and the
+    // single-row fetch, so the caller sees the valid session, not null.
+    const now = Date.now();
+    insertRaw({ id: "old", status: "awaiting_response", createdAt: now - 500 });
+    insertRaw({
+      id: "new",
+      status: "awaiting_response",
+      createdAt: now,
+      verificationPurpose: null,
+    });
+    expect(findActiveSession("telegram")?.id).toBe("old");
+  });
+
   test("ignores expired sessions", () => {
     insertRaw({ id: "stale", status: "awaiting_response", expiresAt: PAST() });
     expect(findActiveSession("telegram")).toBeNull();
@@ -449,6 +494,17 @@ describe("hasInterceptableSession", () => {
     insertRaw({ id: "spent", status: "consumed" });
     insertRaw({ id: "stale", status: "pending", expiresAt: PAST() });
     insertRaw({ id: "other", status: "pending", channel: "slack" });
+    expect(hasInterceptableSession("telegram")).toBe(false);
+  });
+
+  test("false for a live row with no known purpose", () => {
+    // Otherwise a bare code-shaped message would be intercepted, and fail,
+    // on the strength of a row no lookup can return.
+    insertRaw({
+      id: "s-null",
+      status: "awaiting_response",
+      verificationPurpose: null,
+    });
     expect(hasInterceptableSession("telegram")).toBe(false);
   });
 });
