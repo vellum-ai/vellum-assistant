@@ -15,6 +15,7 @@ export const WEB_SEARCH_PROVIDER_IDS: readonly string[] = [
   "tinyfish",
   "exa",
   "serply",
+  "outcrawl",
 ];
 
 /** Short display name used in picker UI. */
@@ -33,6 +34,7 @@ export const WEB_SEARCH_PROVIDER_DISPLAY_NAMES: Readonly<
   tinyfish: "TinyFish",
   exa: "Exa",
   serply: "Serply",
+  outcrawl: "Outcrawl",
 };
 
 /** Placeholder hint shown in the API-key input. BYOK providers only. */
@@ -49,6 +51,7 @@ export const WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS: Readonly<
   tinyfish: "TinyFish API key...",
   exa: "Exa API key...",
   serply: "Serply API key...",
+  outcrawl: "Outcrawl API key...",
 };
 
 /** localStorage key used to persist each BYOK provider's user-supplied key. */
@@ -64,6 +67,7 @@ export const WEB_SEARCH_PROVIDER_KEY_STORAGE: Readonly<Record<string, string>> =
     tinyfish: "vellum:ai:tinyfishKey",
     exa: "vellum:ai:exaKey",
     serply: "vellum:ai:serplyKey",
+    outcrawl: "vellum:ai:outcrawlKey",
   };
 
 /** Provider ids that require a user-supplied API key. */
@@ -78,6 +82,7 @@ export const WEB_SEARCH_BYOK_PROVIDER_IDS: ReadonlySet<string> = new Set([
   "tinyfish",
   "exa",
   "serply",
+  "outcrawl",
 ]);
 
 /**

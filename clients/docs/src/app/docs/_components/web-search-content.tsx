@@ -32,6 +32,7 @@ const TOC_ITEMS = [
   { id: "firecrawl", label: "Firecrawl Integration", level: 2 },
   { id: "exa", label: "Exa Integration", level: 2 },
   { id: "serply", label: "Serply Integration", level: 2 },
+  { id: "outcrawl", label: "Outcrawl Integration", level: 2 },
 ];
 
 export function WebSearchContent() {
@@ -184,6 +185,16 @@ export function WebSearchContent() {
                     snippet.
                   </td>
                 </tr>
+                <tr>
+                  <td className="py-3 pr-4 font-medium text-stone-900 dark:text-stone-100">
+                    Outcrawl
+                  </td>
+                  <td className="py-3 pr-4"><KindBadge kind="BYOK" /></td>
+                  <td className="py-3">
+                    Web search API for AI agents. Returns ranked results for
+                    the query, each with a title, URL, and snippet.
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -243,6 +254,15 @@ export function WebSearchContent() {
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               Serply
+            </Link>
+            ,{" "}
+            <Link
+              href="https://outcrawl.ai/legal/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
+            >
+              Outcrawl
             </Link>
             .
           </p>
@@ -602,6 +622,28 @@ export function WebSearchContent() {
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               Serply integration page
+            </Link>
+            .
+          </p>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Outcrawl Integration                                                 */}
+        {/* ------------------------------------------------------------------ */}
+        <section id="outcrawl" className="mt-12">
+          <SectionHeading id="outcrawl" level={2}>
+            Outcrawl Integration
+          </SectionHeading>
+          <p className="mb-4 text-stone-600 dark:text-stone-400">
+            Outcrawl is web infrastructure for AI agents. Its search API returns
+            ranked results as JSON, with a title, URL, and snippet for each.
+            For a step-by-step walkthrough of connecting your Outcrawl API key,
+            provider configuration, and usage, see the{" "}
+            <Link
+              href="/docs/key-concepts/web-search/outcrawl"
+              className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
+            >
+              Outcrawl integration page
             </Link>
             .
           </p>

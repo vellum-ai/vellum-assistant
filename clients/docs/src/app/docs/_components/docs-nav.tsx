@@ -223,6 +223,11 @@ const NAV_ITEMS: DocsNavItem[] = [
             href: "/docs/key-concepts/web-search/serply",
             icon: icon(Search),
           },
+          {
+            label: "Outcrawl",
+            href: "/docs/key-concepts/web-search/outcrawl",
+            icon: icon(Search),
+          },
         ],
       },
       {
