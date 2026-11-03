@@ -94,6 +94,9 @@ function createHarness(options: {
   lookFrames: boolean;
   request?: string;
   handsFree?: boolean;
+  /** Hold every synthesis open until `releaseSpeech`, so a reply stays mid-speech. */
+  holdSpeech?: boolean;
+  bargeInMinSpeechMs?: number;
 }) {
   const conversation = createConversation("Look follow-up");
   const { provider } = createMockProvider([textResponse("")]);
@@ -140,14 +143,23 @@ function createHarness(options: {
       discard: mock(async () => {}),
     };
   });
+  let releaseSpeech = (): void => {};
+  const speechHeld = options.holdSpeech
+    ? new Promise<void>((resolve) => {
+        releaseSpeech = resolve;
+      })
+    : Promise.resolve();
   const streamTtsAudio: LiveVoiceTtsStreamer = mock(
-    async (ttsOptions: LiveVoiceTtsOptions) => ({
-      provider: "fish-audio" as const,
-      contentType: "audio/pcm",
-      sampleRate: 24_000,
-      chunks: 1,
-      bytes: Buffer.byteLength(ttsOptions.text),
-    }),
+    async (ttsOptions: LiveVoiceTtsOptions) => {
+      await speechHeld;
+      return {
+        provider: "fish-audio" as const,
+        contentType: "audio/pcm",
+        sampleRate: 24_000,
+        chunks: 1,
+        bytes: Buffer.byteLength(ttsOptions.text),
+      };
+    },
   );
 
   let turnCount = 0;
@@ -166,6 +178,9 @@ function createHarness(options: {
     emitMetrics: false,
     turnDetectorConfig: { silenceThresholdMs: 40 },
     frontModelConfig: { endpointDecisionTimeoutMs: 5_000 },
+    ...(options.bargeInMinSpeechMs !== undefined
+      ? { bargeInMinSpeechMs: options.bargeInMinSpeechMs }
+      : {}),
   });
 
   const callbacks = (index: number): VoiceTurnCallbacks | undefined =>
@@ -195,6 +210,25 @@ function createHarness(options: {
         frames.filter((frame) => frame.type === "tts_done").length >= doneCount,
       { message: `Timed out waiting for turn ${index} to drain` },
     );
+  };
+
+  /** Start the call and put the user's request to it. */
+  const ask = async (opts: { sharing?: boolean } = {}): Promise<void> => {
+    await session.start();
+    if (opts.sharing) {
+      await session.handleClientFrame({
+        type: "update_config",
+        screenSharing: true,
+      });
+    }
+    await session.handleClientFrame(
+      options.handsFree
+        ? { type: "text", text: options.request ?? "look at my screen" }
+        : { type: "ptt_release" },
+    );
+    await waitFor(() => turns.length === 1, {
+      message: "Timed out waiting for the spoken turn",
+    });
   };
 
   /** Ask for a look, and wait for the control to reach the client. */
@@ -246,7 +280,9 @@ function createHarness(options: {
     transcribers,
     emitReply,
     reply,
+    ask,
     askForLook,
+    releaseSpeech: () => releaseSpeech(),
     sendFrame,
     dispose: async () => {
       await session.close("client_end");
@@ -549,6 +585,135 @@ describe("live-voice look follow-up", () => {
       await settle();
       expect(harness.turns).toHaveLength(2);
     } finally {
+      await harness.dispose();
+    }
+  });
+  describe("while a screen share is already running", () => {
+    const frameIndex = (
+      frames: readonly { type: string }[],
+      type: string,
+    ): number => frames.findIndex((frame) => frame.type === type);
+
+    // A refresh only takes a fresh frame, so the capture overlaps the
+    // acknowledgement. The answer still waits for the acknowledgement.
+    test("asks for the frame before the acknowledgement drains, and answers after", async () => {
+      const harness = createHarness({ lookFrames: true, holdSpeech: true });
+      try {
+        await harness.ask({ sharing: true });
+        harness.emitReply(0, "Taking a look. [LOOK:SCREEN]");
+        await waitFor(
+          () => frameIndex(harness.frames, "session_control") !== -1,
+          { message: "Timed out waiting for the look control" },
+        );
+        expect(frameIndex(harness.frames, "tts_done")).toBe(-1);
+
+        // The frame lands while the acknowledgement is still being spoken.
+        await harness.sendFrame(LOOK_FRAME_REASON);
+        await settle();
+        expect(harness.turns).toHaveLength(1);
+
+        harness.releaseSpeech();
+        await waitFor(() => harness.turns.length === 2, {
+          timeoutMs: 2_000,
+          message: "Timed out waiting for the look to be answered",
+        });
+        expect(harness.turns[1]?.content).toBe(LOOK_FOLLOW_UP_CONTENT);
+        expect(frameIndex(harness.frames, "tts_done")).toBeGreaterThan(
+          frameIndex(harness.frames, "session_control"),
+        );
+        // Sent once: the drain does not send it again.
+        expect(
+          harness.frames.filter((frame) => frame.type === "session_control"),
+        ).toHaveLength(1);
+      } finally {
+        harness.releaseSpeech();
+        await harness.dispose();
+      }
+    });
+
+    test("a frame that lands after the acknowledgement is answered at once", async () => {
+      const harness = createHarness({ lookFrames: true, holdSpeech: true });
+      try {
+        await harness.ask({ sharing: true });
+        harness.emitReply(0, "Taking a look. [LOOK:SCREEN]");
+        await waitFor(
+          () => frameIndex(harness.frames, "session_control") !== -1,
+        );
+        harness.releaseSpeech();
+        await waitFor(() => frameIndex(harness.frames, "tts_done") !== -1);
+
+        await harness.sendFrame(LOOK_FRAME_REASON);
+        await waitFor(() => harness.turns.length === 2, {
+          timeoutMs: 2_000,
+          message: "Timed out waiting for the look to be answered",
+        });
+        expect(harness.turns[1]?.content).toBe(LOOK_FOLLOW_UP_CONTENT);
+      } finally {
+        harness.releaseSpeech();
+        await harness.dispose();
+      }
+    });
+
+    test("talking over the acknowledgement withdraws the look", async () => {
+      const harness = createHarness({
+        lookFrames: true,
+        handsFree: true,
+        holdSpeech: true,
+        bargeInMinSpeechMs: 0,
+      });
+      try {
+        await harness.ask({ sharing: true });
+        harness.emitReply(0, "Taking a look. [LOOK:SCREEN]");
+        await waitFor(
+          () => frameIndex(harness.frames, "session_control") !== -1,
+        );
+
+        const audio = Buffer.alloc(480);
+        for (let index = 0; index < 240; index += 1) {
+          audio.writeInt16LE(8_000, index * 2);
+        }
+        await harness.session.handleBinaryAudio(audio);
+        await waitFor(
+          () => frameIndex(harness.frames, "turn_cancelled") !== -1,
+          { message: "Timed out waiting for the barge-in" },
+        );
+        harness.releaseSpeech();
+
+        await harness.sendFrame(LOOK_FRAME_REASON);
+        await settle();
+        expect(
+          harness.turns.some((turn) => turn.content === LOOK_FOLLOW_UP_CONTENT),
+        ).toBe(false);
+      } finally {
+        harness.releaseSpeech();
+        await harness.dispose();
+      }
+    });
+  });
+
+  // Starting a share can raise a picker or a permission prompt, so it keeps
+  // waiting for the acknowledgement to be heard.
+  test("a look with no share running is sent only after the acknowledgement drains", async () => {
+    const harness = createHarness({ lookFrames: true, holdSpeech: true });
+    try {
+      await harness.ask();
+      harness.emitReply(0, "Taking a look. [LOOK:SCREEN]");
+      await settle();
+      expect(
+        harness.frames.some((frame) => frame.type === "session_control"),
+      ).toBe(false);
+
+      harness.releaseSpeech();
+      await waitFor(
+        () => harness.frames.some((frame) => frame.type === "session_control"),
+        { message: "Timed out waiting for the look control" },
+      );
+      const types = harness.frames.map((frame) => frame.type);
+      expect(types.indexOf("tts_done")).toBeLessThan(
+        types.indexOf("session_control"),
+      );
+    } finally {
+      harness.releaseSpeech();
       await harness.dispose();
     }
   });
