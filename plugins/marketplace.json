@@ -139,7 +139,7 @@
       "name": "contractor-missed-call-dispatcher",
       "description": "Captures missed trade contractor inbound calls, fires an instant 5-second SMS qualification text-back, triages emergencies, and stages draft jobs in Jobber or ServiceTitan.",
       "category": "commerce",
-      "icon": "📲",
+      "icon": "\ud83d\udcf2",
       "license": "MIT",
       "homepage": "https://github.com/ZeebBoyBlue/contractor-missed-call-dispatcher",
       "source": {
@@ -152,7 +152,7 @@
       "name": "contractor-photo-to-quote",
       "description": "Turns job-site and equipment photos into standardized trade estimates and quotes in Jobber or QuickBooks with multi-tier Good/Better/Best options in 5 minutes.",
       "category": "commerce",
-      "icon": "📸",
+      "icon": "\ud83d\udcf8",
       "license": "MIT",
       "homepage": "https://github.com/ZeebBoyBlue/contractor-photo-to-quote",
       "source": {
@@ -165,7 +165,7 @@
       "name": "contractor-voice-invoicer",
       "description": "Converts 20-second truck voice memos and job photos into itemized client invoices with custom labor rates, material markups, and one-click accounting staging.",
       "category": "commerce",
-      "icon": "🔧",
+      "icon": "\ud83d\udd27",
       "license": "MIT",
       "homepage": "https://github.com/ZeebBoyBlue/contractor-voice-invoicer",
       "source": {
@@ -205,7 +205,7 @@
       "name": "ecommerce-order-supporter",
       "description": "Resolves ecommerce Where-Is-My-Order (WISMO) support inquiries, cross-checks real-time carrier tracking milestones, flags delivery exceptions, and stages customer update drafts without helpdesk seat taxes.",
       "category": "commerce",
-      "icon": "📦",
+      "icon": "\ud83d\udce6",
       "license": "MIT",
       "homepage": "https://github.com/ZeebBoyBlue/ecommerce-order-supporter",
       "source": {
@@ -462,6 +462,19 @@
       "icon": "\ud83e\udeb4"
     },
     {
+      "name": "pm-tenant-maintenance-triage",
+      "description": "Triages inbound tenant maintenance requests: classifies severity against habitability rules, routes to the correct vendor trade, and drafts both the vendor dispatch note and the tenant reply for human approval.",
+      "category": "productivity",
+      "icon": "\ud83c\udfe2",
+      "license": "MIT",
+      "homepage": "https://github.com/ZeebBoyBlue/pm-tenant-maintenance-triage",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/pm-tenant-maintenance-triage",
+        "ref": "82cb0c1d432bd7eb4b892c9b3ede2735984aaacf"
+      }
+    },
+    {
       "name": "polyglot",
       "source": {
         "source": "github",
@@ -491,7 +504,7 @@
       "name": "quickbooks-expense-categorizer",
       "description": "Scans uncategorized QuickBooks Online expenses and bank feeds, matches receipts, and stages categorized entries with confidence scoring for 1-click batch review.",
       "category": "commerce",
-      "icon": "🧾",
+      "icon": "\ud83e\uddfe",
       "license": "MIT",
       "homepage": "https://github.com/ZeebBoyBlue/quickbooks-expense-categorizer",
       "source": {
@@ -530,7 +543,7 @@
       "name": "shopify-payout-reconciler",
       "description": "Unbundles lump-sum Shopify merchant bank deposits into gross sales, processor fees, customer refunds, shipping labels, and sales tax for penny-accurate QuickBooks reconciliation.",
       "category": "commerce",
-      "icon": "🛍️",
+      "icon": "\ud83d\udecd\ufe0f",
       "license": "MIT",
       "homepage": "https://github.com/ZeebBoyBlue/shopify-payout-reconciler",
       "source": {
