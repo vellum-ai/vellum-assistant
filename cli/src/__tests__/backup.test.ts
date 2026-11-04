@@ -324,6 +324,7 @@ describe("vellum backup <platform-managed>: GCS happy path", () => {
         operation: "upload",
         minRuntimeVersion: "0.6.5",
         maxRuntimeVersion: null,
+        consumer: "runtime",
       }),
       "platform-token",
       "https://platform.vellum.ai",
