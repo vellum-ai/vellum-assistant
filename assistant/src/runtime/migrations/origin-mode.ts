@@ -12,10 +12,10 @@
  * Deliberately NOT keyed on managed-proxy prerequisites: any logged-in
  * local assistant holds a platform URL and `assistant_api_key` (to use the
  * platform LLM proxy), so proxy-prereq presence does not distinguish a
- * managed deployment from a local one. Stamping a local export as
- * "managed" would trip the importer's `secrets_redacted must be true when
- * origin.mode is 'managed'` rule and break local→platform teleport for
- * every logged-in local assistant.
+ * managed deployment from a local one. Importers never apply a managed
+ * bundle's credentials (`importsBundledCredentials`), so stamping a local
+ * export as "managed" would drop every credential on local→platform
+ * teleport for every logged-in local assistant.
  */
 
 import {

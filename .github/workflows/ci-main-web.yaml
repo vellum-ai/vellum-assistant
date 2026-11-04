@@ -45,7 +45,7 @@ concurrency:
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: clients/web
@@ -72,7 +72,7 @@ jobs:
 
   typecheck:
     name: Type Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: clients/web
@@ -96,7 +96,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: clients/web

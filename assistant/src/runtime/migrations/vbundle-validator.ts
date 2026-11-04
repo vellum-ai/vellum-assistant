@@ -69,10 +69,6 @@ export const ManifestSchema = z
     secrets_redacted: z.boolean(),
     export_options: ExportOptions,
   })
-  .refine((m) => m.origin.mode !== "managed" || m.secrets_redacted === true, {
-    message: "secrets_redacted must be true when origin.mode is 'managed'",
-    path: ["secrets_redacted"],
-  })
   .refine(
     (m) =>
       m.contents.some(
@@ -89,6 +85,19 @@ export const ManifestSchema = z
 
 export type ManifestFileEntryType = z.infer<typeof ManifestFileEntry>;
 export type ManifestType = z.infer<typeof ManifestSchema>;
+
+/**
+ * Whether an import applies the bundle's `credentials/` entries.
+ *
+ * A managed-origin bundle's credentials never reach the target. They are
+ * platform-issued or bound to the managed deployment, and the target
+ * re-provisions its own platform identity. Managed exports from hosted
+ * runtimes older than 0.10.8 carry credentials (`secrets_redacted: false`);
+ * dropping them here keeps those bundles restorable.
+ */
+export function importsBundledCredentials(manifest: ManifestType): boolean {
+  return manifest.origin.mode !== "managed";
+}
 
 // ---------------------------------------------------------------------------
 // Legacy manifest schema (pre-v1, six-field shape)
