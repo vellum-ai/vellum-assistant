@@ -79,6 +79,24 @@ describe("extractCredentialsFromBundle", () => {
     });
   });
 
+  test("returns no credentials from a managed-origin bundle", () => {
+    const entries = new Map<string, VBundleTarEntry>();
+    entries.set("credentials/openai-key", makeTarEntry("sk-test-123"));
+    entries.set(
+      "credentials/credential/vellum/assistant_api_key",
+      makeTarEntry("vak-test-456"),
+    );
+    const manifest = {
+      ...makeManifest([
+        "credentials/openai-key",
+        "credentials/credential/vellum/assistant_api_key",
+      ]),
+      origin: { mode: "managed" },
+    } as ManifestType;
+
+    expect(extractCredentialsFromBundle(entries, manifest)).toEqual([]);
+  });
+
   test("returns empty array when no credential entries exist", () => {
     const entries = new Map<string, VBundleTarEntry>();
     entries.set("workspace/config.json", makeTarEntry('{"test": true}'));

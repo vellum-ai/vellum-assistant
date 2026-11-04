@@ -372,6 +372,49 @@ describe("streamCommitImport — happy path", () => {
     // Credentials must NOT appear on disk.
     expect(existsSync(join(workspaceDir, "credentials"))).toBe(false);
   });
+
+  test("imports a managed bundle that still carries credentials, without forwarding them", async () => {
+    // Hosted runtimes older than 0.10.8 packed credentials into managed
+    // exports and stamped secrets_redacted: false.
+    const { archive } = buildVBundle({
+      files: [
+        {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
+          path: "workspace/config.json",
+          data: new TextEncoder().encode("{}"),
+        },
+        {
+          path: "credentials/openai-key",
+          data: new TextEncoder().encode("sk-test-1"),
+        },
+        {
+          path: "credentials/credential/vellum/assistant_api_key",
+          data: new TextEncoder().encode("vak-test-2"),
+        },
+      ],
+      ...defaultV1Options(),
+      origin: { mode: "managed" },
+      secretsRedacted: false,
+    });
+
+    const received: Array<{ account: string; value: string }> = [];
+    const result = await streamCommitImport({
+      source: readableFrom(archive),
+      pathResolver: new DefaultPathResolver(workspaceDir),
+      workspaceDir,
+      importCredentials: async (creds) => {
+        received.push(...creds);
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(received).toEqual([]);
+    expect(existsSync(join(workspaceDir, "credentials"))).toBe(false);
+    expect(existsSync(join(workspaceDir, "config.json"))).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
