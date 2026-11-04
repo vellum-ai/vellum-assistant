@@ -34,6 +34,15 @@ export const WorkspaceGitConfigSchema = z
       .describe(
         "Files larger than this (bytes) are excluded from workspace auto-commits",
       ),
+    trackLargeConversationAttachments: z
+      .boolean({
+        error:
+          "workspaceGit.trackLargeConversationAttachments must be a boolean",
+      })
+      .default(true)
+      .describe(
+        "When false, conversation attachments larger than workspaceGit.maxFileSizeBytes are excluded from auto-commits, untracked from the index, and eligible for history compaction like any other oversized file; the files stay on disk. Only disable when the workspace has an external backup, because file-backed attachments have no other copy.",
+      ),
     historyCompaction: z
       .object({
         enabled: z

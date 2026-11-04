@@ -771,6 +771,7 @@ describe("AssistantConfigSchema", () => {
       failureBackoffBaseMs: 2000,
       failureBackoffMaxMs: 60000,
       maxFileSizeBytes: 256000,
+      trackLargeConversationAttachments: true,
       historyCompaction: { enabled: true },
       interactiveGitTimeoutMs: 10000,
       stageBatchSize: 1000,

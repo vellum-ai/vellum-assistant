@@ -41,6 +41,29 @@ describe("WorkspaceGitService", () => {
     _resetGitServiceRegistry();
   });
 
+  // Seeds workspaceGit config (what getConfig() reads) for the duration of
+  // `fn`, restoring the previous config file afterwards.
+  const withWorkspaceGitConfig = async (
+    workspaceGit: Record<string, unknown>,
+    fn: () => Promise<void>,
+  ) => {
+    const configPath = getWorkspaceConfigPath();
+    mkdirSync(dirname(configPath), { recursive: true });
+    const previous = existsSync(configPath)
+      ? readFileSync(configPath, "utf-8")
+      : null;
+    setConfig("workspaceGit", workspaceGit);
+    try {
+      await fn();
+    } finally {
+      if (previous === null) {
+        rmSync(configPath, { force: true });
+      } else {
+        writeFileSync(configPath, previous);
+      }
+    }
+  };
+
   afterEach(() => {
     // Clean up test directory
     if (existsSync(testDir)) {
@@ -359,26 +382,8 @@ describe("WorkspaceGitService", () => {
   });
 
   describe("batched add and commit", () => {
-    const withStageBatchSize = async (
-      size: number,
-      fn: () => Promise<void>,
-    ) => {
-      const configPath = getWorkspaceConfigPath();
-      mkdirSync(dirname(configPath), { recursive: true });
-      const previous = existsSync(configPath)
-        ? readFileSync(configPath, "utf-8")
-        : null;
-      setConfig("workspaceGit", { stageBatchSize: size });
-      try {
-        await fn();
-      } finally {
-        if (previous === null) {
-          rmSync(configPath, { force: true });
-        } else {
-          writeFileSync(configPath, previous);
-        }
-      }
-    };
+    const withStageBatchSize = (size: number, fn: () => Promise<void>) =>
+      withWorkspaceGitConfig({ stageBatchSize: size }, fn);
 
     const commitFileLists = (skipInitial = true): string[][] => {
       const hashes = execFileSync("git", ["log", "--pretty=%H", "--reverse"], {
@@ -430,10 +435,14 @@ describe("WorkspaceGitService", () => {
         expect(trackedFiles()).toContain(name);
       }
 
-      const messages = execFileSync("git", ["log", "--pretty=%B", "--reverse"], {
-        cwd: testDir,
-        encoding: "utf-8",
-      });
+      const messages = execFileSync(
+        "git",
+        ["log", "--pretty=%B", "--reverse"],
+        {
+          cwd: testDir,
+          encoding: "utf-8",
+        },
+      );
       expect(messages).toContain("batch: 1/3");
       expect(messages).toContain("batch: 2/3");
       expect(messages).toContain("batch: 3/3");
@@ -505,7 +514,12 @@ describe("WorkspaceGitService", () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      for (const name of ["keep.txt", "gone-a.txt", "gone-b.txt", "gone-c.txt"]) {
+      for (const name of [
+        "keep.txt",
+        "gone-a.txt",
+        "gone-b.txt",
+        "gone-c.txt",
+      ]) {
         writeFileSync(join(testDir, name), name);
       }
       await service.commitChanges("Seed files");
@@ -2252,6 +2266,64 @@ describe("WorkspaceGitService", () => {
       expect(result.committed).toBe(false);
     });
 
+    test("oversized conversation attachments keep committing by default", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const attachDir = join(testDir, "conversations", "conv-1", "attachments");
+      mkdirSync(attachDir, { recursive: true });
+      writeFileSync(join(attachDir, "clip.mp4"), bigContent());
+      await service.commitChanges("Sync attachment");
+
+      expect(trackedFiles()).toContain(
+        "conversations/conv-1/attachments/clip.mp4",
+      );
+    });
+
+    test("trackLargeConversationAttachments=false size-guards attachments only", async () => {
+      const first = new WorkspaceGitService(testDir);
+      await first.ensureInitialized();
+
+      const convDir = join(testDir, "conversations", "conv-1");
+      const attachDir = join(convDir, "attachments");
+      mkdirSync(attachDir, { recursive: true });
+      writeFileSync(join(convDir, "messages.jsonl"), bigContent());
+      writeFileSync(join(attachDir, "old.mp4"), bigContent());
+      await first.commitChanges("Sync conversation");
+      expect(trackedFiles()).toContain(
+        "conversations/conv-1/attachments/old.mp4",
+      );
+
+      await withWorkspaceGitConfig(
+        { trackLargeConversationAttachments: false },
+        async () => {
+          // A fresh init (daemon boot) sweeps the tracked attachment out of
+          // the index, and new oversized attachments never enter it.
+          const second = new WorkspaceGitService(testDir);
+          await second.ensureInitialized();
+          writeFileSync(join(attachDir, "new.mp4"), bigContent());
+          writeFileSync(join(attachDir, "note.txt"), "small");
+          await second.commitChanges("Sync attachments");
+
+          const tracked = trackedFiles();
+          expect(tracked).not.toContain(
+            "conversations/conv-1/attachments/old.mp4",
+          );
+          expect(tracked).not.toContain(
+            "conversations/conv-1/attachments/new.mp4",
+          );
+          expect(tracked).toContain(
+            "conversations/conv-1/attachments/note.txt",
+          );
+          // The disk view itself stays exempt from the size guard
+          expect(tracked).toContain("conversations/conv-1/messages.jsonl");
+          // Files stay on disk; only tracking is dropped
+          expect(existsSync(join(attachDir, "old.mp4"))).toBe(true);
+          expect(existsSync(join(attachDir, "new.mp4"))).toBe(true);
+        },
+      );
+    });
+
     test("unstaging an externally staged oversized blob schedules compaction", async () => {
       // Fresh repo created by the service — no boot-time compaction pending
       const service = new WorkspaceGitService(testDir);
@@ -2442,30 +2514,8 @@ describe("WorkspaceGitService", () => {
       expect(trackedFiles()).not.toContain("legacy.bin");
     });
 
-    // Overrides the process workspace config (what getConfig() reads) for
-    // the duration of `fn`, restoring the previous contents afterwards.
-    const withHistoryCompactionDisabled = async (fn: () => Promise<void>) => {
-      const configPath = getWorkspaceConfigPath();
-      mkdirSync(dirname(configPath), { recursive: true });
-      const previous = existsSync(configPath)
-        ? readFileSync(configPath, "utf-8")
-        : null;
-      writeFileSync(
-        configPath,
-        JSON.stringify({
-          workspaceGit: { historyCompaction: { enabled: false } },
-        }),
-      );
-      try {
-        await fn();
-      } finally {
-        if (previous === null) {
-          rmSync(configPath, { force: true });
-        } else {
-          writeFileSync(configPath, previous);
-        }
-      }
-    };
+    const withHistoryCompactionDisabled = (fn: () => Promise<void>) =>
+      withWorkspaceGitConfig({ historyCompaction: { enabled: false } }, fn);
 
     test("background compaction scheduling is disabled by config", async () => {
       const service = new WorkspaceGitService(testDir);
