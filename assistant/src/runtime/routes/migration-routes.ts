@@ -272,9 +272,9 @@ async function resolveAssistantId(): Promise<string> {
  *
  * Managed-mode exports never reach this with credentials: both export
  * handlers skip credential collection entirely when `origin.mode` is
- * "managed" (the validator's cross-field refine rejects a managed bundle
- * with `secrets_redacted: false`, and teleport clients re-provision
- * platform identity after a platform→local import).
+ * "managed" (importers never apply a managed bundle's credentials, and
+ * teleport clients re-provision platform identity after a platform→local
+ * import).
  */
 export function computeSecretsRedacted(
   credentialCount: number,
@@ -380,11 +380,10 @@ export async function handleMigrationExport(
   try {
     const manifestInputs = await buildExportManifestInputs();
 
-    // Managed deployments never ship credentials in bundles — the manifest
-    // schema forbids it (`secrets_redacted` must be true when `origin.mode`
-    // is "managed"), and teleport clients re-provision platform identity
-    // after a platform→local import. Redact instead of emitting a bundle
-    // the importer is guaranteed to reject.
+    // Managed deployments never ship credentials in bundles: importers
+    // never apply a managed bundle's credentials (`importsBundledCredentials`),
+    // and teleport clients re-provision platform identity after a
+    // platform→local import.
     let credentials: Array<{ account: string; value: string }> = [];
     let secretsRedacted = true;
     if (manifestInputs.origin.mode !== "managed") {
@@ -639,11 +638,9 @@ export async function handleMigrationExportToGcs({ body }: RouteHandlerArgs) {
   }
 
   // ── 3. Collect credentials up front. Fail closed → 500. Managed
-  // deployments never ship credentials in bundles — the manifest schema
-  // forbids it (`secrets_redacted` must be true when `origin.mode` is
-  // "managed"), and teleport clients re-provision platform identity after
-  // a platform→local import — so redact instead of emitting a bundle the
-  // importer is guaranteed to reject.
+  // deployments never ship credentials in bundles: importers never apply a
+  // managed bundle's credentials (`importsBundledCredentials`), and teleport
+  // clients re-provision platform identity after a platform→local import.
   //
   // A debug bundle goes to Vellum staff, so it never carries credentials
   // either, whatever the deployment mode.

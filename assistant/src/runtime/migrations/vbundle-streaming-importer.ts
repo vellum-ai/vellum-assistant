@@ -70,6 +70,7 @@ import {
 } from "./vbundle-streaming-validator.js";
 import { parseVBundleStream } from "./vbundle-tar-stream.js";
 import {
+  importsBundledCredentials,
   MANIFEST_MAX_ENTRIES,
   type ManifestType,
 } from "./vbundle-validator.js";
@@ -648,14 +649,16 @@ export async function streamCommitImport(
       if (archivePath.startsWith("credentials/")) {
         // Credentials are hash-verified against the manifest but collected
         // in memory rather than written to disk. DefaultPathResolver
-        // deliberately returns null for these paths.
+        // deliberately returns null for these paths. A bundle whose
+        // credentials an import never applies is still verified, so a
+        // corrupt entry fails the import either way.
         const buffered = await collectHashVerified(entry.body, {
           sha256: expectedEntry.sha256,
           size: expectedEntry.size,
           archivePath,
         });
         const account = archivePath.slice("credentials/".length);
-        if (account) {
+        if (account && manifest && importsBundledCredentials(manifest)) {
           bufferedCredentials.push({
             account,
             value: new TextDecoder().decode(buffered),

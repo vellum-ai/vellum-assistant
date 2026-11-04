@@ -36,7 +36,10 @@ import type { RuntimeCompatibility } from "./vbundle-import-policy.js";
 import * as policy from "./vbundle-import-policy.js";
 import { mergeMetadataPreservingVellum } from "./vbundle-metadata-merge.js";
 import type { ManifestType, VBundleTarEntry } from "./vbundle-validator.js";
-import { validateVBundle } from "./vbundle-validator.js";
+import {
+  importsBundledCredentials,
+  validateVBundle,
+} from "./vbundle-validator.js";
 
 const log = getLogger("vbundle-importer");
 
@@ -780,12 +783,16 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
  *
  * Credentials are stored under the `credentials/` prefix in the archive,
  * where the remainder of the path is the account name and the entry data
- * is the credential value.
+ * is the credential value. Returns none for a bundle whose credentials an
+ * import never applies (see `importsBundledCredentials`).
  */
 export function extractCredentialsFromBundle(
   entries: Map<string, VBundleTarEntry>,
   manifest: ManifestType,
 ): Array<{ account: string; value: string }> {
+  if (!importsBundledCredentials(manifest)) {
+    return [];
+  }
   const manifestPaths = new Set(manifest.contents.map((f) => f.path));
   const credentials: Array<{ account: string; value: string }> = [];
   for (const [path, entry] of entries) {

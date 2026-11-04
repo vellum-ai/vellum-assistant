@@ -174,6 +174,21 @@ describe("ManifestSchema — v1 acceptance", () => {
     const result = validateVBundle(archive);
     expect(result.is_valid).toBe(true);
   });
+
+  test("accepts when origin.mode === 'managed' and secrets_redacted === false", () => {
+    // Hosted runtimes older than 0.10.8 stamp managed exports this way.
+    // Importers drop the credentials of any managed bundle instead.
+    const manifest = withChecksum({
+      ...v1Skeleton(),
+      origin: { mode: "managed" },
+      secrets_redacted: false,
+    });
+    const archive = gzipTarOf(manifest, [
+      { name: "data/db/assistant.db", data: DB_BYTES },
+    ]);
+    const result = validateVBundle(archive);
+    expect(result.is_valid).toBe(true);
+  });
 });
 
 describe("validateVBundle: streaming manifest limits", () => {
@@ -225,19 +240,6 @@ describe("validateVBundle: streaming manifest limits", () => {
 describe("ManifestSchema — v1 rejection", () => {
   test("rejects schema_version !== 1", () => {
     const manifest = withChecksum({ ...v1Skeleton(), schema_version: 2 });
-    const archive = gzipTarOf(manifest, [
-      { name: "data/db/assistant.db", data: DB_BYTES },
-    ]);
-    const result = validateVBundle(archive);
-    expect(result.is_valid).toBe(false);
-  });
-
-  test("rejects managed mode with secrets_redacted=false", () => {
-    const manifest = withChecksum({
-      ...v1Skeleton(),
-      origin: { mode: "managed" },
-      secrets_redacted: false,
-    });
     const archive = gzipTarOf(manifest, [
       { name: "data/db/assistant.db", data: DB_BYTES },
     ]);
