@@ -152,7 +152,15 @@ const SIZE_GUARD_EXEMPT_PATTERNS: RegExp[] = [
   /^data\/apps\/[^/]+\/icon\.png$/,
 ];
 
+const CONVERSATION_ATTACHMENT_PATTERN = /^conversations\/[^/]+\/attachments\//;
+
 function isSizeGuardExempt(relPath: string): boolean {
+  if (
+    CONVERSATION_ATTACHMENT_PATTERN.test(relPath) &&
+    getConfig().workspaceGit?.trackLargeConversationAttachments === false
+  ) {
+    return false;
+  }
   return SIZE_GUARD_EXEMPT_PATTERNS.some((re) => re.test(relPath));
 }
 
