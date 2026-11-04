@@ -104,7 +104,7 @@ describe("clearUserScopedStorage", () => {
     const cancelStream = mock(() => {});
     const streamEpoch = useStreamStore.getState().streamEpoch;
     useStreamStore.setState({
-      stream: { cancel: cancelStream } as EventStream,
+      stream: { cancel: cancelStream, probe: () => {} } as EventStream,
       streamContext: {
         assistantId: "assistant-1",
         conversationId: "conv-1",
