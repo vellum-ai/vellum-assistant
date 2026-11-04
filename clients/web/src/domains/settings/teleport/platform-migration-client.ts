@@ -5,14 +5,13 @@
  * The JSON control-plane calls (`signed-url`, `import-from-gcs`, `jobs`) go
  * through the generated API `client` so the central interceptor attaches the
  * session + organization auth headers — those headers must never be set by
- * feature code. The binary data-plane (`PUT`/`GET` of bundle bytes) talks
- * directly to the GCS signed URLs, which carry their own auth in the URL and
- * need no Vellum headers.
+ * feature code. The binary data-plane (`PUT` of bundle bytes) talks directly
+ * to the GCS signed URLs, which carry their own auth in the URL and need no
+ * Vellum headers.
  */
 
 import { client } from "@/generated/api/client.gen";
 
-import { readArrayBufferWithProgress } from "./bundle-stream";
 import { parseVersionMismatch, TeleportError } from "./teleport-types";
 
 /** Response from the platform's unified signed-URL endpoint. */
@@ -226,33 +225,6 @@ function putWithProgress(
       reject(new TeleportError("export_timed_out", "Bundle upload timed out."));
     xhr.send(bundle);
   });
-}
-
-/**
- * Download bundle bytes from a GCS signed URL via `GET`, reporting progress
- * through `onProgress` (0..1) by streaming the response body. Retries transient
- * 5xx with the same backoff as the Swift client.
- */
-export async function downloadFromSignedUrl(
-  url: string,
-  onProgress?: (fraction: number) => void,
-): Promise<ArrayBuffer> {
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const response = await fetch(url, { method: "GET" });
-    if (attempt < MAX_RETRIES && RETRYABLE_STATUS.has(response.status)) {
-      await sleep(2 ** attempt * 1000);
-      onProgress?.(0);
-      continue;
-    }
-    if (!response.ok) {
-      throw new TeleportError(
-        "import_failed",
-        `Bundle download failed (HTTP ${response.status}).`,
-      );
-    }
-    return readArrayBufferWithProgress(response, onProgress);
-  }
-  throw new TeleportError("import_failed", "Unexpected retry loop exit");
 }
 
 /**
