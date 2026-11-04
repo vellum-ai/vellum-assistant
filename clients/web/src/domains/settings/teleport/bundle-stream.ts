@@ -1,7 +1,7 @@
 /**
  * Read a response body into an `ArrayBuffer`, reporting progress (0..1) when the
- * server sends a `Content-Length`. Shared by the platform signed-URL download
- * and the local gateway export, which both stream `.vbundle` bytes.
+ * server sends a `Content-Length`. Used by the local gateway export, which
+ * streams `.vbundle` bytes.
  */
 export async function readArrayBufferWithProgress(
   response: Response,
