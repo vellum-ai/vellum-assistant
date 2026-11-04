@@ -120,4 +120,12 @@ describe("search-provider-catalog", () => {
     expect(serply?.supportsApiBase).toBeUndefined();
     expect(serply?.envVar).toBe("SERPLY_API_KEY");
   });
+
+  test("You.com is a keyless BYOK provider reading YDC_API_KEY", () => {
+    const you = getSearchProvider("you");
+    expect(you?.kind).toBe("byok");
+    expect(you?.keyless).toBe(true);
+    expect(you?.supportsApiBase).toBeUndefined();
+    expect(you?.envVar).toBe("YDC_API_KEY");
+  });
 });

@@ -117,6 +117,16 @@
       "secretKey": "serply",
       "fallbackOrder": 10,
       "privacyPolicyUrl": "https://serply.io/privacy"
+    },
+    {
+      "id": "you",
+      "displayName": "You.com",
+      "kind": "byok",
+      "apiKeyPrefix": "You.com API key (optional)",
+      "envVar": "YDC_API_KEY",
+      "secretKey": "you",
+      "fallbackOrder": 11,
+      "privacyPolicyUrl": "https://you.com/legal/privacy"
     }
   ]
 }
