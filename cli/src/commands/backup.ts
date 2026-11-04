@@ -288,6 +288,10 @@ async function backupPlatform(
       operation: "upload",
       minRuntimeVersion: runtimeIdentity.version,
       maxRuntimeVersion: null,
+      // The managed pod PUTs the bundle. A runtime-consumer upload also
+      // registers the platform export record that Step 4's download URL
+      // request is checked against.
+      consumer: "runtime",
     },
     exportPlatformToken,
     platformUrl,
