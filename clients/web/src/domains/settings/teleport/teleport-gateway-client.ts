@@ -14,6 +14,8 @@
  *     which already attaches the session + organization headers.
  */
 
+import { z } from "zod";
+
 import { client } from "@/generated/api/client.gen";
 import { t } from "@/i18n";
 import { getLocalGatewayUrl } from "@/lib/local-mode";
@@ -21,7 +23,30 @@ import type { LockfileAssistant } from "@/runtime/local-mode-host";
 import { fetchGuardianTokenHost } from "@/runtime/local-mode-host";
 
 import { readArrayBufferWithProgress } from "./bundle-stream";
-import { TeleportError } from "./teleport-types";
+import { TeleportError, type TeleportErrorCode } from "./teleport-types";
+
+const LocalRuntimeErrorSchema = z.object({
+  error: z.object({ message: z.string().min(1) }),
+});
+
+const LocalImportStartedSchema = z.object({ job_id: z.string().min(1) });
+
+const LocalMigrationJobSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("processing") }),
+  z.object({ status: z.literal("complete") }),
+  z.object({
+    status: z.literal("failed"),
+    error: z.string().optional().catch(undefined),
+  }),
+]);
+
+/** A migration job as the local runtime's `GET /v1/migrations/jobs/{id}` reports it. */
+export type LocalMigrationJob = z.infer<typeof LocalMigrationJobSchema>;
+
+/** The local runtime's answer to a request to start an import from a URL. */
+export type LocalImportStart =
+  | { ok: true; jobId: string }
+  | { ok: false; status: number; message: string };
 
 /**
  * Resolve the absolute local gateway base URL for a local or docker assistant
@@ -63,6 +88,24 @@ async function mintLocalGatewayToken(
   }
   const { token } = (await res.json()) as { token: string };
   return token;
+}
+
+/** A local assistant's gateway base URL plus a token minted for it. */
+export interface LocalGateway {
+  base: string;
+  token: string;
+}
+
+/**
+ * Resolve a local/docker assistant's gateway and mint a token for it, for a
+ * caller that makes many requests (a job poller) and should not mint per
+ * request: every mint records a derived token in the gateway's database.
+ */
+export async function connectLocalGateway(
+  assistant: LockfileAssistant,
+): Promise<LocalGateway> {
+  const base = localGatewayBase(assistant);
+  return { base, token: await mintLocalGatewayToken(assistant, base) };
 }
 
 /**
@@ -134,71 +177,93 @@ export async function pollLocalExportJob(
   assistant: LockfileAssistant,
   jobId: string,
 ): Promise<string> {
-  const base = localGatewayBase(assistant);
-  const token = await mintLocalGatewayToken(assistant, base);
+  const job = await pollLocalMigrationJob(
+    await connectLocalGateway(assistant),
+    jobId,
+    "export_job_failed",
+  );
+  if (job.status === "failed") {
+    throw new TeleportError("export_job_failed", job.error ?? "Export failed");
+  }
+  return job.status;
+}
+
+/**
+ * Read a migration job from a local gateway: `GET /v1/migrations/jobs/{id}`.
+ * A 5xx reads as still processing so a poller rides out a transient gateway
+ * error. Any other non-2xx, or a body that is not a job status, throws a
+ * {@link TeleportError} carrying `failureCode`.
+ */
+export async function pollLocalMigrationJob(
+  { base, token }: LocalGateway,
+  jobId: string,
+  failureCode: TeleportErrorCode,
+): Promise<LocalMigrationJob> {
   const response = await fetch(
     `${base}/v1/migrations/jobs/${encodeURIComponent(jobId)}`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
   if (response.status >= 500) {
-    return "processing";
+    return { status: "processing" };
   }
   if (!response.ok) {
     throw new TeleportError(
-      "export_job_failed",
-      `Job status check failed (HTTP ${response.status})`,
+      failureCode,
+      t("settings:teleportCard.jobStatusFailed", { status: response.status }),
     );
   }
-  const job = (await safeJson(response)) as {
-    status?: string;
-    error?: { message?: string } | string;
-  } | null;
-  if (job?.status === "failed") {
-    const message =
-      typeof job.error === "string" ? job.error : job.error?.message;
-    throw new TeleportError("export_job_failed", message ?? "Export failed");
+  const job = LocalMigrationJobSchema.safeParse(await safeJson(response));
+  if (!job.success) {
+    throw new TeleportError(
+      failureCode,
+      t("settings:teleportCard.jobStatusInvalid"),
+    );
   }
-  return job?.status ?? "processing";
+  return job.data;
 }
 
 /**
- * Import `.vbundle` bytes into a local/docker assistant via its gateway:
- * `POST /v1/migrations/import` (octet-stream body). Throws on a non-2xx status
- * or a `{success:false}` body.
+ * Ask a local runtime to fetch a `.vbundle` from a signed URL and
+ * stream-import it as a background job: `POST /v1/migrations/import-from-gcs`
+ * with `{bundle_url}`. The bundle bytes never pass through the renderer.
+ * Resolves to the 202 `job_id` (poll it with {@link pollLocalMigrationJob}) or
+ * to the status and message of a refusal. Throws when the gateway can't be
+ * reached.
  */
-export async function importLocalBundle(
-  assistant: LockfileAssistant,
-  bundle: ArrayBuffer,
-): Promise<void> {
-  const base = localGatewayBase(assistant);
-  const token = await mintLocalGatewayToken(assistant, base);
-  // Send the body as a Blob, not a raw ArrayBuffer. The local gateway proxy
-  // runs over plain HTTP, and Chromium streams an ArrayBuffer body through a
-  // fixed-capacity (~1-2 MB) renderer data pipe — a larger `.vbundle` stalls
-  // forever when the local consumer drains it slowly, hanging on "Importing
-  // data...". A Blob is passed by handle and read directly, with no pipe to
-  // block on (the same fix `api-interceptors.ts` applies to local-mode bodies).
-  const response = await fetch(`${base}/v1/migrations/import`, {
+export async function startLocalImportFromUrl(
+  { base, token }: LocalGateway,
+  bundleUrl: string,
+): Promise<LocalImportStart> {
+  const response = await fetch(`${base}/v1/migrations/import-from-gcs`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-    body: new Blob([bundle], { type: "application/octet-stream" }),
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ bundle_url: bundleUrl }),
   });
-  if (!response.ok) {
-    throw new TeleportError(
-      "import_failed",
-      `Import failed (HTTP ${response.status}).`,
-    );
+  const body = await safeJson(response);
+  if (response.status !== 202) {
+    const refusal = LocalRuntimeErrorSchema.safeParse(body);
+    return {
+      ok: false,
+      status: response.status,
+      message: refusal.success
+        ? refusal.data.error.message
+        : t("settings:teleportCard.importFailedHttp", {
+            status: response.status,
+          }),
+    };
   }
-  const json = (await safeJson(response)) as {
-    success?: boolean;
-    error?: string;
-  } | null;
-  if (json && json.success === false) {
-    throw new TeleportError(
-      "import_failed",
-      json.error ?? "Import reported failure",
-    );
+  const started = LocalImportStartedSchema.safeParse(body);
+  if (!started.success) {
+    return {
+      ok: false,
+      status: response.status,
+      message: t("settings:teleportCard.importNoJobId"),
+    };
   }
+  return { ok: true, jobId: started.data.job_id };
 }
 
 /**

@@ -48,10 +48,10 @@ import {
   type TeleportDestination,
   type TeleportPhase,
 } from "./teleport-types";
+import { importBundleToLocal } from "./local-import";
 import { exportManagedBundle } from "./managed-export";
-import { exportLocalBundle, importLocalBundle } from "./teleport-gateway-client";
+import { exportLocalBundle } from "./teleport-gateway-client";
 import {
-  downloadFromSignedUrl,
   importFromGcs,
   pollJobStatus,
   requestSignedDownloadUrl,
@@ -75,7 +75,6 @@ interface AssistantRef {
 const POLL_INTERVAL_MS = 5_000;
 const JOB_TIMEOUT_MS = 3_600_000;
 const PROVISION_TIMEOUT_MS = 5 * 60_000;
-const GATEWAY_READY_ATTEMPTS = 30;
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -132,7 +131,7 @@ export function useTeleport(): TeleportController {
       if (destination === "platform") {
         await teleportToPlatform(source, setStep, setProgress, targetRef);
       } else if (destination === "local") {
-        await teleportToLocal(source, setStep, setProgress, targetRef);
+        await teleportToLocal(source, setStep, targetRef);
       } else {
         throw new TeleportError(
           "unknown",
@@ -419,7 +418,6 @@ async function teleportToPlatform(
 async function teleportToLocal(
   source: LockfileAssistant,
   setStep: (step: string) => void,
-  setProgress: (fraction: number) => void,
   targetRef: MutableRefObject<AssistantRef | null>,
 ): Promise<void> {
   const { bundleKey } = await exportManagedBundle(source.assistantId, {
@@ -435,7 +433,7 @@ async function teleportToLocal(
   // check runs against the local *runtime* version, not the Electron shell.
   setStep(t("settings:teleportCard.stepPreparingLocal"));
   const { assistant: local, createdFresh } = await resolveLocalTarget();
-  // Record the target now so a failure during download/import cleans up a
+  // Record the target now so a failure during the import cleans up a
   // freshly-hatched local instead of orphaning it.
   targetRef.current = { id: local.assistantId, kind: "local", createdFresh };
 
@@ -451,16 +449,15 @@ async function teleportToLocal(
   }
 
   setStep(t("settings:teleportCard.stepPreparingImport"));
-  const downloadUrl = await requestSignedDownloadUrl(
+  const bundleUrl = await requestSignedDownloadUrl(
     bundleKey,
     targetRuntimeVersion,
   );
 
-  setStep(t("settings:teleportCard.stepDownloading"));
-  const bundle = await downloadFromSignedUrl(downloadUrl, setProgress);
-
+  // The local runtime downloads the bundle itself, so this one step covers
+  // both the transfer and the import.
   setStep(t("settings:teleportCard.stepImporting"));
-  await importWithRetry(local, bundle);
+  await importBundleToLocal(local, bundleUrl);
 
   // Hatching/waking the local target may have flipped the active assistant;
   // keep the source active until the user confirms the switch.
@@ -639,27 +636,4 @@ function newestLocalAssistant(): LockfileAssistant | undefined {
   return getLocalAssistants()
     .slice()
     .sort((a, b) => (b.hatchedAt ?? "").localeCompare(a.hatchedAt ?? ""))[0];
-}
-
-/** Import with a short readiness retry, in lieu of an explicit healthz gate. */
-async function importWithRetry(
-  local: LockfileAssistant,
-  bundle: ArrayBuffer,
-): Promise<void> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < GATEWAY_READY_ATTEMPTS; attempt++) {
-    try {
-      await importLocalBundle(local, bundle);
-      return;
-    } catch (error) {
-      lastError = error;
-      await sleep(1_000);
-    }
-  }
-  throw lastError instanceof Error
-    ? lastError
-    : new TeleportError(
-        "import_failed",
-        t("settings:teleportCard.importFailed"),
-      );
 }

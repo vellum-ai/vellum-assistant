@@ -34,7 +34,7 @@ describe("requestSignedDownloadUrl", () => {
     });
   });
 
-  test("leaves download_filename unset for an in-memory download", async () => {
+  test("leaves download_filename unset for a runtime-side import", async () => {
     await requestSignedDownloadUrl("uploads/org-abc/bundle.vbundle", "1.2.3");
 
     const body = postMock.mock.calls[0]?.[0].body as Record<string, unknown>;
