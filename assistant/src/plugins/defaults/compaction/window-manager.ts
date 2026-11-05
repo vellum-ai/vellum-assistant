@@ -225,6 +225,11 @@ export interface OverflowRecoveryRungOptions {
   overrideProfile?: string | null;
   /** Trust class of the actor whose turn triggered overflow recovery. */
   actorTrustClass?: TrustClass;
+  /**
+   * Caller-supplied corrected compaction target; bypasses `deriveOverflowTurnTarget`
+   * when set so both the loop and the manager agree on the same value.
+   */
+  targetTokensOverride?: number;
 }
 
 export interface OverflowRecoveryOptions {
@@ -244,6 +249,13 @@ export interface OverflowRecoveryOptions {
   overrideProfile?: string | null;
   /** Trust class of the actor whose turn triggered overflow recovery. */
   actorTrustClass?: TrustClass;
+  /**
+   * Corrected compaction target pre-computed by the caller (the agent loop's
+   * budget gate) from the estimation-error ratio. When provided, the manager
+   * uses this value directly for the first rung instead of re-deriving from its
+   * own estimator call, so both sides agree on the target without duplication.
+   */
+  targetTokens?: number;
 }
 
 export interface ContextWindowManagerOptions {
@@ -554,6 +566,7 @@ export class ContextWindowManager {
         allowAutoCompressLatestTurn,
         overrideProfile: options.overrideProfile,
         actorTrustClass: options.actorTrustClass,
+        targetTokensOverride: options.targetTokens,
       },
       signal,
     );
@@ -610,10 +623,26 @@ export class ContextWindowManager {
     }
     if (!this._overflowReducerState) {
       this._overflowReducerState = createInitialReducerState();
-      this._overflowTurnTarget = this.deriveOverflowTurnTarget(
-        messages,
-        options.actualTokens,
-      );
+      if (options.targetTokensOverride != null) {
+        const estimatedInputTokens = estimatePromptTokens(
+          messages,
+          this.systemPrompt,
+          {
+            providerName: this.estimationProviderName,
+            model: this.estimationModel,
+            toolTokenBudget: this.resolveTurnToolTokenBudget(),
+          },
+        );
+        this._overflowTurnTarget = {
+          targetTokens: options.targetTokensOverride,
+          estimatedInputTokens,
+        };
+      } else {
+        this._overflowTurnTarget = this.deriveOverflowTurnTarget(
+          messages,
+          options.actualTokens,
+        );
+      }
     }
     const { targetTokens, estimatedInputTokens } = this._overflowTurnTarget!;
 

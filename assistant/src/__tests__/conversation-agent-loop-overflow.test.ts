@@ -842,6 +842,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
     expect(reducerCalled).toBe(true);
 
+
     const conversationError = events.find(
       (e) => e.type === "conversation_error",
     );
@@ -1098,106 +1099,103 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   // Expected behavior (PR 2 fix): Even after all tiers are exhausted,
   // if progress was made, attempt emergency compaction with
   // `minKeepRecentUserTurns: 0` as a last resort.
-  test.todo(
-    "exhausted reducer tiers with progress still attempts emergency compaction",
-    async () => {
-      const events: AssistantEvent[] = [];
-      let emergencyCompactCalled = false;
+  test("exhausted reducer tiers with progress still attempts emergency compaction", async () => {
+    const events: AssistantEvent[] = [];
+    let emergencyCompactCalled = false;
 
-      // Start with reducer already exhausted
-      mockReducerStepFn = (msgs: Message[]) => {
-        return {
-          messages: msgs,
-          tier: "injection_downgrade",
-          state: {
-            appliedTiers: [
-              "forced_compaction",
-              "tool_result_truncation",
-              "media_stubbing",
-              "injection_downgrade",
-            ],
-            injectionMode: "minimal",
-            exhausted: true,
-          },
-          estimatedTokens: 195_000,
-        };
+    // Start with reducer already exhausted
+    mockReducerStepFn = (msgs: Message[]) => {
+      return {
+        messages: msgs,
+        tier: "injection_downgrade",
+        state: {
+          appliedTiers: [
+            "forced_compaction",
+            "tool_result_truncation",
+            "media_stubbing",
+            "injection_downgrade",
+          ],
+          injectionMode: "minimal",
+          exhausted: true,
+        },
+        estimatedTokens: 195_000,
       };
+    };
 
-      // Run 1 makes progress (a tool turn) then the following provider call
-      // rejects with context_too_large; after emergency compaction the rerun
-      // recovers with plain text.
-      const { provider } = createMockProvider([
-        toolUseResponse("tu-1", "bash", { command: "find . -name '*.ts'" }),
-        new Error("context_length_exceeded"),
-        textResponse("recovered"),
-      ]);
+    // Run 1 makes progress (a tool turn) then the following provider call
+    // rejects with context_too_large; after emergency compaction the rerun
+    // recovers with plain text.
+    const { provider } = createMockProvider([
+      toolUseResponse("tu-1", "bash", { command: "find . -name '*.ts'" }),
+      new Error("context_length_exceeded"),
+      textResponse("recovered"),
+    ]);
 
-      const ctx = makeCtx({
-        loopProvider: provider,
-        loopTools: [
-          {
-            name: "bash",
-            description: "Run a shell command",
-            input_schema: {
-              type: "object",
-              properties: { command: { type: "string" } },
-            },
+    const ctx = makeCtx({
+      loopProvider: provider,
+      loopTools: [
+        {
+          name: "bash",
+          description: "Run a shell command",
+          input_schema: {
+            type: "object",
+            properties: { command: { type: "string" } },
           },
-        ],
-        toolExecutor: async () => ({
-          content: "file1.ts\nfile2.ts\nfile3.ts",
-          isError: false,
-        }),
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async (
-            _msgs: Message[],
-            _signal: AbortSignal,
-            opts?: Record<string, unknown>,
-          ) => {
-            if (opts?.force && opts?.minKeepRecentUserTurns === 0) {
-              emergencyCompactCalled = true;
-              return {
-                compacted: true,
-                messages: [
-                  {
-                    role: "user",
-                    content: [{ type: "text", text: "Hello" }],
-                  },
-                ] as Message[],
-                compactedPersistedMessages: 50,
-                summaryText: "Emergency summary",
-                previousEstimatedInputTokens: 195_000,
-                estimatedInputTokens: 50_000,
-                maxInputTokens: 200_000,
-                thresholdTokens: 160_000,
-                compactedMessages: 50,
-                summaryCalls: 1,
-                summaryInputTokens: 1000,
-                summaryOutputTokens: 300,
-                summaryModel: "mock-model",
-              };
-            }
-            return { compacted: false };
-          },
-        } as unknown as Conversation["contextWindowManager"],
-      });
+        },
+      ],
+      toolExecutor: async () => ({
+        content: "file1.ts\nfile2.ts\nfile3.ts",
+        isError: false,
+      }),
+      contextWindowManager: {
+        updateConfig: () => {},
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async (
+          _msgs: Message[],
+          _signal: AbortSignal,
+          opts?: Record<string, unknown>,
+        ) => {
+          if (opts?.force && opts?.minKeepRecentUserTurns === 0) {
+            emergencyCompactCalled = true;
+            return {
+              compacted: true,
+              messages: [
+                {
+                  role: "user",
+                  content: [{ type: "text", text: "Hello" }],
+                },
+              ] as Message[],
+              compactedPersistedMessages: 50,
+              summaryText: "Emergency summary",
+              previousEstimatedInputTokens: 195_000,
+              estimatedInputTokens: 50_000,
+              maxInputTokens: 200_000,
+              thresholdTokens: 160_000,
+              compactedMessages: 50,
+              summaryCalls: 1,
+              summaryInputTokens: 1000,
+              summaryOutputTokens: 300,
+              summaryModel: "mock-model",
+            };
+          }
+          return { compacted: false };
+        },
+      } as unknown as Conversation["contextWindowManager"],
+    });
 
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      // BUG: Currently when progress was made + all tiers exhausted,
-      // emergency compaction is NOT attempted. The error is surfaced directly.
-      // After PR 2 fix, emergency compaction should be attempted.
-      expect(emergencyCompactCalled).toBe(true);
+    // BUG: Currently when progress was made + all tiers exhausted,
+    // emergency compaction is NOT attempted. The error is surfaced directly.
+    // After PR 2 fix, emergency compaction should be attempted.
+    expect(emergencyCompactCalled).toBe(true);
 
-      // BUG: Currently a conversation_error IS emitted.
-      const conversationError = events.find(
-        (e) => e.type === "conversation_error",
-      );
-      expect(conversationError).toBeUndefined();
-    },
-  );
+    // BUG: Currently a conversation_error IS emitted.
+    const conversationError = events.find(
+      (e) => e.type === "conversation_error",
+    );
+    expect(conversationError).toBeUndefined();
+  });
 
   // ── Test 6 ────────────────────────────────────────────────────────
   // Tests mid-loop budget check via onCheckpoint.
