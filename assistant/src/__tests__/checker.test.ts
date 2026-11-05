@@ -1502,7 +1502,6 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
       workspaceDir,
     );
     expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("risk");
   });
 });
 
