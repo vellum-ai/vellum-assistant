@@ -21727,6 +21727,7 @@ paths:
                                           - tinyfish
                                           - exa
                                           - serply
+                                          - outcrawl
                                       resultCount:
                                         type: number
                                       durationMs:
@@ -22347,6 +22348,7 @@ paths:
                                                   - tinyfish
                                                   - exa
                                                   - serply
+                                                  - outcrawl
                                               resultCount:
                                                 type: number
                                               durationMs:
