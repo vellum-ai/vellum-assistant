@@ -34,6 +34,7 @@ import {
   type GuardianRequestWire,
   type ListGuardianRequestsIpcParams,
   type ListPendingGuardianRequestsByDestinationIpcParams,
+  type SweepPendingForRemindersIpcResponse,
   type UpdateGuardianRequestDeliveryIpcParams,
 } from "@vellumai/gateway-client";
 
@@ -56,6 +57,7 @@ import {
   listPendingByConversationScope,
   listPendingByDestinationChat,
   listPendingByDestinationConversation,
+  claimPendingRequestsForReminders,
   resolveGuardianRequest,
   listExpiredPendingGuardianRequests,
   updateDelivery,
@@ -146,6 +148,25 @@ export function listExpiredPendingRequests(
   return listExpiredPendingGuardianRequests(now, limit).map(
     toGuardianRequestWire,
   );
+}
+
+/**
+ * Reminder sweep: atomically claims pending requests older than `olderThanMs`
+ * by setting followupState = 'reminded' in the same gateway transaction, then
+ * returns the claimed rows for daemon-side delivery. Only rows that were
+ * actually claimed are returned, so the daemon never delivers a reminder for
+ * an already-resolved request.
+ */
+export function sweepPendingForReminders(params: {
+  olderThanMs?: number;
+  now?: number;
+}): SweepPendingForRemindersIpcResponse {
+  const olderThanMs = params.olderThanMs ?? 10 * 60 * 1000;
+  return {
+    pending: claimPendingRequestsForReminders(olderThanMs, params.now).map(
+      toGuardianRequestWire,
+    ),
+  };
 }
 
 // ---------------------------------------------------------------------------
