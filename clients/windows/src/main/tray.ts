@@ -6,6 +6,7 @@ import { openAboutWindow } from "@vellumai/electron-desktop/about";
 import { acceleratorOption } from "@vellumai/electron-desktop/commands";
 import { getWatchedLockfile } from "@vellumai/electron-desktop/lockfile-watcher";
 import { configureStatusIconFallback } from "@vellumai/electron-desktop/status-icon";
+import { toggleQuickInput } from "@vellumai/electron-desktop/quick-input-window";
 import {
   configureTrayModel,
   installTray,
@@ -96,5 +97,6 @@ export const installWindowsTray = (
     ensureMainWindow: async () => ensureVisible(),
     openAbout: openAboutWindow,
     toggleMainWindow: toggleVisibility,
+    toggleQuickInput,
   });
 };
