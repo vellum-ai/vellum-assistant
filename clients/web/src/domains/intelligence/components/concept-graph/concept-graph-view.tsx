@@ -35,6 +35,13 @@ import {
 } from "./constants";
 import { detectClusters } from "./detect-clusters";
 import { MemoryUpgradePrompt } from "./memory-upgrade-prompt";
+import {
+  computeEdgeStyle,
+  computeLearnedEdgeFog,
+  computeNodeStyle,
+  HUB_LABEL_DEGREE,
+  projectNodes,
+} from "./render-calculations";
 import { RecencyLens, type RecencyWindow } from "./recency-lens";
 import type { ConceptNodeKind, GraphLayoutNode } from "./types";
 import { useGraphIntroDismissed } from "./use-graph-intro-dismissed";
@@ -52,34 +59,9 @@ const AUTO_YAW_PER_SEC = 0.13;
 const IDLE_RESUME_MS = 2600;
 const DRAG_SENSITIVITY = 0.006;
 const PITCH_CLAMP = 1.15;
-const FOCAL_FACTOR = 3.0; // focal = FOCAL_FACTOR * massRadius (gentle perspective)
-const DEPTH_ALPHA_MIN = 0.32;
 const MIN_ZOOM = 0.45;
 const MAX_ZOOM = 3;
-const HUB_LABEL_DEGREE = 4;
-
-// Recency emphasis: recently-updated concepts glow brighter, and the freshest
-// gently pulse, so the map reads as alive and "what did it just learn?" pops.
 const DAY_MS = 24 * 60 * 60 * 1000;
-const RECENCY_GLOW_WINDOW_MS = 14 * DAY_MS; // recency fades out over ~2 weeks
-const RECENCY_GLOW_MAX = 12; // extra shadowBlur at peak freshness
-const PULSE_WINDOW_MS = 2 * DAY_MS; // newer than this → pulses (unless reduced motion)
-
-// As the graph grows, fade the resting (nothing-focused) learned-edge web so
-// dense corpora don't read as a haze. Full strength up to FOG_FULL_BELOW nodes,
-// easing to FOG_FLOOR by FOG_FLOOR_ABOVE. Only learned (associative) edges fade;
-// authored links carry structure and stay. Hover always restores full contrast.
-const FOG_FULL_BELOW = 80;
-const FOG_FLOOR_ABOVE = 340;
-const FOG_FLOOR = 0.12;
-
-// Focus ego-dim: while a concept is open in the detail drawer, its immediate
-// neighborhood (the node + direct neighbors) stays lit and everything else
-// fades to near-zero — a stronger dim than hover — so the focused node reads
-// clearly (e.g. beside the panel). Non-neighbor edges dim to the same near-zero
-// as an already-ghosted edge.
-const SELECTION_DIM_NODE = 0.05;
-const SELECTION_DIM_EDGE = 0.03;
 
 // Below this node count the graph is small enough to scan by eye — no search box.
 const SEARCH_MIN_NODES = 12;
@@ -783,16 +765,6 @@ export function ConceptGraphView({
       }
       v.dirty = false;
 
-      const cosY = Math.cos(v.yaw);
-      const sinY = Math.sin(v.yaw);
-      const cosX = Math.cos(v.pitch);
-      const sinX = Math.sin(v.pitch);
-      const focal = FOCAL_FACTOR * R;
-      const baseZoom = (Math.min(cssW, cssH) * 0.88) / (2 * R);
-      const zoom = baseZoom * v.zoom;
-      const cx = cssW / 2;
-      const cy = cssH / 2;
-
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, cssW, cssH);
 
@@ -828,44 +800,17 @@ export function ConceptGraphView({
         selectionActive ? selectedId : null,
       );
 
-      // Density fog: fade the resting learned-edge web as the corpus grows.
-      const learnedFog =
-        nodes.length <= FOG_FULL_BELOW
-          ? 1
-          : Math.max(
-              FOG_FLOOR,
-              1 -
-                ((nodes.length - FOG_FULL_BELOW) /
-                  (FOG_FLOOR_ABOVE - FOG_FULL_BELOW)) *
-                  (1 - FOG_FLOOR),
-            );
-
-      // Project every node into screen space.
-      const proj = new Array<{
-        node: GraphLayoutNode;
-        sx: number;
-        sy: number;
-        sr: number;
-        depth: number;
-      }>(nodes.length);
-      for (let i = 0; i < nodes.length; i++) {
-        const node = nodes[i];
-        const px = node.x - VIRTUAL_CENTER.x;
-        const py = node.y - VIRTUAL_CENTER.y;
-        const pz = node.z;
-        const x1 = px * cosY + pz * sinY;
-        const z1 = -px * sinY + pz * cosY;
-        const y2 = py * cosX - z1 * sinX;
-        const z2 = py * sinX + z1 * cosX;
-        const persp = focal / (focal - z2);
-        proj[i] = {
-          node,
-          sx: cx + x1 * zoom * persp,
-          sy: cy + y2 * zoom * persp,
-          sr: Math.max(1.2, node.radius * zoom * persp),
-          depth: Math.max(0, Math.min(1, (z2 + R) / (2 * R))),
-        };
-      }
+      // Density fog and projection are pure calculations; the render loop keeps
+      // ownership of canvas state, painter order, and hit-test collection.
+      const learnedFog = computeLearnedEdgeFog(nodes.length);
+      const proj = projectNodes(nodes, {
+        width: cssW,
+        height: cssH,
+        massRadius: R,
+        yaw: v.yaw,
+        pitch: v.pitch,
+        zoom: v.zoom,
+      });
       // Painter's order: far → near.
       const order = proj
         .map((_, i) => i)
@@ -919,33 +864,24 @@ export function ConceptGraphView({
             depth,
           });
         }
-        // Learned edges fade with density in the resting web; authored links
-        // don't. A focused hover neighborhood reads at full contrast, though —
-        // so lit edges use the unfogged base even in a dense graph.
-        const litAlpha = (learned ? 0.34 : 0.28) * (0.4 + 0.6 * depth);
-        const restAlpha = learned ? litAlpha * learnedFog : litAlpha;
-        let alpha: number;
-        if (ghost) {
-          alpha = 0.03;
-        } else if (selectionActive) {
-          // Ego-dim: only edges touching the selected node stay bright; every
-          // other edge fades to near-zero so the neighborhood reads.
-          alpha = egoEdge ? 0.9 : SELECTION_DIM_EDGE;
-        } else if (activeId != null) {
-          alpha = incident
-            ? 0.9
-            : isLit(e.fromId) && isLit(e.toId)
-              ? litAlpha
-              : 0.05;
-        } else {
-          alpha = restAlpha;
-        }
-        ctx.globalAlpha = alpha;
-        ctx.strokeStyle = learned ? EDGE_LEARNED_COLOR : colors.tertiary;
-        ctx.lineWidth =
-          (incident || (selectionActive && egoEdge) ? 2 : 1) *
-          (0.6 + 0.6 * depth);
-        ctx.setLineDash(learned ? [4, 4] : []);
+        // Resolve the visual treatment without mutating canvas state.
+        const edgeStyle = computeEdgeStyle({
+          kind: e.kind,
+          depth,
+          ghost,
+          selectionActive,
+          egoEdge,
+          hoverActive: activeId != null,
+          incident,
+          endpointsLit: isLit(e.fromId) && isLit(e.toId),
+          learnedFog,
+          learnedColor: EDGE_LEARNED_COLOR,
+          linkColor: colors.tertiary,
+        });
+        ctx.globalAlpha = edgeStyle.alpha;
+        ctx.strokeStyle = edgeStyle.strokeStyle;
+        ctx.lineWidth = edgeStyle.lineWidth;
+        ctx.setLineDash(edgeStyle.lineDash);
         ctx.beginPath();
         ctx.moveTo(a.sx, a.sy);
         ctx.lineTo(b.sx, b.sy);
@@ -957,14 +893,6 @@ export function ConceptGraphView({
       for (const idx of order) {
         const p = proj[idx];
         const node = p.node;
-        // Concepts are colored by their detected theme/cluster; any non-concept
-        // node falls back to its per-kind color.
-        const color =
-          node.kind === "concept"
-            ? CLUSTER_PALETTE[
-                (nodeClusters.get(node.id) ?? 0) % CLUSTER_PALETTE.length
-              ]
-            : NODE_KIND_COLORS[node.kind];
         const searchGhost = searchActive && !isMatch(node.id);
         // Selection overrides the recency window for the focused ego-network so
         // it stays lit; search still narrows normally.
@@ -976,51 +904,36 @@ export function ConceptGraphView({
           ? inEgo && !ghost
           : !ghost && isLit(node.id);
         const isActive = node.id === activeId;
-        const depthA = DEPTH_ALPHA_MIN + (1 - DEPTH_ALPHA_MIN) * p.depth;
-        const alpha =
-          selectionActive && !inEgo
-            ? depthA * SELECTION_DIM_NODE
-            : ghost
-              ? depthA * 0.08
-              : lit
-                ? depthA
-                : depthA * 0.18;
+        const nodeStyle = computeNodeStyle({
+          node,
+          depth: p.depth,
+          cluster: nodeClusters.get(node.id) ?? 0,
+          ghost,
+          lit,
+          selectionActive,
+          inSelectedEgo: inEgo,
+          isActive,
+          nowMs,
+          frameTimeMs: t,
+          renderIndex: idx,
+          reduceMotion,
+          clusterPalette: CLUSTER_PALETTE,
+          nodeKindColors: NODE_KIND_COLORS,
+        });
+        ctx.shadowColor = nodeStyle.color;
+        ctx.shadowBlur = nodeStyle.shadowBlur;
 
-        let glow =
-          (isActive ? 16 : node.degree >= HUB_LABEL_DEGREE ? 8 : 4) * p.depth;
-        // Recency: fresh concepts glow brighter; the very newest pulse. Static
-        // (no pulse) under reduced motion, which only ever redraws on input.
-        const updatedAtMs = node.updatedAtMs;
-        if (updatedAtMs) {
-          const age = nowMs - updatedAtMs;
-          const freshness = Math.max(0, 1 - age / RECENCY_GLOW_WINDOW_MS);
-          if (freshness > 0) {
-            let boost = freshness * RECENCY_GLOW_MAX;
-            if (!reduceMotion && age < PULSE_WINDOW_MS) {
-              boost *= 0.55 + 0.45 * Math.sin(t / 420 + idx * 1.7);
-            }
-            glow += boost * p.depth;
-          }
-        }
-        ctx.shadowColor = color;
-        ctx.shadowBlur = lit ? glow : 0;
-
-        // Pending buffer entries render as a lighter fill with a dashed ring —
-        // "saved but not yet filed" — so they read apart from settled concepts
-        // even where the amber overlaps a cluster hue.
-        const isPending = node.kind === "pending";
-
-        ctx.globalAlpha = alpha * (isPending ? 0.3 : 0.55);
-        ctx.fillStyle = color;
+        ctx.globalAlpha = nodeStyle.fillAlpha;
+        ctx.fillStyle = nodeStyle.color;
         ctx.beginPath();
         ctx.arc(p.sx, p.sy, p.sr, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.shadowBlur = 0;
-        ctx.globalAlpha = alpha;
-        ctx.lineWidth = isActive ? 2.5 : 1.4;
-        ctx.strokeStyle = color;
-        ctx.setLineDash(isPending ? [3, 3] : []);
+        ctx.globalAlpha = nodeStyle.strokeAlpha;
+        ctx.lineWidth = nodeStyle.lineWidth;
+        ctx.strokeStyle = nodeStyle.color;
+        ctx.setLineDash(nodeStyle.lineDash);
         ctx.stroke();
         ctx.setLineDash([]);
 
