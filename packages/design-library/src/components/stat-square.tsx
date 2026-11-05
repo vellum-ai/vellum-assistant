@@ -1,3 +1,4 @@
+import { Loader2 } from "lucide-react";
 import { type ComponentProps, type ReactNode } from "react";
 
 import { cn } from "../utils/cn";
@@ -16,6 +17,14 @@ export interface StatSquareProps extends ComponentProps<"div"> {
   value: ReactNode;
   label: ReactNode;
   tone?: StatSquareTone;
+  /**
+   * The value is on its way. The icon and label are known before the data
+   * is, so they stay, and a spinner the size of the value's text holds its
+   * line; the tile keeps the height it has once the value arrives. The
+   * spinner is tertiary and stops under reduced motion. The tile sets
+   * `aria-busy` while it waits, and `value` is not shown.
+   */
+  loading?: boolean;
 }
 
 export function StatSquare({
@@ -23,6 +32,7 @@ export function StatSquare({
   value,
   label,
   tone = "default",
+  loading = false,
   className,
   ref,
   ...rest
@@ -31,6 +41,7 @@ export function StatSquare({
     <div
       {...rest}
       ref={ref}
+      aria-busy={loading ? true : rest["aria-busy"]}
       data-slot="stat-square"
       className={cn(
         "flex flex-1 items-center gap-3 rounded-xl bg-[var(--surface-base)] p-3",
@@ -58,13 +69,20 @@ export function StatSquare({
         <Typography
           variant="body-large-default"
           title={
-            typeof value === "string" || typeof value === "number"
+            !loading && (typeof value === "string" || typeof value === "number")
               ? String(value)
               : undefined
           }
           className={cn("block truncate", VALUE_TONE_CLASSES[tone])}
         >
-          {value}
+          {loading ? (
+            <Loader2
+              aria-hidden
+              className="inline-block size-[1em] animate-spin align-middle text-[var(--content-tertiary)] motion-reduce:animate-none"
+            />
+          ) : (
+            value
+          )}
         </Typography>
         {/* A label wraps rather than being cut or spilling past the tile,
             so a long translation stays whole and inside it. Text that can

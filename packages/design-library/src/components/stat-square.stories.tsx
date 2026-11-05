@@ -7,10 +7,11 @@ const meta: Meta<typeof StatSquare> = {
   title: "Components/StatSquare",
   component: StatSquare,
   args: {
-    icon: <MessageSquare className="h-5 w-5" />,
+    icon: <MessageSquare />,
     value: "1,284",
     label: "Messages this week",
     tone: "default",
+    loading: false,
   },
   argTypes: {
     tone: {
@@ -90,13 +91,22 @@ export const Row: Story = {
 
 /**
  * A value longer than the tile, which is what a model id or a long count is.
- * The tile cuts it and the caller passes `title`, so the rest stays readable
- * on hover; the cut never reflows the tile or spills past its edge.
+ * The tile cuts it and carries the whole value as its tooltip, so the rest
+ * stays readable on hover; the cut never reflows the tile or spills past its
+ * edge.
  */
 export const LongValue: Story = {
   args: {
     value: "claude-opus-4-1-20250805",
     label: "Model",
-    title: "claude-opus-4-1-20250805",
   },
+};
+
+/**
+ * The value is on its way: the icon and label stay, and a placeholder holds
+ * the value's line, so the tile is the height it will be once the value
+ * lands.
+ */
+export const Loading: Story = {
+  args: { loading: true },
 };

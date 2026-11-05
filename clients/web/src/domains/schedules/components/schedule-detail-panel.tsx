@@ -46,7 +46,7 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
-import { Button, Skeleton, cn } from "@vellumai/design-library";
+import { Button, cn } from "@vellumai/design-library";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -196,32 +196,24 @@ function ScheduleModelProfileField({
 
 function StatCards({ usage }: { usage: ScheduleRowUsage }) {
   const { t } = useTranslation("schedules");
-  if (usage.status === "loading") {
-    return (
-      <div className="grid grid-cols-2 gap-3 pt-2">
-        {Array.from({ length: 2 }, (_, i) => (
-          // 62px is a `StatSquare`: a 20px value line and an 18px label
-          // line inside 12px of padding.
-          <Skeleton key={i} className="h-15.5 rounded-xl" />
-        ))}
-      </div>
-    );
-  }
   if (usage.status === "error") {
     return null;
   }
+  const summary = usage.status === "ready" ? usage.summary : undefined;
   return (
     <div className="grid grid-cols-2 gap-3 pt-2">
       <StatSquare
         icon={<Coins />}
-        value={formatScheduleCost(usage.summary.totalEstimatedCostUsd)}
+        loading={!summary}
+        value={summary && formatScheduleCost(summary.totalEstimatedCostUsd)}
         label={t("scheduleDetail.costLabel", {
           days: SCHEDULE_USAGE_WINDOW_DAYS,
         })}
       />
       <StatSquare
         icon={<Repeat />}
-        value={formatScheduleRunCount(usage.summary.runCount)}
+        loading={!summary}
+        value={summary && formatScheduleRunCount(summary.runCount)}
         label={t("scheduleDetail.runsLabel", {
           days: SCHEDULE_USAGE_WINDOW_DAYS,
         })}
