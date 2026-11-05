@@ -64,9 +64,11 @@ import type {
   MediaStreamStartEvent,
 } from "./media-stream-protocol.js";
 import {
+  DEFAULT_SILENCE_THRESHOLD_MS,
   MediaTurnDetector,
   type TurnDetectorConfig,
 } from "./media-turn-detector.js";
+import { SilenceThresholdCalibrator } from "./silence-threshold-calibrator.js";
 
 const log = getLogger("media-stt-session");
 
@@ -192,6 +194,7 @@ export class MediaStreamSttSession {
   private readonly callbacks: MediaStreamSttSessionCallbacks;
   private readonly turnDetector: MediaTurnDetector;
   private readonly transcriptionTimeoutMs: number;
+  private readonly silenceCalibrator: SilenceThresholdCalibrator;
 
   /** Buffer of base64-encoded audio payloads for the current turn. */
   private currentTurnChunks: string[] = [];
@@ -273,6 +276,10 @@ export class MediaStreamSttSession {
       config.streamingStartupBufferFrames ??
       DEFAULT_STREAMING_STARTUP_BUFFER_FRAMES;
 
+    const defaultThresholdMs =
+      config.turnDetector?.silenceThresholdMs ?? DEFAULT_SILENCE_THRESHOLD_MS;
+    this.silenceCalibrator = new SilenceThresholdCalibrator(defaultThresholdMs);
+
     this.turnDetector = new MediaTurnDetector(config.turnDetector, {
       onTurnStart: () => {
         // Clear inter-turn silence that accumulated while idle so each
@@ -281,8 +288,16 @@ export class MediaStreamSttSession {
         this.callbacks.onSpeechStart?.();
       },
       onTurnEnd: (reason, durationMs) => {
+        // Recalibrate from observed intra-turn pauses so the next turn uses
+        // the threshold that fits this caller's natural speech rhythm.
+        this.turnDetector.setSilenceThresholdMs(
+          this.silenceCalibrator.calibrate(),
+        );
         this.callbacks.onSpeechEnd?.();
         void this.handleTurnEnd(reason, durationMs);
+      },
+      onIntraTurnResume: (pauseMs) => {
+        this.silenceCalibrator.addSample(pauseMs);
       },
     });
   }
