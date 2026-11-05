@@ -1494,7 +1494,7 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
     expect(result.reason).toContain("Low risk");
   });
 
-  test("network_request → prompt (Medium risk, not workspace-scoped)", async () => {
+  test("network_request → prompt (unregistered tool, unknown origin)", async () => {
     mockRisk("medium");
     const result = await check(
       "network_request",
@@ -1502,7 +1502,7 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
       workspaceDir,
     );
     expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("risk");
+    expect(result.reason).toBe("Skill tool: requires approval by default");
   });
 });
 
