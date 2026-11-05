@@ -37,6 +37,7 @@ function fixture() {
   const browser = new DesktopBrowserClient(async () => {
     const connection = ++connections;
     let closed = false;
+    let discoverTargets = false;
     disconnect = () => {
       closed = true;
     };
@@ -58,11 +59,19 @@ function fixture() {
           throw new CdpWsTransportError("closed");
         }
         let result: unknown = {};
+        if (method === "Target.setDiscoverTargets") {
+          discoverTargets = params.discover === true;
+        }
         if (method === "Target.getTargets") {
           result = { targetInfos: targets };
         }
         if (method === "Target.attachToTarget") {
           result = { sessionId: `session-${connection}-${params.targetId}` };
+        }
+        if (method === "Target.detachFromTarget") {
+          for (const listener of listeners) {
+            listener({ method: "Target.detachedFromTarget", params });
+          }
         }
         if (method === "Target.createTarget") {
           const targetId = `page-${targets.length + 1}`;
@@ -96,7 +105,11 @@ function fixture() {
         return result as T;
       },
       addEventListener(listener) {
-        listeners.push(listener);
+        listeners.push((event) => {
+          if (event.method !== "Target.targetDestroyed" || discoverTargets) {
+            listener(event);
+          }
+        });
         return () => {};
       },
       dispose() {
@@ -410,4 +423,244 @@ test("closed connections reconnect after cleanup without retrying input or reusi
       .filter((call) => call.params.type === "keyUp")
       .map((call) => call.connection),
   ).toEqual([2]);
+});
+
+test("switching tabs releases held input and removes the cursor before detaching", async () => {
+  const f = await session();
+  f.targets.push({
+    targetId: "page-2",
+    type: "page",
+    url: "https://example.org",
+    title: "Second",
+  });
+  const second = (await f.cdp.listTabs())[1]!.tabId!;
+  await f.cdp.send("Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    button: "left",
+    x: 10,
+    y: 20,
+  });
+  f.calls.length = 0;
+  f.emit("Page.domContentEventFired", {}, "session-1-page-1");
+  await f.cdp.selectTab(second);
+  const release = f.calls.findIndex(
+    (call) => call.params.type === "mouseReleased",
+  );
+  const remove = f.calls.findIndex((call) =>
+    String(call.params.expression).includes("?.remove()"),
+  );
+  const detach = f.calls.findIndex(
+    (call) => call.method === "Target.detachFromTarget",
+  );
+  expect(release).toBeGreaterThanOrEqual(0);
+  expect(remove).toBeGreaterThan(release);
+  expect(detach).toBeGreaterThan(remove);
+  expect(f.calls[detach]?.params.sessionId).toBe("session-1-page-1");
+  const calls = f.calls.length;
+  f.emit("Page.domContentEventFired", {}, "session-1-page-1");
+  await Bun.sleep(0);
+  expect(f.calls).toHaveLength(calls);
+  await f.browser.release();
+  expect(
+    f.calls.filter((call) => call.params.type === "mouseReleased"),
+  ).toHaveLength(1);
+});
+
+test("returning to a detached tab reattaches before taking a fresh snapshot", async () => {
+  const f = await session();
+  const first = (await f.cdp.listTabs())[0]!.tabId!;
+  await f.cdp.send("Vellum.createTab");
+  expect(
+    f.calls.some((call) => call.method === "Target.detachFromTarget"),
+  ).toBe(true);
+  const second = await f.browser.client("conv-123", f.abort.signal);
+  await second.send("Runtime.evaluate", { expression: "document.title" });
+  await second.selectTab(first);
+  await expect(
+    second.send("Input.insertText", { text: "stale" }),
+  ).rejects.toThrow("page changed");
+  const current = await f.browser.client("conv-123", f.abort.signal);
+  await current.send("Input.insertText", { text: "fresh" });
+  expect(
+    f.calls.filter(
+      (call) =>
+        call.method === "Target.attachToTarget" &&
+        call.params.targetId === "page-1",
+    ),
+  ).toHaveLength(2);
+  expect(
+    f.calls.filter((call) => call.method === "Target.detachFromTarget"),
+  ).toHaveLength(2);
+  expect(f.calls.at(-1)).toMatchObject({
+    method: "Input.insertText",
+    session: "session-1-page-1",
+    params: { text: "fresh" },
+  });
+});
+
+test("failed tab cleanup keeps the tab selected and retains input for release", async () => {
+  const f = await session();
+  f.targets.push({
+    targetId: "page-2",
+    type: "page",
+    url: "https://example.org",
+    title: "Second",
+  });
+  const tabs = await f.cdp.listTabs();
+  await f.cdp.send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "Shift",
+    code: "ShiftLeft",
+  });
+  f.fail((_method, params) => params.type === "keyUp");
+  await expect(f.cdp.selectTab(tabs[1]!.tabId!)).rejects.toBeDefined();
+  expect((await f.cdp.listTabs()).find((tab) => tab.active)?.tabId).toBe(
+    tabs[0]!.tabId,
+  );
+  expect(
+    f.calls.some((call) => call.method === "Target.detachFromTarget"),
+  ).toBe(false);
+  f.fail();
+  await f.browser.release();
+  expect(
+    f.calls
+      .filter((call) => call.params.type === "keyUp")
+      .map((call) => call.connection),
+  ).toEqual([1, 2]);
+});
+
+test("tab cleanup finishes when its caller aborts without activating another tab", async () => {
+  const f = await session();
+  f.targets.push({
+    targetId: "page-2",
+    type: "page",
+    url: "https://example.org",
+    title: "Second",
+  });
+  const second = (await f.cdp.listTabs())[1]!.tabId!;
+  await f.cdp.send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "Shift",
+    code: "ShiftLeft",
+  });
+  f.calls.length = 0;
+  f.fail((_method, params) => {
+    if (params.type === "keyUp") {
+      f.abort.abort();
+    }
+    return false;
+  });
+  await expect(f.cdp.selectTab(second)).rejects.toBeDefined();
+  expect(
+    f.calls.some((call) => call.method === "Target.detachFromTarget"),
+  ).toBe(true);
+  expect(f.calls.some((call) => call.method === "Target.activateTarget")).toBe(
+    false,
+  );
+});
+
+test("retargeted sends detach the previous tab before attaching the selected tab", async () => {
+  const f = await session();
+  f.targets.push({
+    targetId: "page-2",
+    type: "page",
+    url: "https://example.org",
+    title: "Second",
+  });
+  const second = (await f.cdp.listTabs())[1]!.tabId!;
+  f.cdp.setCdpSessionId?.(String(second));
+  f.calls.length = 0;
+  await f.cdp.send("Runtime.evaluate", { expression: "document.title" });
+  const detach = f.calls.findIndex(
+    (call) => call.method === "Target.detachFromTarget",
+  );
+  const attach = f.calls.findIndex(
+    (call) => call.method === "Target.attachToTarget",
+  );
+  expect(detach).toBeGreaterThanOrEqual(0);
+  expect(attach).toBeGreaterThan(detach);
+  expect(f.calls.at(-1)?.session).toBe("session-1-page-2");
+});
+
+test.each(["close", "destroy", "refresh"])(
+  "closed targets do not block another tab after %s",
+  async (mode) => {
+    const f = await session();
+    f.targets.push({
+      targetId: "page-2",
+      type: "page",
+      url: "https://example.org",
+      title: "Second",
+    });
+    const tabs = await f.cdp.listTabs();
+    await f.cdp.send("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      key: "Shift",
+      code: "ShiftLeft",
+    });
+    f.targets.splice(0, 1);
+    if (mode === "close") {
+      await f.cdp.closeTab(tabs[0]!.tabId!);
+    } else if (mode === "destroy") {
+      f.emit("Target.targetDestroyed", { targetId: "page-1" });
+    }
+    f.fail((method) => method === "Target.detachFromTarget");
+    f.calls.length = 0;
+    await f.cdp.selectTab(tabs[1]!.tabId!);
+    const current = await f.browser.client("conv-123", f.abort.signal);
+    await current.send("Runtime.evaluate", { expression: "document.title" });
+    expect(f.calls.every((call) => call.session !== "session-1-page-1")).toBe(
+      true,
+    );
+    expect(f.calls.at(-1)?.session).toBe("session-1-page-2");
+    await f.browser.release();
+    expect(f.calls.some((call) => call.params.type === "keyUp")).toBe(false);
+  },
+);
+
+test("a target destroyed during input cleanup does not block tab selection", async () => {
+  const f = await session();
+  f.targets.push({
+    targetId: "page-2",
+    type: "page",
+    url: "https://example.org",
+    title: "Second",
+  });
+  const second = (await f.cdp.listTabs())[1]!.tabId!;
+  await f.cdp.send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "Shift",
+    code: "ShiftLeft",
+  });
+  f.fail((_method, params) => {
+    if (params.type === "keyUp") {
+      f.targets.splice(0, 1);
+      f.emit("Target.targetDestroyed", { targetId: "page-1" });
+      return true;
+    }
+    return false;
+  });
+  await f.cdp.selectTab(second);
+  expect((await f.cdp.listTabs()).find((tab) => tab.active)?.tabId).toBe(
+    second,
+  );
+  const current = await f.browser.client("conv-123", f.abort.signal);
+  await current.send("Runtime.evaluate", { expression: "document.title" });
+  expect(f.calls.at(-1)?.session).toBe("session-1-page-2");
+  await f.browser.release();
+  expect(f.calls.filter((call) => call.params.type === "keyUp")).toHaveLength(
+    1,
+  );
+});
+
+test("failed target discovery setup retries on a fresh connection", async () => {
+  const f = fixture();
+  cleanups.push(() => f.browser.dispose());
+  const signal = new AbortController().signal;
+  f.fail((method) => method === "Target.setDiscoverTargets");
+  await expect(f.browser.client("conv-123", signal)).rejects.toBeDefined();
+  f.fail();
+  const client = await f.browser.client("conv-123", signal);
+  await client.send("Runtime.evaluate", { expression: "document.title" });
+  expect(f.calls.at(-1)?.connection).toBe(2);
 });
