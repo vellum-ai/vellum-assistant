@@ -179,6 +179,8 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
     new OpenAIChatCompletionsProvider(apiKey || "not-needed", model, {
       providerName: "openai-compatible",
       providerLabel: "OpenAI-compatible",
+      // Custom endpoints own their model-specific effort limits.
+      maxReasoningEffort: "max",
       streamTimeoutMs,
       // Replay thinking as `reasoning_content` so DeepSeek-compatible
       // thinking-mode endpoints accept follow-up requests that include tools.

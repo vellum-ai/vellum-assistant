@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { z } from "zod";
+
 import { setConfig } from "../../__tests__/helpers/set-config.js";
 
 // ── Module mocks ────────────────────────────────────────────────────────────
@@ -1494,3 +1496,62 @@ describe("RetryProvider — no callSite (pre-resolved config passes through)", (
 // level, and bun's `mock.module` leaks across files in a single suite
 // run — that pollutes `inference.test.ts` (which exercises the real
 // SQLite-backed `getConnection`).
+
+describe("openai-compatible effort transport", () => {
+  test("passes all effort levels through the adapter factory and retry wrapper", async () => {
+    const { buildProviderAdapter } =
+      await import("../inference/adapter-factory.js");
+    const requestSchema = z.object({ reasoning_effort: z.string() });
+    const requests: Array<z.infer<typeof requestSchema>> = [];
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      async fetch(request) {
+        const parsed = requestSchema.safeParse(await request.json());
+        if (!parsed.success) {
+          return new Response("Invalid request", { status: 400 });
+        }
+        requests.push(parsed.data);
+        return new Response(
+          'data: {"id":"mock","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+          { headers: { "Content-Type": "text/event-stream" } },
+        );
+      },
+    });
+    try {
+      for (const model of ["custom-reasoner", "custom-thinking-model"]) {
+        const inner = buildProviderAdapter("openai-compatible", {
+          apiKey: "not-needed",
+          model,
+          streamTimeoutMs: 60_000,
+          useNativeWebSearch: false,
+          baseURL: `http://127.0.0.1:${server.port}/v1`,
+        });
+        if (!inner) {
+          throw new Error("Expected an openai-compatible adapter");
+        }
+        const wrapped = new RetryProvider(inner);
+        for (const effort of [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+        ] as const) {
+          await wrapped.sendMessage(DUMMY_MESSAGES, {
+            config: {
+              model,
+              effort,
+              thinking: { enabled: false },
+              conversationId: "effort-regression",
+            },
+          });
+          expect(requests.at(-1)?.reasoning_effort).toBe(effort);
+        }
+      }
+    } finally {
+      server.stop(true);
+    }
+  });
+});
