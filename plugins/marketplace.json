@@ -16,7 +16,7 @@
       "category": "productivity",
       "homepage": "https://github.com/vellum-ai/admin-copilot",
       "license": "MIT",
-      "icon": "🧑‍💼"
+      "icon": "\ud83e\uddd1\u200d\ud83d\udcbc"
     },
     {
       "name": "agent-wrapped",
@@ -30,7 +30,7 @@
       "license": "MIT",
       "submittedBy": "marina",
       "homepage": "https://agent-wrapped.com",
-      "icon": "🎁"
+      "icon": "\ud83c\udf81"
     },
     {
       "name": "ai-hero-engineer-kit",
@@ -39,11 +39,11 @@
         "repo": "marinatrajk/ai-hero-engineer-kit",
         "ref": "18d33c62b15a3e2cc22dc070723fe3077749dcec"
       },
-      "description": "Five engineering skills adapted from Matt Pocock's '5 Agent Skills I Use Every Day' — plans, PRDs, vertical-slice issues, TDD loop, and codebase deepening in one install.",
+      "description": "Five engineering skills adapted from Matt Pocock's '5 Agent Skills I Use Every Day' \u2014 plans, PRDs, vertical-slice issues, TDD loop, and codebase deepening in one install.",
       "category": "developer",
       "homepage": "https://github.com/marinatrajk/ai-hero-engineer-kit",
       "license": "MIT",
-      "icon": "🧰"
+      "icon": "\ud83e\uddf0"
     },
     {
       "name": "amex-perk-reminder",
@@ -56,7 +56,801 @@
       "category": "lifestyle",
       "homepage": "https://github.com/AnitaKirkovska/amex-perk-reminder",
       "license": "MIT",
-      "icon": "💳"
+      "icon": "\ud83d\udcb3"
+    },
+    {
+      "name": "astrology-horoscope",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/astrology-horoscope",
+        "ref": "d226ce2e0a021e12cbf89ca7313f7c76a0bd8e39"
+      },
+      "description": "Western tropical natal chart and transit computation. Local ephemeris (astronomy-engine, no API keys) for planet positions, ascendant/midheaven, whole-sign houses, and aspects, plus a natal-reading skill that interprets the raw chart into a readable report.",
+      "category": "hobby",
+      "homepage": "https://github.com/vellum-ai/astrology-horoscope",
+      "license": "MIT",
+      "icon": "\ud83d\udd2e"
+    },
+    {
+      "name": "battleship",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/battleship",
+        "ref": "32391ea3af71597b7507bb710bd29ab8308a4604"
+      },
+      "description": "Play Battleship against your assistant. Fire shots, track hits and misses, and sink the fleet before the assistant sinks yours.",
+      "category": "hobby",
+      "homepage": "https://github.com/vellum-ai/battleship",
+      "license": "MIT",
+      "icon": "\u2693"
+    },
+    {
+      "name": "caveman",
+      "source": {
+        "source": "github",
+        "repo": "JuliusBrussee/caveman",
+        "ref": "63a91ecadbf4c4719a4602a5abb00883f9966034"
+      },
+      "description": "Ultra-compressed communication mode that strips filler words to cut token usage.",
+      "category": "productivity",
+      "homepage": "https://github.com/JuliusBrussee/caveman",
+      "license": "MIT",
+      "icon": "\ud83e\uddb4"
+    },
+    {
+      "name": "coffee-aficionado",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/coffee-aficionado",
+        "ref": "facd5a03979605edc894ea61e9a45f7b6a53214a"
+      },
+      "description": "Find great coffee beans and machines matched to your taste profile, budget, and kitchen. Persistent memory learns your preferences over time.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/vellum-ai/coffee-aficionado",
+      "license": "MIT"
+    },
+    {
+      "name": "cofounder",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/cofounder",
+        "ref": "547adf1c0db0cbb32855ff0e4ef46c056248bdea"
+      },
+      "description": "AI co-founder that remembers your company context, challenges your thinking, and tracks your decisions.",
+      "category": "productivity",
+      "homepage": "https://github.com/vellum-ai/cofounder",
+      "license": "MIT",
+      "icon": "\ud83e\udd1d"
+    },
+    {
+      "name": "cognee",
+      "source": {
+        "source": "github",
+        "repo": "topoteretes/cognee-integrations",
+        "path": "integrations/vellum-assistant",
+        "ref": "d79bd9a216c9f6d88d27694cc0b42a18b63dba88"
+      },
+      "description": "Cognee knowledge graph memory for Vellum Assistant: session-aware storage, auto-routing recall, and persistent learning across sessions. Supports local mode and Cognee Cloud.",
+      "category": "memory",
+      "homepage": "https://github.com/topoteretes/cognee-integrations/tree/main/integrations/vellum-assistant",
+      "icon": "\ud83d\udd78\ufe0f"
+    },
+    {
+      "name": "contractor-missed-call-dispatcher",
+      "description": "Captures missed trade contractor inbound calls, fires an instant 5-second SMS qualification text-back, triages emergencies, and stages draft jobs in Jobber or ServiceTitan.",
+      "category": "commerce",
+      "icon": "📲",
+      "license": "MIT",
+      "homepage": "https://github.com/ZeebBoyBlue/contractor-missed-call-dispatcher",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/contractor-missed-call-dispatcher",
+        "ref": "2d293cdcb68af03d446b61a9915a0ee3dc842d4e"
+      }
+    },
+    {
+      "name": "contractor-photo-to-quote",
+      "description": "Turns job-site and equipment photos into standardized trade estimates and quotes in Jobber or QuickBooks with multi-tier Good/Better/Best options in 5 minutes.",
+      "category": "commerce",
+      "icon": "📸",
+      "license": "MIT",
+      "homepage": "https://github.com/ZeebBoyBlue/contractor-photo-to-quote",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/contractor-photo-to-quote",
+        "ref": "6c136186faaf03bcf125d202f0b1f51f97d94544"
+      }
+    },
+    {
+      "name": "contractor-voice-invoicer",
+      "description": "Converts 20-second truck voice memos and job photos into itemized client invoices with custom labor rates, material markups, and one-click accounting staging.",
+      "category": "commerce",
+      "icon": "🔧",
+      "license": "MIT",
+      "homepage": "https://github.com/ZeebBoyBlue/contractor-voice-invoicer",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/contractor-voice-invoicer",
+        "ref": "31e21ea1aa90b3ba462ed7208988931411226daa"
+      }
+    },
+    {
+      "name": "creatorland",
+      "source": {
+        "source": "github",
+        "repo": "creatorland/creatorland-mcp-skills",
+        "path": "plugins/creatorland-data",
+        "ref": "9cdbb1553645bbb746918f43d60e0df17ae91fa0"
+      },
+      "description": "Creatorland turns your Vellum assistant into an influencer marketer in a box: find the right creators, benchmark rates, analyze competitors, build campaign shortlists, and launch outreach from your brand context. The plugin kit includes guided workflows for brief-to-shortlist, transcript-to-shortlist, brief building, fair-price negotiation, one-number rate cards, and creator marketing onboarding.",
+      "category": "marketing",
+      "homepage": "https://github.com/creatorland/creatorland-mcp-skills/tree/main/plugins/creatorland-data",
+      "license": "MIT",
+      "icon": "\ud83c\udfa8"
+    },
+    {
+      "name": "dynamic-notch",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/dynamic-notch",
+        "ref": "9729c3685d60d00d1de73a183b03122b9fa1f8f4"
+      },
+      "description": "Put your Vellum assistant inside your MacBook's notch: click to chat, hold Ctrl+Option to talk, and get a floating task bulb while it works, with live-streamed replies and per-sentence voice.",
+      "category": "interface",
+      "homepage": "https://github.com/AnitaKirkovska/dynamic-notch",
+      "license": "MIT",
+      "icon": "\ud83d\udcbb"
+    },
+    {
+      "name": "ecommerce-order-supporter",
+      "description": "Resolves ecommerce Where-Is-My-Order (WISMO) support inquiries, cross-checks real-time carrier tracking milestones, flags delivery exceptions, and stages customer update drafts without helpdesk seat taxes.",
+      "category": "commerce",
+      "icon": "📦",
+      "license": "MIT",
+      "homepage": "https://github.com/ZeebBoyBlue/ecommerce-order-supporter",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/ecommerce-order-supporter",
+        "ref": "35e2165a14447a897aee750a198c3f166458226b"
+      }
+    },
+    {
+      "name": "family-briefing",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/family-briefing",
+        "ref": "145f341db7d06ffa81e2052033f187679b8bda4d"
+      },
+      "description": "Daily morning briefing for parents: merges family calendars, triages school emails, and detects scheduling conflicts.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/family-briefing",
+      "license": "MIT",
+      "icon": "\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\u200d\ud83d\udc66"
+    },
+    {
+      "name": "fitness-companion",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/fitness-companion",
+        "ref": "fe4e02e2b514207a37f2a7e9f9c500ec8a73edcb"
+      },
+      "description": "Fitness and nutrition companion. Logs meals, workouts, and weight; looks up nutrition data from OpenFoodFacts; calculates macro targets; and injects daily fitness context into every conversation.",
+      "category": "health",
+      "homepage": "https://github.com/vellum-ai/fitness-companion",
+      "license": "MIT",
+      "icon": "\ud83d\udcaa"
+    },
+    {
+      "name": "git-workflow",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/git-workflow",
+        "ref": "829407aa93b63b8bca4717624533f2fc7f702a5d"
+      },
+      "description": "Git workflow tools and multi-perspective code review: branch management, push, stash, PR creation/review/merge/checkout, diffs, logs, changelog generation, and parallel subagent code review with confidence scoring.",
+      "category": "developer",
+      "homepage": "https://github.com/vellum-ai/git-workflow",
+      "license": "MIT",
+      "icon": "\ud83d\udd00"
+    },
+    {
+      "name": "google-drive-search",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/google-drive-search",
+        "ref": "ddd5013477cc1ec8d1fb174db6b599dbfe1cca21"
+      },
+      "description": "Local full-text search across your Google Drive. Indexes file metadata and document content into SQLite FTS5 for instant, private search.",
+      "category": "productivity",
+      "homepage": "https://github.com/ZeebBoyBlue/google-drive-search",
+      "license": "Apache-2.0",
+      "icon": "\ud83d\udd0d"
+    },
+    {
+      "name": "imessage",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/imessage",
+        "ref": "af3d9f79903817358084de74e056422e6ca91fe4"
+      },
+      "description": "iMessage and SMS channel for the Vellum assistant, backed by a Photon line.",
+      "category": "productivity",
+      "homepage": "https://github.com/vellum-ai/imessage",
+      "license": "MIT",
+      "icon": "\ud83d\udcf2"
+    },
+    {
+      "name": "influencer-marketing",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/influencer",
+        "ref": "8629b0dcfdacf62246122af2dcd7320baa6db04e"
+      },
+      "description": "Find and research influencers on Instagram, TikTok, and X/Twitter. Includes a strategy builder that walks from campaign brief to research criteria, a research skill that discovers real profiles via browser automation, scores candidates, and exports ranked shortlists, and a dashboard skill that turns the shortlist into an interactive outreach tracker.",
+      "category": "marketing",
+      "homepage": "https://github.com/ZeebBoyBlue/influencer",
+      "license": "MIT",
+      "icon": "\ud83d\udce3"
+    },
+    {
+      "name": "kitchen-companion",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/kitchen-companion",
+        "ref": "b6ebdda6992dfa1fd2186a600a642f538fb64584"
+      },
+      "description": "Full kitchen companion. Scan your fridge with a photo to stock a pantry inventory and get 3 makeable-now recipes, get alerts before food expires, clip recipes from any URL into a clean format, and generate meal plans with grocery lists from what you actually have.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/vellum-ai/kitchen-companion",
+      "license": "MIT",
+      "icon": "\ud83c\udf73"
+    },
+    {
+      "name": "ledger",
+      "source": {
+        "source": "github",
+        "repo": "simensgreen/ledger",
+        "ref": "7fc04fd77b20ad4b27ccd51be22c101274b370f6"
+      },
+      "description": "Structured storage for Vellum agents: tables via JSON Schema, query/aggregate via JSON, named saved queries.",
+      "category": "developer",
+      "homepage": "https://github.com/simensgreen/ledger",
+      "license": "MIT",
+      "icon": "\ud83d\uddc4\ufe0f"
+    },
+    {
+      "name": "level-up",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/level-up",
+        "ref": "4357028acc339c6d6f718d5d6ab279ebf198673b"
+      },
+      "description": "Surfaces a first-class \"Level Up\" diff card whenever the assistant edits its own skills or plugins, so you can see how it improved itself after the fact.",
+      "category": "developer",
+      "homepage": "https://github.com/vellum-ai/level-up",
+      "license": "MIT",
+      "icon": "\ud83c\udd99"
+    },
+    {
+      "name": "markedet-field-notes",
+      "source": {
+        "source": "github",
+        "repo": "markedet-ai/markedet-field-notes-plugin",
+        "ref": "be64e09324cdc25ea7e7afd33f9c95eaf7ea294d"
+      },
+      "description": "Paste an exact error string; get a checked fix and verify step from Markedet field notes (free, as-is remote MCP maintained by an AI agent).",
+      "category": "developer",
+      "homepage": "https://agent-economy-data.onrender.com/llms.txt",
+      "license": "MIT",
+      "submittedBy": "markedet-ai",
+      "icon": "📝"
+    },
+    {
+      "name": "marketing-expert",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/marketing-expert",
+        "ref": "6a85ee33e184c2be56ed63cd5681d1287a941eff"
+      },
+      "description": "Acts as a full-stack marketing expert for any business (B2B or B2C): an on-demand persona plus playbook skills (positioning, demand planning, launches, content & copywriting, brand voice, email sequences, SEO & GEO, competitive teardown, board reporting) and deterministic funnel/positioning/GTM/competitive tools.",
+      "category": "marketing",
+      "homepage": "https://github.com/vellum-ai/marketing-expert",
+      "license": "MIT",
+      "icon": "\ud83d\udcc8"
+    },
+    {
+      "name": "markitdown-vellum",
+      "source": {
+        "source": "github",
+        "repo": "simensgreen/markitdown-vellum",
+        "ref": "5e5a4ecfd6c60d613778106442003a1ed302fc3c"
+      },
+      "description": "Convert workspace documents (PDF, DOCX, PPTX, XLSX, images, MSG, \u2026) to markdown via @cognipeer/to-markdown, with Vellum vision OCR or Tesseract.",
+      "category": "productivity",
+      "homepage": "https://github.com/simensgreen/markitdown-vellum",
+      "license": "MIT",
+      "icon": "\ud83d\udcc4"
+    },
+    {
+      "name": "model-router",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/model-router",
+        "ref": "605100d27b5333b243ada5a29fcb324e2217d336"
+      },
+      "description": "Routes each user-facing message to one of your workspace's inference profiles, so model selection can vary per call instead of staying pinned to a single profile.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/model-router",
+      "license": "MIT",
+      "icon": "\ud83d\udea6"
+    },
+    {
+      "name": "motion-design",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/motion-design",
+        "ref": "9cdc798c26e0141dcdf6887d7707559c38bfe00e"
+      },
+      "description": "Teaches the assistant to build polished UI animations with Motion (motion.dev) for React: animated product mockups, chat replays, typing effects, and staggered reveals, with a complete animated chat example included.",
+      "category": "creative",
+      "homepage": "https://github.com/vellum-ai/motion-design",
+      "license": "MIT",
+      "icon": "\ud83c\udfac"
+    },
+    {
+      "name": "natural",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/natural",
+        "ref": "e71880d144337d1b8b6d3e65ab98006b7d015ef6"
+      },
+      "description": "Hosted MCP access to Natural payment operations for Vellum assistants.",
+      "category": "finance",
+      "homepage": "https://www.natural.com",
+      "license": "MIT",
+      "icon": "\ud83d\udcb3"
+    },
+    {
+      "name": "octolens",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/octolens",
+        "ref": "d9117f5c6b97b3bff75dec1a04bedc32571c6538"
+      },
+      "description": "Social listening plugin for Octolens. Monitor brand mentions, competitor activity, and industry conversations across 13+ platforms. Query mentions, run analytics, manage keywords and feeds via REST API tools, or connect the Octolens MCP server for natural-language workflows.",
+      "category": "growth",
+      "homepage": "https://github.com/vellum-ai/octolens",
+      "license": "MIT"
+    },
+    {
+      "name": "openseo",
+      "source": {
+        "source": "github",
+        "repo": "every-app/open-seo",
+        "path": "plugins/openseo",
+        "ref": "c469a48ae90ab58413b198fe3d1ac1aa90a9b070"
+      },
+      "description": "Keyword research, competitor analysis, site audits, backlinks, and rank tracking with real SEO data, plus guided workflow skills and the hosted OpenSEO MCP server.",
+      "category": "marketing",
+      "homepage": "https://openseo.so",
+      "license": "MIT",
+      "icon": "\ud83d\udd0e"
+    },
+    {
+      "name": "originkit",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/originkit",
+        "ref": "9aa260c2561ad9e765832dc342e9bbb5138858a4"
+      },
+      "description": "Browse and import animated UI components from Originkit, a free library of 50 animated components. Browse by category or search term without an API key; fetch component source code (React, Next.js, Vite, Framer) with a free key from originkit.dev.",
+      "category": "productivity",
+      "homepage": "https://github.com/vellum-ai/originkit",
+      "license": "MIT",
+      "icon": "\ud83e\uddf1"
+    },
+    {
+      "name": "personal-finance",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/personal-finance",
+        "ref": "f8f9bfba3d86c943001da894b920e7e867507dd4"
+      },
+      "description": "Track expenses, income, recurring bills, and savings funds from your assistant. Multi-currency, receipt OCR, Plaid bank sync, and financial summaries. All data stored locally in SQLite.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/personal-finance",
+      "license": "MIT",
+      "icon": "\ud83d\udcb0"
+    },
+    {
+      "name": "plant-doctor",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/plant-doctor",
+        "ref": "1115ac07a5b7f731600f037b743e011a84bd0597"
+      },
+      "description": "Diagnose plants from photos. Identifies the species, assesses health with visible evidence, and returns a care plan. Named plants get a persistent checkup history so you can track whether they are improving.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/vellum-ai/plant-doctor",
+      "license": "MIT",
+      "icon": "\ud83e\udeb4"
+    },
+    {
+      "name": "polyglot",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/polyglot",
+        "ref": "ab607b7c60b64b0ac5c6bf01609840a004cfd002"
+      },
+      "description": "Ambient language acquisition through your assistant. Three graduated modes (practice, ambient, immersive) weave a target language into your real conversations, with SM-2 spaced repetition, error-pattern tracking, and CEFR level history.",
+      "category": "education",
+      "homepage": "https://github.com/vellum-ai/polyglot",
+      "license": "MIT",
+      "icon": "\ud83d\udde3\ufe0f"
+    },
+    {
+      "name": "proactive-slacks",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/proactive-slacks",
+        "ref": "a5dd35699455ae7a2db3d2243511a8c7edc49aea"
+      },
+      "description": "Let your assistant reach you on Slack on purpose. Route notifications by topic to the right channel at the right volume, with heartbeat-based change detection so it only pings when something actually changed.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/proactive-slacks",
+      "license": "MIT",
+      "icon": "\ud83d\udcac"
+    },
+    {
+      "name": "quickbooks-expense-categorizer",
+      "description": "Scans uncategorized QuickBooks Online expenses and bank feeds, matches receipts, and stages categorized entries with confidence scoring for 1-click batch review.",
+      "category": "commerce",
+      "icon": "🧾",
+      "license": "MIT",
+      "homepage": "https://github.com/ZeebBoyBlue/quickbooks-expense-categorizer",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/quickbooks-expense-categorizer",
+        "ref": "120776619698cc3e9490caf5c756465f5caaa6c2"
+      }
+    },
+    {
+      "name": "reading-pal",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/reading-pal",
+        "ref": "5219474719e67db7ea64848f6bd2a0b7312e4f27"
+      },
+      "description": "Your reading life in one plugin. Track your TBR pile, get guilt-tripped about your backlog, find your next read, and sync from Goodreads.",
+      "category": "hobby",
+      "homepage": "https://github.com/vellum-ai/reading-pal",
+      "license": "MIT",
+      "icon": "\ud83d\udcda"
+    },
+    {
+      "name": "restaurant-invoice-auditor",
+      "description": "Audits restaurant food delivery slips in 14 seconds, flags silent price hikes and pack-size shrinkage, and stages approved bills in QuickBooks.",
+      "category": "commerce",
+      "icon": "\ud83e\uddfe",
+      "license": "MIT",
+      "homepage": "https://github.com/ZeebBoyBlue/restaurant-invoice-auditor",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/restaurant-invoice-auditor",
+        "ref": "f1905e639941e98172c5032b6d722f668882d75d"
+      }
+    },
+    {
+      "name": "shopify-payout-reconciler",
+      "description": "Unbundles lump-sum Shopify merchant bank deposits into gross sales, processor fees, customer refunds, shipping labels, and sales tax for penny-accurate QuickBooks reconciliation.",
+      "category": "commerce",
+      "icon": "🛍️",
+      "license": "MIT",
+      "homepage": "https://github.com/ZeebBoyBlue/shopify-payout-reconciler",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/shopify-payout-reconciler",
+        "ref": "079fe0d86629686243a588cf3c4867d38d6ab8b8"
+      }
+    },
+    {
+      "name": "simple-memory",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/simple-memory",
+        "ref": "ed09a4c01bf18e4ac8859faee94cb65c7cbd1ca3"
+      },
+      "description": "Reference memory plugin that exercises the full plugin API with low-cost variants of Vellum's memory defaults.",
+      "category": "memory",
+      "homepage": "https://github.com/vellum-ai/simple-memory",
+      "license": "MIT",
+      "icon": "\ud83e\udde0"
+    },
+    {
+      "name": "smb-inbox-brief",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/smb-inbox-brief",
+        "ref": "8e298bd8ded5e0e16c5160edcd547eda1e4d222f"
+      },
+      "description": "Find urgent replies, overdue invoices, quotes, and customer follow-ups before they slip. Scans email, logs business items, delivers urgency-ranked daily briefs.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/smb-inbox-brief",
+      "license": "MIT",
+      "icon": "\ud83d\udce7"
+    },
+    {
+      "name": "tennis-companion",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/tennis-companion",
+        "ref": "1c6d2bd448ee7b5285d37cfee4e0e413522746d1"
+      },
+      "description": "Tennis journal, drill sessions, court finder, and progress tracking. Log matches with opponent tendencies, generate 30-minute practice sessions with progressions, find nearby courts via OpenStreetMap, and track win rate by surface and conditions.",
+      "category": "health",
+      "homepage": "https://github.com/vellum-ai/tennis-companion",
+      "license": "MIT",
+      "icon": "\ud83c\udfbe"
+    },
+    {
+      "name": "travel-planner",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/travel-planner",
+        "ref": "10c2c4878b017997cb6766b8204b9803c56bc6cf"
+      },
+      "description": "A travel EA for your assistant. Remembers how you travel (carrier, miles, hotel budget, card benefits), keeps per-trip records, watches Gmail for booking changes, syncs your calendar, and emails an EA-style trip brief 48 hours before departure.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/AnitaKirkovska/travel-planner",
+      "license": "MIT",
+      "icon": "\u2708\ufe0f"
+    },
+    {
+      "name": "unabyss",
+      "source": {
+        "source": "github",
+        "repo": "Unabyss/unabyss-vellum",
+        "ref": "9f0bb0753dad09dace8578e242961bc2da912af3"
+      },
+      "description": "Personal and company context from Unabyss, available to your agent through the Unabyss MCP server.",
+      "category": "memory",
+      "homepage": "https://unabyss.com",
+      "license": "MIT",
+      "icon": "\ud83c\udf0a"
+    },
+    {
+      "name": "vellum-client-qa",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/vellum-client-qa",
+        "ref": "4f559d865eaa04b68285f8e4fae4a05fc18fe88f"
+      },
+      "description": "Cross-platform QA rig for vellum-assistant clients: mock the platform backend, boot the real chat UI, and verify feature branches in headless Chromium (web), an iOS simulator, or Electron with screenshot and video proof.",
+      "category": "developer",
+      "homepage": "https://github.com/vellum-ai/vellum-client-qa",
+      "license": "MIT",
+      "icon": "\ud83e\uddea"
+    },
+    {
+      "name": "virlo",
+      "source": {
+        "source": "github",
+        "repo": "Virlo-AI/virlo-integrations",
+        "path": "integrations/vellum",
+        "ref": "e398cfd8a48316b9378e08efe4b42ad3dc42197e"
+      },
+      "description": "Real-time short-form video intelligence across TikTok, YouTube Shorts, and Instagram Reels, powered by Virlo Content Research Agents.",
+      "category": "marketing",
+      "homepage": "https://github.com/Virlo-AI/virlo-integrations/tree/main/integrations/vellum",
+      "license": "MIT",
+      "icon": "\ud83d\udcf1"
+    },
+    {
+      "name": "writing-coach",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/writing-coach",
+        "ref": "9cb2289343fed2fd6ad8b0bb5db07616d1c8181c"
+      },
+      "description": "A writing coach in your pocket. Daily prompts that escalate with your streak, savage-but-constructive draft roasts, query letter critiques, and a word count enforcer that guilt-trips you when you skip.",
+      "category": "hobby",
+      "homepage": "https://github.com/vellum-ai/writing-coach",
+      "license": "MIT",
+      "icon": "\u270d\ufe0f"
+    },
+    {
+      "name": "fathom",
+      "source": {
+        "source": "local",
+        "path": "plugins/mcp-catalog/fathom",
+        "version": "1.0.2"
+      },
+      "description": "Search meeting transcripts and summaries.",
+      "homepage": "https://developers.fathom.ai/mcp-docs",
+      "license": "MIT",
+      "integration": {
+        "kind": "mcp",
+        "displayName": "Fathom",
+        "documentationUrl": "https://developers.fathom.ai/mcp-docs",
+        "verifiedAt": "2026-09-10",
+        "verification": "documentation-only",
+        "setup": {
+          "mode": "oauth",
+          "instructions": "Sign in with the Fathom account whose meetings you want to use."
+        },
+        "logo": "fathom-mcp.png",
+        "category": "meetings"
+      }
+    },
+    {
+      "name": "brex",
+      "source": {
+        "source": "local",
+        "path": "plugins/mcp-catalog/brex",
+        "version": "1.0.2"
+      },
+      "description": "Review expenses, cards, and company spending.",
+      "homepage": "https://www.brex.com/support/using-brex-in-ai-apps",
+      "license": "MIT",
+      "integration": {
+        "kind": "mcp",
+        "displayName": "Brex",
+        "documentationUrl": "https://www.brex.com/support/using-brex-in-ai-apps",
+        "verifiedAt": "2026-09-10",
+        "verification": "documentation-only",
+        "setup": {
+          "mode": "oauth",
+          "instructions": "A Brex admin must enable AI assistant access and accept the Developer API agreement."
+        },
+        "logo": "brex-mcp.png",
+        "category": "finance"
+      }
+    },
+    {
+      "name": "ramp",
+      "source": {
+        "source": "local",
+        "path": "plugins/mcp-catalog/ramp",
+        "version": "1.0.2"
+      },
+      "description": "Explore expenses, bills, and company spending.",
+      "homepage": "https://agents.ramp.com/docs/guides/connecting",
+      "license": "MIT",
+      "integration": {
+        "kind": "mcp",
+        "displayName": "Ramp",
+        "documentationUrl": "https://agents.ramp.com/docs/guides/connecting",
+        "verifiedAt": "2026-09-10",
+        "verification": "documentation-only",
+        "setup": {
+          "mode": "manual",
+          "instructions": "Ask Ramp to allowlist this client or gateway's exact OAuth redirect URI before connecting."
+        },
+        "logo": "ramp-mcp.png",
+        "category": "finance"
+      }
+    },
+    {
+      "name": "linear",
+      "source": {
+        "source": "local",
+        "path": "plugins/mcp-catalog/linear",
+        "version": "1.0.2"
+      },
+      "description": "Find issues, projects, and team updates.",
+      "homepage": "https://linear.app/docs/mcp",
+      "license": "MIT",
+      "integration": {
+        "kind": "mcp",
+        "displayName": "Linear",
+        "documentationUrl": "https://linear.app/docs/mcp",
+        "verifiedAt": "2026-09-10",
+        "verification": "documentation-only",
+        "setup": {
+          "mode": "oauth",
+          "instructions": "Choose the Linear workspace to authorize; access follows your account permissions."
+        },
+        "logo": "linear-mcp.png",
+        "category": "engineering",
+        "oauthProvider": "linear"
+      }
+    },
+    {
+      "name": "notion",
+      "source": {
+        "source": "local",
+        "path": "plugins/mcp-catalog/notion",
+        "version": "1.0.2"
+      },
+      "description": "Search and work with workspace pages and databases.",
+      "homepage": "https://developers.notion.com/guides/mcp/get-started-with-mcp",
+      "license": "MIT",
+      "integration": {
+        "kind": "mcp",
+        "displayName": "Notion",
+        "documentationUrl": "https://developers.notion.com/guides/mcp/get-started-with-mcp",
+        "verifiedAt": "2026-09-10",
+        "verification": "documentation-only",
+        "setup": {
+          "mode": "oauth",
+          "instructions": "Authorize the Notion workspace and content you want to use."
+        },
+        "logo": "notion-mcp.png",
+        "category": "productivity",
+        "oauthProvider": "notion"
+      }
+    },
+    {
+      "name": "sentry",
+      "source": {
+        "source": "local",
+        "path": "plugins/mcp-catalog/sentry",
+        "version": "1.0.2"
+      },
+      "description": "Investigate errors, issues, and application performance.",
+      "homepage": "https://github.com/getsentry/sentry-mcp",
+      "license": "MIT",
+      "integration": {
+        "kind": "mcp",
+        "displayName": "Sentry",
+        "documentationUrl": "https://github.com/getsentry/sentry-mcp",
+        "verifiedAt": "2026-09-10",
+        "verification": "documentation-only",
+        "setup": {
+          "mode": "oauth",
+          "instructions": "Sign in to Sentry and authorize the organizations you want to use."
+        },
+        "logo": "sentry-mcp.png",
+        "category": "engineering"
+      }
+    },
+    {
+      "name": "stripe",
+      "source": {
+        "source": "local",
+        "path": "plugins/mcp-catalog/stripe",
+        "version": "1.0.2"
+      },
+      "description": "Explore payments, customers, and account activity.",
+      "homepage": "https://docs.stripe.com/mcp",
+      "license": "MIT",
+      "integration": {
+        "kind": "mcp",
+        "displayName": "Stripe",
+        "documentationUrl": "https://docs.stripe.com/mcp",
+        "verifiedAt": "2026-09-10",
+        "verification": "documentation-only",
+        "setup": {
+          "mode": "oauth",
+          "instructions": "Authorize the intended Stripe account and environment; your administrator may need to enable MCP access."
+        },
+        "logo": "stripe-mcp.png",
+        "category": "finance"
+      }
+    },
+    {
+      "name": "atlassian",
+      "source": {
+        "source": "local",
+        "path": "plugins/mcp-catalog/atlassian",
+        "version": "1.0.2"
+      },
+      "description": "Search Jira, Confluence, and connected Atlassian products.",
+      "homepage": "https://atlassian.github.io/atlassian-mcp-server/",
+      "license": "Apache-2.0",
+      "integration": {
+        "kind": "mcp",
+        "displayName": "Atlassian",
+        "documentationUrl": "https://atlassian.github.io/atlassian-mcp-server/",
+        "verifiedAt": "2026-09-10",
+        "verification": "documentation-only",
+        "setup": {
+          "mode": "oauth",
+          "instructions": "Requires an Atlassian Cloud site and access allowed by your organization."
+        },
+        "logo": "atlassian-mcp.png",
+        "category": "engineering"
+      }
     },
     {
       "name": "amplemarket",
@@ -107,43 +901,6 @@
       }
     },
     {
-      "name": "astrology-horoscope",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/astrology-horoscope",
-        "ref": "d226ce2e0a021e12cbf89ca7313f7c76a0bd8e39"
-      },
-      "description": "Western tropical natal chart and transit computation. Local ephemeris (astronomy-engine, no API keys) for planet positions, ascendant/midheaven, whole-sign houses, and aspects, plus a natal-reading skill that interprets the raw chart into a readable report.",
-      "category": "hobby",
-      "homepage": "https://github.com/vellum-ai/astrology-horoscope",
-      "license": "MIT",
-      "icon": "🔮"
-    },
-    {
-      "name": "atlassian",
-      "source": {
-        "source": "local",
-        "path": "plugins/mcp-catalog/atlassian",
-        "version": "1.0.2"
-      },
-      "description": "Search Jira, Confluence, and connected Atlassian products.",
-      "homepage": "https://atlassian.github.io/atlassian-mcp-server/",
-      "license": "Apache-2.0",
-      "integration": {
-        "kind": "mcp",
-        "displayName": "Atlassian",
-        "documentationUrl": "https://atlassian.github.io/atlassian-mcp-server/",
-        "verifiedAt": "2026-09-10",
-        "verification": "documentation-only",
-        "setup": {
-          "mode": "oauth",
-          "instructions": "Requires an Atlassian Cloud site and access allowed by your organization."
-        },
-        "logo": "atlassian-mcp.png",
-        "category": "engineering"
-      }
-    },
-    {
       "name": "attio",
       "source": {
         "source": "local",
@@ -165,43 +922,6 @@
         },
         "logo": "attio-mcp.png",
         "category": "sales"
-      }
-    },
-    {
-      "name": "battleship",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/battleship",
-        "ref": "32391ea3af71597b7507bb710bd29ab8308a4604"
-      },
-      "description": "Play Battleship against your assistant. Fire shots, track hits and misses, and sink the fleet before the assistant sinks yours.",
-      "category": "hobby",
-      "homepage": "https://github.com/vellum-ai/battleship",
-      "license": "MIT",
-      "icon": "⚓"
-    },
-    {
-      "name": "brex",
-      "source": {
-        "source": "local",
-        "path": "plugins/mcp-catalog/brex",
-        "version": "1.0.2"
-      },
-      "description": "Review expenses, cards, and company spending.",
-      "homepage": "https://www.brex.com/support/using-brex-in-ai-apps",
-      "license": "MIT",
-      "integration": {
-        "kind": "mcp",
-        "displayName": "Brex",
-        "documentationUrl": "https://www.brex.com/support/using-brex-in-ai-apps",
-        "verifiedAt": "2026-09-10",
-        "verification": "documentation-only",
-        "setup": {
-          "mode": "oauth",
-          "instructions": "A Brex admin must enable AI assistant access and accept the Developer API agreement."
-        },
-        "logo": "brex-mcp.png",
-        "category": "finance"
       }
     },
     {
@@ -228,19 +948,6 @@
         "category": "meetings",
         "oauthProvider": "calendly"
       }
-    },
-    {
-      "name": "caveman",
-      "source": {
-        "source": "github",
-        "repo": "JuliusBrussee/caveman",
-        "ref": "63a91ecadbf4c4719a4602a5abb00883f9966034"
-      },
-      "description": "Ultra-compressed communication mode that strips filler words to cut token usage.",
-      "category": "productivity",
-      "homepage": "https://github.com/JuliusBrussee/caveman",
-      "license": "MIT",
-      "icon": "🦴"
     },
     {
       "name": "circleback",
@@ -291,83 +998,6 @@
       }
     },
     {
-      "name": "coffee-aficionado",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/coffee-aficionado",
-        "ref": "facd5a03979605edc894ea61e9a45f7b6a53214a"
-      },
-      "description": "Find great coffee beans and machines matched to your taste profile, budget, and kitchen. Persistent memory learns your preferences over time.",
-      "category": "lifestyle",
-      "homepage": "https://github.com/vellum-ai/coffee-aficionado",
-      "license": "MIT"
-    },
-    {
-      "name": "cofounder",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/cofounder",
-        "ref": "547adf1c0db0cbb32855ff0e4ef46c056248bdea"
-      },
-      "description": "AI co-founder that remembers your company context, challenges your thinking, and tracks your decisions.",
-      "category": "productivity",
-      "homepage": "https://github.com/vellum-ai/cofounder",
-      "license": "MIT",
-      "icon": "🤝"
-    },
-    {
-      "name": "cognee",
-      "source": {
-        "source": "github",
-        "repo": "topoteretes/cognee-integrations",
-        "path": "integrations/vellum-assistant",
-        "ref": "d79bd9a216c9f6d88d27694cc0b42a18b63dba88"
-      },
-      "description": "Cognee knowledge graph memory for Vellum Assistant: session-aware storage, auto-routing recall, and persistent learning across sessions. Supports local mode and Cognee Cloud.",
-      "category": "memory",
-      "homepage": "https://github.com/topoteretes/cognee-integrations/tree/main/integrations/vellum-assistant",
-      "icon": "🕸️"
-    },
-    {
-      "name": "contractor-missed-call-dispatcher",
-      "description": "Captures missed trade contractor inbound calls, fires an instant 5-second SMS qualification text-back, triages emergencies, and stages draft jobs in Jobber or ServiceTitan.",
-      "category": "commerce",
-      "icon": "📲",
-      "license": "MIT",
-      "homepage": "https://github.com/ZeebBoyBlue/contractor-missed-call-dispatcher",
-      "source": {
-        "source": "github",
-        "repo": "ZeebBoyBlue/contractor-missed-call-dispatcher",
-        "ref": "2d293cdcb68af03d446b61a9915a0ee3dc842d4e"
-      }
-    },
-    {
-      "name": "contractor-photo-to-quote",
-      "description": "Turns job-site and equipment photos into standardized trade estimates and quotes in Jobber or QuickBooks with multi-tier Good/Better/Best options in 5 minutes.",
-      "category": "commerce",
-      "icon": "📸",
-      "license": "MIT",
-      "homepage": "https://github.com/ZeebBoyBlue/contractor-photo-to-quote",
-      "source": {
-        "source": "github",
-        "repo": "ZeebBoyBlue/contractor-photo-to-quote",
-        "ref": "6c136186faaf03bcf125d202f0b1f51f97d94544"
-      }
-    },
-    {
-      "name": "contractor-voice-invoicer",
-      "description": "Converts 20-second truck voice memos and job photos into itemized client invoices with custom labor rates, material markups, and one-click accounting staging.",
-      "category": "commerce",
-      "icon": "🔧",
-      "license": "MIT",
-      "homepage": "https://github.com/ZeebBoyBlue/contractor-voice-invoicer",
-      "source": {
-        "source": "github",
-        "repo": "ZeebBoyBlue/contractor-voice-invoicer",
-        "ref": "31e21ea1aa90b3ba462ed7208988931411226daa"
-      }
-    },
-    {
       "name": "craft",
       "source": {
         "source": "local",
@@ -392,20 +1022,6 @@
       }
     },
     {
-      "name": "creatorland",
-      "source": {
-        "source": "github",
-        "repo": "creatorland/creatorland-mcp-skills",
-        "path": "plugins/creatorland-data",
-        "ref": "9cdbb1553645bbb746918f43d60e0df17ae91fa0"
-      },
-      "description": "Creatorland turns your Vellum assistant into an influencer marketer in a box: find the right creators, benchmark rates, analyze competitors, build campaign shortlists, and launch outreach from your brand context. The plugin kit includes guided workflows for brief-to-shortlist, transcript-to-shortlist, brief building, fair-price negotiation, one-number rate cards, and creator marketing onboarding.",
-      "category": "marketing",
-      "homepage": "https://github.com/creatorland/creatorland-mcp-skills/tree/main/plugins/creatorland-data",
-      "license": "MIT",
-      "icon": "🎨"
-    },
-    {
       "name": "customer-io",
       "source": {
         "source": "local",
@@ -427,69 +1043,6 @@
         },
         "logo": "customer-io-mcp.png",
         "category": "marketing"
-      }
-    },
-    {
-      "name": "dynamic-notch",
-      "source": {
-        "source": "github",
-        "repo": "AnitaKirkovska/dynamic-notch",
-        "ref": "9729c3685d60d00d1de73a183b03122b9fa1f8f4"
-      },
-      "description": "Put your Vellum assistant inside your MacBook's notch: click to chat, hold Ctrl+Option to talk, and get a floating task bulb while it works, with live-streamed replies and per-sentence voice.",
-      "category": "interface",
-      "homepage": "https://github.com/AnitaKirkovska/dynamic-notch",
-      "license": "MIT",
-      "icon": "💻"
-    },
-    {
-      "name": "ecommerce-order-supporter",
-      "description": "Resolves ecommerce Where-Is-My-Order (WISMO) support inquiries, cross-checks real-time carrier tracking milestones, flags delivery exceptions, and stages customer update drafts without helpdesk seat taxes.",
-      "category": "commerce",
-      "icon": "📦",
-      "license": "MIT",
-      "homepage": "https://github.com/ZeebBoyBlue/ecommerce-order-supporter",
-      "source": {
-        "source": "github",
-        "repo": "ZeebBoyBlue/ecommerce-order-supporter",
-        "ref": "35e2165a14447a897aee750a198c3f166458226b"
-      }
-    },
-    {
-      "name": "family-briefing",
-      "source": {
-        "source": "github",
-        "repo": "AnitaKirkovska/family-briefing",
-        "ref": "145f341db7d06ffa81e2052033f187679b8bda4d"
-      },
-      "description": "Daily morning briefing for parents: merges family calendars, triages school emails, and detects scheduling conflicts.",
-      "category": "productivity",
-      "homepage": "https://github.com/AnitaKirkovska/family-briefing",
-      "license": "MIT",
-      "icon": "👨‍👩‍👧‍👦"
-    },
-    {
-      "name": "fathom",
-      "source": {
-        "source": "local",
-        "path": "plugins/mcp-catalog/fathom",
-        "version": "1.0.2"
-      },
-      "description": "Search meeting transcripts and summaries.",
-      "homepage": "https://developers.fathom.ai/mcp-docs",
-      "license": "MIT",
-      "integration": {
-        "kind": "mcp",
-        "displayName": "Fathom",
-        "documentationUrl": "https://developers.fathom.ai/mcp-docs",
-        "verifiedAt": "2026-09-10",
-        "verification": "documentation-only",
-        "setup": {
-          "mode": "oauth",
-          "instructions": "Sign in with the Fathom account whose meetings you want to use."
-        },
-        "logo": "fathom-mcp.png",
-        "category": "meetings"
       }
     },
     {
@@ -517,19 +1070,6 @@
       }
     },
     {
-      "name": "fitness-companion",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/fitness-companion",
-        "ref": "fe4e02e2b514207a37f2a7e9f9c500ec8a73edcb"
-      },
-      "description": "Fitness and nutrition companion. Logs meals, workouts, and weight; looks up nutrition data from OpenFoodFacts; calculates macro targets; and injects daily fitness context into every conversation.",
-      "category": "health",
-      "homepage": "https://github.com/vellum-ai/fitness-companion",
-      "license": "MIT",
-      "icon": "💪"
-    },
-    {
       "name": "gamma",
       "source": {
         "source": "local",
@@ -554,32 +1094,6 @@
       }
     },
     {
-      "name": "git-workflow",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/git-workflow",
-        "ref": "829407aa93b63b8bca4717624533f2fc7f702a5d"
-      },
-      "description": "Git workflow tools and multi-perspective code review: branch management, push, stash, PR creation/review/merge/checkout, diffs, logs, changelog generation, and parallel subagent code review with confidence scoring.",
-      "category": "developer",
-      "homepage": "https://github.com/vellum-ai/git-workflow",
-      "license": "MIT",
-      "icon": "🔀"
-    },
-    {
-      "name": "google-drive-search",
-      "source": {
-        "source": "github",
-        "repo": "ZeebBoyBlue/google-drive-search",
-        "ref": "ddd5013477cc1ec8d1fb174db6b599dbfe1cca21"
-      },
-      "description": "Local full-text search across your Google Drive. Indexes file metadata and document content into SQLite FTS5 for instant, private search.",
-      "category": "productivity",
-      "homepage": "https://github.com/ZeebBoyBlue/google-drive-search",
-      "license": "Apache-2.0",
-      "icon": "🔍"
-    },
-    {
       "name": "guru",
       "source": {
         "source": "local",
@@ -602,32 +1116,6 @@
         "logo": "guru-mcp.png",
         "category": "knowledge"
       }
-    },
-    {
-      "name": "imessage",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/imessage",
-        "ref": "af3d9f79903817358084de74e056422e6ca91fe4"
-      },
-      "description": "iMessage and SMS channel for the Vellum assistant, backed by a Photon line.",
-      "category": "productivity",
-      "homepage": "https://github.com/vellum-ai/imessage",
-      "license": "MIT",
-      "icon": "📲"
-    },
-    {
-      "name": "influencer-marketing",
-      "source": {
-        "source": "github",
-        "repo": "ZeebBoyBlue/influencer",
-        "ref": "8629b0dcfdacf62246122af2dcd7320baa6db04e"
-      },
-      "description": "Find and research influencers on Instagram, TikTok, and X/Twitter. Includes a strategy builder that walks from campaign brief to research criteria, a research skill that discovers real profiles via browser automation, scores candidates, and exports ranked shortlists, and a dashboard skill that turns the shortlist into an interactive outreach tracker.",
-      "category": "marketing",
-      "homepage": "https://github.com/ZeebBoyBlue/influencer",
-      "license": "MIT",
-      "icon": "📣"
     },
     {
       "name": "interactive-brokers",
@@ -726,19 +1214,6 @@
       }
     },
     {
-      "name": "kitchen-companion",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/kitchen-companion",
-        "ref": "b6ebdda6992dfa1fd2186a600a642f538fb64584"
-      },
-      "description": "Full kitchen companion. Scan your fridge with a photo to stock a pantry inventory and get 3 makeable-now recipes, get alerts before food expires, clip recipes from any URL into a clean format, and generate meal plans with grocery lists from what you actually have.",
-      "category": "lifestyle",
-      "homepage": "https://github.com/vellum-ai/kitchen-companion",
-      "license": "MIT",
-      "icon": "🍳"
-    },
-    {
       "name": "klaviyo",
       "source": {
         "source": "local",
@@ -760,57 +1235,6 @@
         },
         "logo": "klaviyo-mcp.png",
         "category": "marketing"
-      }
-    },
-    {
-      "name": "ledger",
-      "source": {
-        "source": "github",
-        "repo": "simensgreen/ledger",
-        "ref": "7fc04fd77b20ad4b27ccd51be22c101274b370f6"
-      },
-      "description": "Structured storage for Vellum agents: tables via JSON Schema, query/aggregate via JSON, named saved queries.",
-      "category": "developer",
-      "homepage": "https://github.com/simensgreen/ledger",
-      "license": "MIT",
-      "icon": "🗄️"
-    },
-    {
-      "name": "level-up",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/level-up",
-        "ref": "4357028acc339c6d6f718d5d6ab279ebf198673b"
-      },
-      "description": "Surfaces a first-class \"Level Up\" diff card whenever the assistant edits its own skills or plugins, so you can see how it improved itself after the fact.",
-      "category": "developer",
-      "homepage": "https://github.com/vellum-ai/level-up",
-      "license": "MIT",
-      "icon": "🆙"
-    },
-    {
-      "name": "linear",
-      "source": {
-        "source": "local",
-        "path": "plugins/mcp-catalog/linear",
-        "version": "1.0.2"
-      },
-      "description": "Find issues, projects, and team updates.",
-      "homepage": "https://linear.app/docs/mcp",
-      "license": "MIT",
-      "integration": {
-        "kind": "mcp",
-        "displayName": "Linear",
-        "documentationUrl": "https://linear.app/docs/mcp",
-        "verifiedAt": "2026-09-10",
-        "verification": "documentation-only",
-        "setup": {
-          "mode": "oauth",
-          "instructions": "Choose the Linear workspace to authorize; access follows your account permissions."
-        },
-        "logo": "linear-mcp.png",
-        "category": "engineering",
-        "oauthProvider": "linear"
       }
     },
     {
@@ -836,46 +1260,6 @@
         "logo": "mailerlite-mcp.png",
         "category": "marketing"
       }
-    },
-    {
-      "name": "markedet-field-notes",
-      "source": {
-        "source": "github",
-        "repo": "markedet-ai/markedet-field-notes-plugin",
-        "ref": "be64e09324cdc25ea7e7afd33f9c95eaf7ea294d"
-      },
-      "description": "Paste an exact error string; get a checked fix and verify step from Markedet field notes (free, as-is remote MCP maintained by an AI agent).",
-      "category": "developer",
-      "homepage": "https://agent-economy-data.onrender.com/llms.txt",
-      "license": "MIT",
-      "submittedBy": "markedet-ai",
-      "icon": "📝"
-    },
-    {
-      "name": "marketing-expert",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/marketing-expert",
-        "ref": "6a85ee33e184c2be56ed63cd5681d1287a941eff"
-      },
-      "description": "Acts as a full-stack marketing expert for any business (B2B or B2C): an on-demand persona plus playbook skills (positioning, demand planning, launches, content & copywriting, brand voice, email sequences, SEO & GEO, competitive teardown, board reporting) and deterministic funnel/positioning/GTM/competitive tools.",
-      "category": "marketing",
-      "homepage": "https://github.com/vellum-ai/marketing-expert",
-      "license": "MIT",
-      "icon": "📈"
-    },
-    {
-      "name": "markitdown-vellum",
-      "source": {
-        "source": "github",
-        "repo": "simensgreen/markitdown-vellum",
-        "ref": "5e5a4ecfd6c60d613778106442003a1ed302fc3c"
-      },
-      "description": "Convert workspace documents (PDF, DOCX, PPTX, XLSX, images, MSG, …) to markdown via @cognipeer/to-markdown, with Vellum vision OCR or Tesseract.",
-      "category": "productivity",
-      "homepage": "https://github.com/simensgreen/markitdown-vellum",
-      "license": "MIT",
-      "icon": "📄"
     },
     {
       "name": "meltwater",
@@ -950,45 +1334,6 @@
       }
     },
     {
-      "name": "model-router",
-      "source": {
-        "source": "github",
-        "repo": "AnitaKirkovska/model-router",
-        "ref": "605100d27b5333b243ada5a29fcb324e2217d336"
-      },
-      "description": "Routes each user-facing message to one of your workspace's inference profiles, so model selection can vary per call instead of staying pinned to a single profile.",
-      "category": "productivity",
-      "homepage": "https://github.com/AnitaKirkovska/model-router",
-      "license": "MIT",
-      "icon": "🚦"
-    },
-    {
-      "name": "motion-design",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/motion-design",
-        "ref": "9cdc798c26e0141dcdf6887d7707559c38bfe00e"
-      },
-      "description": "Teaches the assistant to build polished UI animations with Motion (motion.dev) for React: animated product mockups, chat replays, typing effects, and staggered reveals, with a complete animated chat example included.",
-      "category": "creative",
-      "homepage": "https://github.com/vellum-ai/motion-design",
-      "license": "MIT",
-      "icon": "🎬"
-    },
-    {
-      "name": "natural",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/natural",
-        "ref": "e71880d144337d1b8b6d3e65ab98006b7d015ef6"
-      },
-      "description": "Hosted MCP access to Natural payment operations for Vellum assistants.",
-      "category": "finance",
-      "homepage": "https://www.natural.com",
-      "license": "MIT",
-      "icon": "💳"
-    },
-    {
       "name": "navan",
       "source": {
         "source": "local",
@@ -1011,70 +1356,6 @@
         "logo": "navan-mcp.png",
         "category": "finance"
       }
-    },
-    {
-      "name": "notion",
-      "source": {
-        "source": "local",
-        "path": "plugins/mcp-catalog/notion",
-        "version": "1.0.2"
-      },
-      "description": "Search and work with workspace pages and databases.",
-      "homepage": "https://developers.notion.com/guides/mcp/get-started-with-mcp",
-      "license": "MIT",
-      "integration": {
-        "kind": "mcp",
-        "displayName": "Notion",
-        "documentationUrl": "https://developers.notion.com/guides/mcp/get-started-with-mcp",
-        "verifiedAt": "2026-09-10",
-        "verification": "documentation-only",
-        "setup": {
-          "mode": "oauth",
-          "instructions": "Authorize the Notion workspace and content you want to use."
-        },
-        "logo": "notion-mcp.png",
-        "category": "productivity",
-        "oauthProvider": "notion"
-      }
-    },
-    {
-      "name": "octolens",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/octolens",
-        "ref": "d9117f5c6b97b3bff75dec1a04bedc32571c6538"
-      },
-      "description": "Social listening plugin for Octolens. Monitor brand mentions, competitor activity, and industry conversations across 13+ platforms. Query mentions, run analytics, manage keywords and feeds via REST API tools, or connect the Octolens MCP server for natural-language workflows.",
-      "category": "growth",
-      "homepage": "https://github.com/vellum-ai/octolens",
-      "license": "MIT"
-    },
-    {
-      "name": "openseo",
-      "source": {
-        "source": "github",
-        "repo": "every-app/open-seo",
-        "path": "plugins/openseo",
-        "ref": "c469a48ae90ab58413b198fe3d1ac1aa90a9b070"
-      },
-      "description": "Keyword research, competitor analysis, site audits, backlinks, and rank tracking with real SEO data, plus guided workflow skills and the hosted OpenSEO MCP server.",
-      "category": "marketing",
-      "homepage": "https://openseo.so",
-      "license": "MIT",
-      "icon": "🔎"
-    },
-    {
-      "name": "originkit",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/originkit",
-        "ref": "9aa260c2561ad9e765832dc342e9bbb5138858a4"
-      },
-      "description": "Browse and import animated UI components from Originkit, a free library of 50 animated components. Browse by category or search term without an API key; fetch component source code (React, Next.js, Vite, Framer) with a free key from originkit.dev.",
-      "category": "productivity",
-      "homepage": "https://github.com/vellum-ai/originkit",
-      "license": "MIT",
-      "icon": "🧱"
     },
     {
       "name": "otter",
@@ -1101,58 +1382,6 @@
       }
     },
     {
-      "name": "personal-finance",
-      "source": {
-        "source": "github",
-        "repo": "AnitaKirkovska/personal-finance",
-        "ref": "f8f9bfba3d86c943001da894b920e7e867507dd4"
-      },
-      "description": "Track expenses, income, recurring bills, and savings funds from your assistant. Multi-currency, receipt OCR, Plaid bank sync, and financial summaries. All data stored locally in SQLite.",
-      "category": "productivity",
-      "homepage": "https://github.com/AnitaKirkovska/personal-finance",
-      "license": "MIT",
-      "icon": "💰"
-    },
-    {
-      "name": "plant-doctor",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/plant-doctor",
-        "ref": "1115ac07a5b7f731600f037b743e011a84bd0597"
-      },
-      "description": "Diagnose plants from photos. Identifies the species, assesses health with visible evidence, and returns a care plan. Named plants get a persistent checkup history so you can track whether they are improving.",
-      "category": "lifestyle",
-      "homepage": "https://github.com/vellum-ai/plant-doctor",
-      "license": "MIT",
-      "icon": "🪴"
-    },
-    {
-      "name": "polyglot",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/polyglot",
-        "ref": "ab607b7c60b64b0ac5c6bf01609840a004cfd002"
-      },
-      "description": "Ambient language acquisition through your assistant. Three graduated modes (practice, ambient, immersive) weave a target language into your real conversations, with SM-2 spaced repetition, error-pattern tracking, and CEFR level history.",
-      "category": "education",
-      "homepage": "https://github.com/vellum-ai/polyglot",
-      "license": "MIT",
-      "icon": "🗣️"
-    },
-    {
-      "name": "proactive-slacks",
-      "source": {
-        "source": "github",
-        "repo": "AnitaKirkovska/proactive-slacks",
-        "ref": "a5dd35699455ae7a2db3d2243511a8c7edc49aea"
-      },
-      "description": "Let your assistant reach you on Slack on purpose. Route notifications by topic to the right channel at the right volume, with heartbeat-based change detection so it only pings when something actually changed.",
-      "category": "productivity",
-      "homepage": "https://github.com/AnitaKirkovska/proactive-slacks",
-      "license": "MIT",
-      "icon": "💬"
-    },
-    {
       "name": "profound",
       "source": {
         "source": "local",
@@ -1177,56 +1406,6 @@
       }
     },
     {
-      "name": "quickbooks-expense-categorizer",
-      "description": "Scans uncategorized QuickBooks Online expenses and bank feeds, matches receipts, and stages categorized entries with confidence scoring for 1-click batch review.",
-      "category": "commerce",
-      "icon": "🧾",
-      "license": "MIT",
-      "homepage": "https://github.com/ZeebBoyBlue/quickbooks-expense-categorizer",
-      "source": {
-        "source": "github",
-        "repo": "ZeebBoyBlue/quickbooks-expense-categorizer",
-        "ref": "120776619698cc3e9490caf5c756465f5caaa6c2"
-      }
-    },
-    {
-      "name": "ramp",
-      "source": {
-        "source": "local",
-        "path": "plugins/mcp-catalog/ramp",
-        "version": "1.0.2"
-      },
-      "description": "Explore expenses, bills, and company spending.",
-      "homepage": "https://agents.ramp.com/docs/guides/connecting",
-      "license": "MIT",
-      "integration": {
-        "kind": "mcp",
-        "displayName": "Ramp",
-        "documentationUrl": "https://agents.ramp.com/docs/guides/connecting",
-        "verifiedAt": "2026-09-10",
-        "verification": "documentation-only",
-        "setup": {
-          "mode": "manual",
-          "instructions": "Ask Ramp to allowlist this client or gateway's exact OAuth redirect URI before connecting."
-        },
-        "logo": "ramp-mcp.png",
-        "category": "finance"
-      }
-    },
-    {
-      "name": "reading-pal",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/reading-pal",
-        "ref": "5219474719e67db7ea64848f6bd2a0b7312e4f27"
-      },
-      "description": "Your reading life in one plugin. Track your TBR pile, get guilt-tripped about your backlog, find your next read, and sync from Goodreads.",
-      "category": "hobby",
-      "homepage": "https://github.com/vellum-ai/reading-pal",
-      "license": "MIT",
-      "icon": "📚"
-    },
-    {
       "name": "readwise",
       "source": {
         "source": "local",
@@ -1248,19 +1427,6 @@
         },
         "logo": "readwise-mcp.png",
         "category": "knowledge"
-      }
-    },
-    {
-      "name": "restaurant-invoice-auditor",
-      "description": "Audits restaurant food delivery slips in 14 seconds, flags silent price hikes and pack-size shrinkage, and stages approved bills in QuickBooks.",
-      "category": "commerce",
-      "icon": "🧾",
-      "license": "MIT",
-      "homepage": "https://github.com/ZeebBoyBlue/restaurant-invoice-auditor",
-      "source": {
-        "source": "github",
-        "repo": "ZeebBoyBlue/restaurant-invoice-auditor",
-        "ref": "f1905e639941e98172c5032b6d722f668882d75d"
       }
     },
     {
@@ -1299,106 +1465,6 @@
       }
     },
     {
-      "name": "sentry",
-      "source": {
-        "source": "local",
-        "path": "plugins/mcp-catalog/sentry",
-        "version": "1.0.2"
-      },
-      "description": "Investigate errors, issues, and application performance.",
-      "homepage": "https://github.com/getsentry/sentry-mcp",
-      "license": "MIT",
-      "integration": {
-        "kind": "mcp",
-        "displayName": "Sentry",
-        "documentationUrl": "https://github.com/getsentry/sentry-mcp",
-        "verifiedAt": "2026-09-10",
-        "verification": "documentation-only",
-        "setup": {
-          "mode": "oauth",
-          "instructions": "Sign in to Sentry and authorize the organizations you want to use."
-        },
-        "logo": "sentry-mcp.png",
-        "category": "engineering"
-      }
-    },
-    {
-      "name": "shopify-payout-reconciler",
-      "description": "Unbundles lump-sum Shopify merchant bank deposits into gross sales, processor fees, customer refunds, shipping labels, and sales tax for penny-accurate QuickBooks reconciliation.",
-      "category": "commerce",
-      "icon": "🛍️",
-      "license": "MIT",
-      "homepage": "https://github.com/ZeebBoyBlue/shopify-payout-reconciler",
-      "source": {
-        "source": "github",
-        "repo": "ZeebBoyBlue/shopify-payout-reconciler",
-        "ref": "079fe0d86629686243a588cf3c4867d38d6ab8b8"
-      }
-    },
-    {
-      "name": "simple-memory",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/simple-memory",
-        "ref": "ed09a4c01bf18e4ac8859faee94cb65c7cbd1ca3"
-      },
-      "description": "Reference memory plugin that exercises the full plugin API with low-cost variants of Vellum's memory defaults.",
-      "category": "memory",
-      "homepage": "https://github.com/vellum-ai/simple-memory",
-      "license": "MIT",
-      "icon": "🧠"
-    },
-    {
-      "name": "smb-inbox-brief",
-      "source": {
-        "source": "github",
-        "repo": "AnitaKirkovska/smb-inbox-brief",
-        "ref": "8e298bd8ded5e0e16c5160edcd547eda1e4d222f"
-      },
-      "description": "Find urgent replies, overdue invoices, quotes, and customer follow-ups before they slip. Scans email, logs business items, delivers urgency-ranked daily briefs.",
-      "category": "productivity",
-      "homepage": "https://github.com/AnitaKirkovska/smb-inbox-brief",
-      "license": "MIT",
-      "icon": "📧"
-    },
-    {
-      "name": "stripe",
-      "source": {
-        "source": "local",
-        "path": "plugins/mcp-catalog/stripe",
-        "version": "1.0.2"
-      },
-      "description": "Explore payments, customers, and account activity.",
-      "homepage": "https://docs.stripe.com/mcp",
-      "license": "MIT",
-      "integration": {
-        "kind": "mcp",
-        "displayName": "Stripe",
-        "documentationUrl": "https://docs.stripe.com/mcp",
-        "verifiedAt": "2026-09-10",
-        "verification": "documentation-only",
-        "setup": {
-          "mode": "oauth",
-          "instructions": "Authorize the intended Stripe account and environment; your administrator may need to enable MCP access."
-        },
-        "logo": "stripe-mcp.png",
-        "category": "finance"
-      }
-    },
-    {
-      "name": "tennis-companion",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/tennis-companion",
-        "ref": "1c6d2bd448ee7b5285d37cfee4e0e413522746d1"
-      },
-      "description": "Tennis journal, drill sessions, court finder, and progress tracking. Log matches with opponent tendencies, generate 30-minute practice sessions with progressions, find nearby courts via OpenStreetMap, and track win rate by surface and conditions.",
-      "category": "health",
-      "homepage": "https://github.com/vellum-ai/tennis-companion",
-      "license": "MIT",
-      "icon": "🎾"
-    },
-    {
       "name": "todoist",
       "source": {
         "source": "local",
@@ -1422,19 +1488,6 @@
         "category": "productivity",
         "oauthProvider": "todoist"
       }
-    },
-    {
-      "name": "travel-planner",
-      "source": {
-        "source": "github",
-        "repo": "AnitaKirkovska/travel-planner",
-        "ref": "10c2c4878b017997cb6766b8204b9803c56bc6cf"
-      },
-      "description": "A travel EA for your assistant. Remembers how you travel (carrier, miles, hotel budget, card benefits), keeps per-trip records, watches Gmail for booking changes, syncs your calendar, and emails an EA-style trip brief 48 hours before departure.",
-      "category": "lifestyle",
-      "homepage": "https://github.com/AnitaKirkovska/travel-planner",
-      "license": "MIT",
-      "icon": "✈️"
     },
     {
       "name": "typeform",
@@ -1461,19 +1514,6 @@
       }
     },
     {
-      "name": "unabyss",
-      "source": {
-        "source": "github",
-        "repo": "Unabyss/unabyss-vellum",
-        "ref": "9f0bb0753dad09dace8578e242961bc2da912af3"
-      },
-      "description": "Personal and company context from Unabyss, available to your agent through the Unabyss MCP server.",
-      "category": "memory",
-      "homepage": "https://unabyss.com",
-      "license": "MIT",
-      "icon": "🌊"
-    },
-    {
       "name": "upwork",
       "source": {
         "source": "local",
@@ -1496,33 +1536,6 @@
         "logo": "upwork-mcp.png",
         "category": "recruiting"
       }
-    },
-    {
-      "name": "vellum-client-qa",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/vellum-client-qa",
-        "ref": "4f559d865eaa04b68285f8e4fae4a05fc18fe88f"
-      },
-      "description": "Cross-platform QA rig for vellum-assistant clients: mock the platform backend, boot the real chat UI, and verify feature branches in headless Chromium (web), an iOS simulator, or Electron with screenshot and video proof.",
-      "category": "developer",
-      "homepage": "https://github.com/vellum-ai/vellum-client-qa",
-      "license": "MIT",
-      "icon": "🧪"
-    },
-    {
-      "name": "virlo",
-      "source": {
-        "source": "github",
-        "repo": "Virlo-AI/virlo-integrations",
-        "path": "integrations/vellum",
-        "ref": "e398cfd8a48316b9378e08efe4b42ad3dc42197e"
-      },
-      "description": "Real-time short-form video intelligence across TikTok, YouTube Shorts, and Instagram Reels, powered by Virlo Content Research Agents.",
-      "category": "marketing",
-      "homepage": "https://github.com/Virlo-AI/virlo-integrations/tree/main/integrations/vellum",
-      "license": "MIT",
-      "icon": "📱"
     },
     {
       "name": "webull",
@@ -1571,19 +1584,6 @@
         "logo": "wix-mcp.png",
         "category": "commerce"
       }
-    },
-    {
-      "name": "writing-coach",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/writing-coach",
-        "ref": "9cb2289343fed2fd6ad8b0bb5db07616d1c8181c"
-      },
-      "description": "A writing coach in your pocket. Daily prompts that escalate with your streak, savage-but-constructive draft roasts, query letter critiques, and a word count enforcer that guilt-trips you when you skip.",
-      "category": "hobby",
-      "homepage": "https://github.com/vellum-ai/writing-coach",
-      "license": "MIT",
-      "icon": "✍️"
     }
   ]
 }
