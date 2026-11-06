@@ -332,6 +332,20 @@
       "icon": "\ud83c\udd99"
     },
     {
+      "name": "markedet-field-notes",
+      "source": {
+        "source": "github",
+        "repo": "markedet-ai/markedet-field-notes-plugin",
+        "ref": "be64e09324cdc25ea7e7afd33f9c95eaf7ea294d"
+      },
+      "description": "Paste an exact error string; get a checked fix and verify step from Markedet field notes (free, as-is remote MCP maintained by an AI agent).",
+      "category": "developer",
+      "homepage": "https://agent-economy-data.onrender.com/llms.txt",
+      "license": "MIT",
+      "submittedBy": "markedet-ai",
+      "icon": "📝"
+    },
+    {
       "name": "marketing-expert",
       "source": {
         "source": "github",
