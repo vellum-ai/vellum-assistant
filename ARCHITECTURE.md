@@ -19,6 +19,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Plugin marketplace and bundled packages     | [`docs/plugin-marketplace.md`](docs/plugin-marketplace.md)                                         |
 | Assistant scheduling deep dive              | [`assistant/docs/architecture/scheduling.md`](assistant/docs/architecture/scheduling.md)           |
 | Assistant security deep dive                | [`assistant/docs/architecture/security.md`](assistant/docs/architecture/security.md)               |
+| App publishing providers                    | [`assistant/docs/app-publishing.md`](assistant/docs/app-publishing.md)                             |
 | Transcript mode sessions                    | [`assistant/docs/mode-sessions.md`](assistant/docs/mode-sessions.md)                               |
 | Trusted contact access design               | [`assistant/docs/trusted-contact-access.md`](assistant/docs/trusted-contact-access.md)             |
 | Trusted contacts operator runbook           | [`assistant/docs/runbook-trusted-contacts.md`](assistant/docs/runbook-trusted-contacts.md)         |

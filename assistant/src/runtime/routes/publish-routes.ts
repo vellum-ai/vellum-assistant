@@ -1,9 +1,12 @@
 /**
- * Route handlers for publishing/unpublishing apps to Vercel.
+ * Route handlers for publishing/unpublishing apps.
  *
- * POST /v1/apps/:id/publish       — deploy app HTML to Vercel
- * POST /v1/apps/:id/unpublish     — mark deployment as inactive
- * GET  /v1/apps/:id/publish-status — return current deployment state
+ * POST /v1/apps/:id/publish        : deploy app HTML through the configured provider
+ * POST /v1/apps/:id/unpublish      : take the deployment down and mark it inactive
+ * GET  /v1/apps/:id/publish-status : return current deployment state
+ *
+ * Which provider runs is `apps.publish.provider`; every response names it so
+ * clients can label the affordance without knowing the provider set.
  */
 
 import { createHash } from "node:crypto";
@@ -24,14 +27,32 @@ import {
   updatePublishedPage,
 } from "../../apps/published-pages-store.js";
 import { compileApp } from "../../bundler/app-compiler.js";
-import { deployHtmlToVercel } from "../../services/vercel-deploy.js";
-import { credentialBroker } from "../../tools/credentials/broker.js";
+import {
+  getPublishProvider,
+  withPublishCredential,
+} from "../../services/publish/registry.js";
+import { appSlug } from "../../services/publish/types.js";
+import { getCredentialMetadata } from "../../tools/credentials/metadata-store.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("publish-routes");
+
+// Optional on the wire, always sent by these handlers: a web bundle newer than
+// the assistant it is talking to must be able to tell an assistant that names
+// no provider (Vercel only) from one that names a provider.
+const providerResponseFields = {
+  provider: z
+    .string()
+    .optional()
+    .describe("Id of the configured publish provider"),
+  providerName: z
+    .string()
+    .optional()
+    .describe("Display name of the configured publish provider"),
+};
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -42,6 +63,24 @@ async function handlePublish({ pathParams }: RouteHandlerArgs) {
   const app = getApp(appId);
   if (!app) {
     throw new NotFoundError(`App not found: ${appId}`);
+  }
+
+  const provider = getPublishProvider();
+  const providerFields = {
+    provider: provider.id,
+    providerName: provider.displayName,
+  };
+
+  // Answer a missing required credential before compiling: the compile is the
+  // expensive half and a deploy that cannot authenticate will not run anyway.
+  const { service, field, required, missingMessage } = provider.credential;
+  if (required && !getCredentialMetadata(service, field)) {
+    return {
+      ...providerFields,
+      success: false,
+      errorCode: "credentials_missing",
+      error: missingMessage,
+    };
   }
 
   // Compile if needed (same pattern as handleOpenApp)
@@ -55,6 +94,7 @@ async function handlePublish({ pathParams }: RouteHandlerArgs) {
         "Auto-compile failed before publish",
       );
       return {
+        ...providerFields,
         success: false,
         errorCode: "compile_failed",
         error: `App failed to compile: ${result.errors?.join("; ") ?? "unknown error"}`,
@@ -65,33 +105,29 @@ async function handlePublish({ pathParams }: RouteHandlerArgs) {
   const html = resolveEffectiveAppHtml(app);
   if (!html) {
     return {
+      ...providerFields,
       success: false,
       errorCode: "no_html",
       error: "App has no HTML content to publish",
     };
   }
 
-  // Get Vercel token via credential broker
-  const useResult = await credentialBroker.serverUse({
-    service: "vercel",
-    field: "api_token",
-    toolName: "publish_page",
-    execute: async (token) => {
-      const result = await deployHtmlToVercel({
-        html,
-        name: app.name,
-        token,
-      });
+  const existing = getActivePublishedPageByAppId(appId);
+  const slug = appSlug(app.name);
+  const meta = {
+    appId,
+    name: app.name,
+    slug,
+    previousDeploymentId: existing?.deploymentId,
+  };
+
+  const outcome = await withPublishCredential(
+    provider,
+    "publish_page",
+    async (token) => {
+      const result = await provider.deploy(html, meta, token);
 
       const htmlHash = createHash("sha256").update(html).digest("hex");
-      const slug = app.name
-        .toLowerCase()
-        .replace(/[^a-z0-9-]/g, "-")
-        .replace(/-+/g, "-")
-        .replace(/^-|-$/g, "");
-
-      // Create or update the published page record
-      const existing = getActivePublishedPageByAppId(appId);
       if (existing) {
         updatePublishedPage(existing.id, {
           deploymentId: result.deploymentId,
@@ -115,47 +151,93 @@ async function handlePublish({ pathParams }: RouteHandlerArgs) {
 
       return result;
     },
-  });
+  );
 
-  if (!useResult.success || !useResult.result) {
-    const isMissing =
-      useResult.reason?.includes("No credential found") ||
-      useResult.reason?.includes("no stored value");
+  if (!outcome.success) {
     return {
+      ...providerFields,
       success: false,
-      errorCode: isMissing ? "credentials_missing" : "deploy_failed",
-      error: isMissing
-        ? "Vercel API token not configured"
-        : (useResult.reason ?? "Deploy failed"),
+      errorCode: outcome.credentialMissing
+        ? "credentials_missing"
+        : "deploy_failed",
+      error: outcome.credentialMissing ? missingMessage : outcome.reason,
     };
   }
 
   return {
+    ...providerFields,
     success: true,
-    publicUrl: useResult.result.url,
-    deploymentId: useResult.result.deploymentId,
+    publicUrl: outcome.result.url,
+    deploymentId: outcome.result.deploymentId,
   };
 }
 
-function handleUnpublish({ pathParams }: RouteHandlerArgs) {
+async function handleUnpublish({ pathParams }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
+  const provider = getPublishProvider();
+  const providerFields = {
+    provider: provider.id,
+    providerName: provider.displayName,
+  };
+
   const published = getActivePublishedPageByAppId(appId);
   if (!published) {
-    return { success: false, error: "No active deployment found" };
+    return {
+      ...providerFields,
+      success: false,
+      error: "No active deployment found",
+    };
+  }
+
+  const { unpublish } = provider;
+  if (unpublish) {
+    const app = getApp(appId);
+    const outcome = await withPublishCredential(
+      provider,
+      "unpublish_page",
+      (token) =>
+        unpublish(
+          {
+            appId,
+            name: app?.name ?? published.pageTitle ?? appId,
+            slug: published.projectSlug ?? appSlug(app?.name ?? appId),
+            previousDeploymentId: published.deploymentId,
+          },
+          token,
+        ),
+    );
+
+    // Leave the record active when the provider could not take the deployment
+    // down: a record marked inactive while the page is still reachable is the
+    // worse of the two divergences.
+    if (!outcome.success) {
+      log.warn(
+        { appId, provider: provider.id, reason: outcome.reason },
+        "Provider unpublish failed",
+      );
+      return { ...providerFields, success: false, error: outcome.reason };
+    }
   }
 
   updatePublishedPage(published.id, { status: "inactive" });
-  return { success: true };
+  return { ...providerFields, success: true };
 }
 
 function handlePublishStatus({ pathParams }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
+  const provider = getPublishProvider();
+  const providerFields = {
+    provider: provider.id,
+    providerName: provider.displayName,
+  };
+
   const published = getActivePublishedPageByAppId(appId);
   if (!published) {
-    return { published: false };
+    return { ...providerFields, published: false };
   }
 
   return {
+    ...providerFields,
     published: true,
     publicUrl: published.publicUrl,
     deploymentId: published.deploymentId,
@@ -177,11 +259,12 @@ export const ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     handler: handlePublish,
-    summary: "Publish app to Vercel",
+    summary: "Publish app",
     description:
-      "Deploy the app's HTML to Vercel and store the deployment record.",
+      "Deploy the app's HTML through the configured publish provider and store the deployment record.",
     tags: ["apps"],
     responseBody: z.object({
+      ...providerResponseFields,
       success: z.boolean(),
       publicUrl: z.string().optional(),
       deploymentId: z.string().optional(),
@@ -198,10 +281,12 @@ export const ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     handler: handleUnpublish,
-    summary: "Unpublish app from Vercel",
-    description: "Mark the active Vercel deployment as inactive.",
+    summary: "Unpublish app",
+    description:
+      "Take the active deployment down at the publish provider and mark it inactive.",
     tags: ["apps"],
     responseBody: z.object({
+      ...providerResponseFields,
       success: z.boolean(),
       error: z.string().optional(),
     }),
@@ -216,9 +301,11 @@ export const ROUTES: RouteDefinition[] = [
     },
     handler: handlePublishStatus,
     summary: "Get app publish status",
-    description: "Return the current Vercel deployment state for an app.",
+    description:
+      "Return the current deployment state for an app, plus the configured publish provider.",
     tags: ["apps"],
     responseBody: z.object({
+      ...providerResponseFields,
       published: z.boolean(),
       publicUrl: z.string().optional(),
       deploymentId: z.string().optional(),
