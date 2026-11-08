@@ -263,6 +263,21 @@ interface GitStatus {
 }
 
 /**
+ * Recreate the directories every repository has. A files-only copy of the
+ * workspace (a `.vbundle` export or a backup) carries no empty directories,
+ * so a repo whose refs all live in `packed-refs` arrives without `refs/`, and
+ * git then reports "not a git repository" for a repo whose history is intact.
+ */
+function ensureRepoSkeletonDirs(gitDir: string): void {
+  if (!lstatSync(gitDir).isDirectory()) {
+    return;
+  }
+  for (const dir of ["objects", "refs/heads", "refs/tags"]) {
+    mkdirSync(join(gitDir, dir), { recursive: true });
+  }
+}
+
+/**
  * Git service for workspace change management.
  *
  * Provides git-backed tracking of workspace state with lazy initialization.
@@ -469,6 +484,7 @@ export class WorkspaceGitService {
           }
 
           if (existsSync(gitDir)) {
+            ensureRepoSkeletonDirs(gitDir);
             // Validate existing repo is not corrupted before marking as ready.
             // A corrupted .git directory (e.g. missing HEAD) would cause all
             // subsequent git operations to fail with confusing errors.

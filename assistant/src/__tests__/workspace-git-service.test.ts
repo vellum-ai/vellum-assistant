@@ -779,6 +779,31 @@ describe("WorkspaceGitService", () => {
   });
 
   describe("existing repo normalization", () => {
+    test("keeps history when refs/ is missing because every ref is packed", async () => {
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      writeFileSync(join(testDir, "file.txt"), "content");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "restored history"], {
+        cwd: testDir,
+      });
+      execFileSync("git", ["pack-refs", "--all"], { cwd: testDir });
+      // A files-only restore drops the now-empty refs/ directory.
+      rmSync(join(testDir, ".git", "refs"), { recursive: true, force: true });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const log = execFileSync("git", ["log", "--format=%s"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(log).toContain("restored history");
+    });
+
     test("existing repo on feature branch auto-switches to main on init", async () => {
       // Set up a pre-existing git repo on a feature branch
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
