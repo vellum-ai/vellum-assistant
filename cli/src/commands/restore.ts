@@ -11,6 +11,10 @@ import {
   stagingTargetFromEntry,
 } from "../lib/bundle-staging.js";
 import {
+  type ImportFailure,
+  parseImportFailure,
+} from "@vellumai/service-contracts/migration-import";
+import {
   loadGuardianToken,
   leaseGuardianToken,
 } from "../lib/guardian-token.js";
@@ -159,6 +163,24 @@ interface PreflightResponse {
     total_files: number;
   };
   conflicts?: StructuredError[];
+}
+
+const IMPORT_FAILURE_REASONS: Record<string, string> = {
+  validation_failed: "the backup file failed validation",
+  version_incompatible: "the backup needs a different assistant version",
+  extraction_failed: "the backup could not be unpacked",
+};
+
+function printImportFailure(failure: ImportFailure): void {
+  const reason = failure.reason
+    ? (IMPORT_FAILURE_REASONS[failure.reason] ?? failure.reason)
+    : undefined;
+  console.error(
+    `Error: Import failed: ${failure.message ?? reason ?? "unknown reason"}`,
+  );
+  for (const err of failure.errors ?? []) {
+    console.error(`  - ${err.message}${err.path ? ` (${err.path})` : ""}`);
+  }
 }
 
 interface ImportResponse {
@@ -480,12 +502,7 @@ async function restorePlatform(
   const result = importResult.body as unknown as ImportResponse;
 
   if (!result.success) {
-    console.error(
-      `Error: Import failed — ${result.message ?? result.reason ?? "unknown reason"}`,
-    );
-    for (const err of result.errors ?? []) {
-      console.error(`  - ${err.message}${err.path ? ` (${err.path})` : ""}`);
-    }
+    printImportFailure(result);
     process.exit(1);
   }
 
@@ -771,7 +788,12 @@ async function runLocalRestore(opts: {
           });
       if (!response.ok) {
         const body = await response.text();
-        console.error(`Error: Import failed (${response.status}): ${body}`);
+        const failure = parseImportFailure(body);
+        if (failure) {
+          printImportFailure(failure);
+        } else {
+          console.error(`Error: Import failed (${response.status}): ${body}`);
+        }
         process.exit(1);
       }
       result = (await response.json()) as ImportResponse;
@@ -792,12 +814,7 @@ async function runLocalRestore(opts: {
     }
 
     if (!result.success) {
-      console.error(
-        `Error: Import failed — ${result.message ?? result.reason ?? "unknown reason"}`,
-      );
-      for (const err of result.errors ?? []) {
-        console.error(`  - ${err.message}${err.path ? ` (${err.path})` : ""}`);
-      }
+      printImportFailure(result);
       process.exit(1);
     }
 

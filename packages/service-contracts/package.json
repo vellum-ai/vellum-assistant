@@ -29,6 +29,7 @@
     "./platform-credential": "./src/platform-credential.ts",
     "./plan-credit": "./src/plan-credit.ts",
     "./integration-categories": "./src/integration-categories.ts",
+    "./migration-import": "./src/migration-import.ts",
     "./mcp-oauth": "./src/mcp-oauth.ts"
   },
   "scripts": {
