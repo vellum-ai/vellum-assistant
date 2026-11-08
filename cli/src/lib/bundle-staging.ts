@@ -1,12 +1,8 @@
 import { randomUUID } from "crypto";
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  statSync,
-  unlinkSync,
-} from "fs";
+import { copyFileSync, existsSync, mkdirSync, statSync, unlinkSync } from "fs";
 import { join } from "path";
+
+import { z } from "zod";
 
 import type { AssistantEntry } from "./assistant-config.js";
 import { dockerResourceNames } from "./docker.js";
@@ -156,6 +152,52 @@ export async function importStagedBundle(
   return response;
 }
 
+/** Failure body of an import: the runtime's validation report or a plain message. */
+export const importFailureSchema = z.object({
+  reason: z.string().optional(),
+  message: z.string().optional(),
+  errors: z
+    .array(z.object({ message: z.string(), path: z.string().optional() }))
+    .optional(),
+});
+
+export type ImportFailure = z.infer<typeof importFailureSchema>;
+
+/** Parse an import failure from JSON text, or null when the text is not one. */
+export function parseImportFailure(text: string): ImportFailure | null {
+  try {
+    const parsed = importFailureSchema.safeParse(JSON.parse(text));
+    return parsed.success &&
+      (parsed.data.reason || parsed.data.message || parsed.data.errors)
+      ? parsed.data
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decode a failed import job's error into the body and status the import
+ * route would have returned. The runtime records a validation failure as that
+ * JSON body, so a plain 500 would hide the per-file errors.
+ */
+export function importJobFailure(error: string | undefined): {
+  status: number;
+  body: ImportFailure & { success: false };
+} {
+  const report = error ? parseImportFailure(error) : null;
+  if (report?.reason) {
+    return {
+      status: report.reason === "validation_failed" ? 400 : 500,
+      body: { ...report, success: false },
+    };
+  }
+  return {
+    status: 500,
+    body: { success: false, message: error ?? "Import failed" },
+  };
+}
+
 async function pollImportJob(
   runtimeUrl: string,
   accessToken: string,
@@ -194,16 +236,16 @@ async function pollImportJob(
       });
     }
     if (job.status === "failed") {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          message: job.error ?? "Import failed",
-        }),
-        { status: 500, headers: { "Content-Type": "application/json" } },
-      );
+      const failure = importJobFailure(job.error);
+      return new Response(JSON.stringify(failure.body), {
+        status: failure.status,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
-    await new Promise((resolve) => setTimeout(resolve, IMPORT_POLL_INTERVAL_MS));
+    await new Promise((resolve) =>
+      setTimeout(resolve, IMPORT_POLL_INTERVAL_MS),
+    );
   }
 
   return new Response(

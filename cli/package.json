@@ -39,7 +39,8 @@
     "nanoid": "5.1.7",
     "qrcode-terminal": "0.12.0",
     "react": "19.2.6",
-    "react-devtools-core": "7.0.1"
+    "react-devtools-core": "7.0.1",
+    "zod": "4.3.6"
   },
   "bundledDependencies": [
     "@vellumai/avatar-manifest",
