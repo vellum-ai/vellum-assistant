@@ -175,6 +175,7 @@ describe("WebSearchCard — provider-only configuration", () => {
       "TinyFish",
       "Exa",
       "Serply",
+      "FlashData",
     ]);
   });
 
@@ -256,6 +257,38 @@ describe("WebSearchCard — provider-only configuration", () => {
         "web-search": { provider: "firecrawl", mode: "your-own" },
       },
     });
+  });
+
+  test("FlashData provisions a required key without persisting it in web storage", async () => {
+    renderCard();
+    fireEvent.click(providerTrigger());
+    selectOption("FlashData");
+    const saveButton = screen.getByRole("button", {
+      name: "Save",
+    }) as HTMLButtonElement;
+    expect(saveButton.disabled).toBe(true);
+    const keyInput = screen.getByLabelText("API Key") as HTMLInputElement;
+    fireEvent.change(keyInput, { target: { value: "test-flashdata-secret" } });
+    expect(saveButton.disabled).toBe(false);
+    fireEvent.click(saveButton);
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(provisionedKeys).toEqual([
+      { provider: "flashdata", key: "test-flashdata-secret" },
+    ]);
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: {
+        "web-search": { provider: "flashdata", mode: "your-own" },
+      },
+    });
+    await waitFor(() => expect(keyInput.value).toBe(""));
+    expect(localStorage.getItem(LS_WEB_SEARCH_PROVIDER)).toBe("flashdata");
+    for (const storage of [localStorage, sessionStorage]) {
+      for (let index = 0; index < storage.length; index++) {
+        expect(storage.getItem(storage.key(index)!)).not.toContain(
+          "test-flashdata-secret",
+        );
+      }
+    }
   });
 
   test("fastCRW shows API Base and allows save without a key when base is custom", async () => {

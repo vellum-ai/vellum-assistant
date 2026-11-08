@@ -1,0 +1,8 @@
+{
+  "source": "youtube_metadata",
+  "video_id": "dQw4w9WgXcQ",
+  "params": {
+    "include_formats": false,
+    "include_chapters": true
+  }
+}
