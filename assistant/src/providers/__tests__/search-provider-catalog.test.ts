@@ -120,4 +120,12 @@ describe("search-provider-catalog", () => {
     expect(serply?.supportsApiBase).toBeUndefined();
     expect(serply?.envVar).toBe("SERPLY_API_KEY");
   });
+
+  test("Outcrawl is a keyed BYOK provider without a custom API base", () => {
+    const outcrawl = getSearchProvider("outcrawl");
+    expect(outcrawl?.kind).toBe("byok");
+    expect(outcrawl?.keyless).toBeUndefined();
+    expect(outcrawl?.supportsApiBase).toBeUndefined();
+    expect(outcrawl?.envVar).toBe("OUTCRAWL_API_KEY");
+  });
 });
