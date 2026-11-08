@@ -14,6 +14,7 @@ let mockSearxngSecureKey: string | undefined;
 let mockTinyfishSecureKey: string | undefined;
 let mockExaSecureKey: string | undefined;
 let mockSerplySecureKey: string | undefined;
+let mockYouSecureKey: string | undefined;
 let mockManagedSearchProxyResult: any;
 let mockManagedSearchAvailable = true;
 let mockManagedSearchProxyCalls: Array<{
@@ -73,6 +74,9 @@ mock.module("../../../security/secure-keys.js", () => ({
     if (provider === "serply") {
       return mockSerplySecureKey;
     }
+    if (provider === "you") {
+      return mockYouSecureKey;
+    }
     return undefined;
   },
 }));
@@ -121,6 +125,7 @@ describe("web_search tool", () => {
     mockTinyfishSecureKey = undefined;
     mockExaSecureKey = undefined;
     mockSerplySecureKey = undefined;
+    mockYouSecureKey = undefined;
     mockManagedSearchProxyCalls = [];
     mockManagedSearchAvailable = true;
     mockManagedSearchProxyResult = {
@@ -1545,6 +1550,163 @@ describe("web_search tool", () => {
       expect(result.activityMetadata?.webSearch?.provider).toBe("serply");
     },
   );
+
+  // ---- You.com provider (keyless by default) -----------------------------
+
+  const youResponseBody = {
+    results: {
+      web: [
+        {
+          url: "https://example.com/you-1",
+          title: "You Result 1",
+          description: "First description",
+          snippets: ["First You.com snippet", "Second snippet"],
+          page_age: "2026-10-10T05:00:58",
+        },
+        {
+          url: "https://example.com/you-2",
+          title: "You Result 2",
+          description: "Second description",
+          snippets: [],
+        },
+        {
+          url: "https://example.com/you-3",
+          title: "You Result 3",
+          description: "Third description",
+        },
+      ],
+    },
+    metadata: { query: "test", search_uuid: "abc", latency: 0.5 },
+  };
+
+  test("You.com runs keyless against the free agents endpoint", async () => {
+    seedWebSearch("your-own", "you");
+    let capturedUrl = "";
+    let capturedInit: RequestInit | undefined;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      capturedUrl = url;
+      capturedInit = init;
+      return new Response(JSON.stringify(youResponseBody), { status: 200 });
+    }) as any;
+
+    const result = await execute({
+      query: "bun runtime",
+      count: 2,
+      freshness: "pm",
+    });
+
+    expect(result.isError).toBe(false);
+    const parsed = new URL(capturedUrl);
+    expect(parsed.origin + parsed.pathname).toBe(
+      "https://api.you.com/v1/agents/search",
+    );
+    expect(parsed.searchParams.get("query")).toBe("bun runtime");
+    expect(parsed.searchParams.get("count")).toBe("2");
+    expect(parsed.searchParams.get("freshness")).toBe("month");
+    expect(capturedInit?.method).toBe("GET");
+    const headers = new Headers(capturedInit?.headers);
+    expect(headers.get("x-api-key")).toBeNull();
+    expect(headers.get("user-agent")).toBe(
+      "youdotcom-integration/vellum-ai-vellum-assistant",
+    );
+    expect(result.content).toContain("You Result 1");
+    expect(result.content).toContain("First You.com snippet");
+    expect(result.content).toContain("Second description");
+    expect(result.content).not.toContain("https://example.com/you-3");
+    expect(result.activityMetadata?.webSearch?.provider).toBe("you");
+    expect(result.activityMetadata?.webSearch?.resultCount).toBe(2);
+  });
+
+  test("You.com uses the keyed index endpoint when a key is set", async () => {
+    seedWebSearch("your-own", "you");
+    mockYouSecureKey = "ydc_test";
+    let capturedUrl = "";
+    let capturedInit: RequestInit | undefined;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      capturedUrl = url;
+      capturedInit = init;
+      return new Response(JSON.stringify(youResponseBody), { status: 200 });
+    }) as any;
+
+    const result = await execute({ query: "test", count: 5 });
+
+    expect(result.isError).toBe(false);
+    expect(capturedUrl).toBe("https://ydc-index.io/v1/search");
+    expect(capturedInit?.method).toBe("POST");
+    const headers = new Headers(capturedInit?.headers);
+    expect(headers.get("x-api-key")).toBe("ydc_test");
+    expect(headers.get("user-agent")).toBe(
+      "youdotcom-integration/vellum-ai-vellum-assistant",
+    );
+    expect(JSON.parse(String(capturedInit?.body))).toEqual({
+      query: "test",
+      count: 5,
+    });
+  });
+
+  test.each([401, 402, 403])(
+    "You.com handles %d access error",
+    async (status) => {
+      seedWebSearch("your-own", "you");
+      mockYouSecureKey = "ydc_test";
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify({ detail: "denied" }), {
+          status,
+        })) as any;
+
+      const result = await execute({ query: "test" });
+
+      expect(result.isError).toBe(true);
+      expect(result.activityMetadata?.webSearch?.provider).toBe("you");
+    },
+  );
+
+  test("You.com retries 429 honoring Retry-After, then reports a rate-limit failure", async () => {
+    seedWebSearch("your-own", "you");
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return new Response("rate limited", {
+        status: 429,
+        headers: { "retry-after": "0" },
+      });
+    }) as any;
+
+    const result = await execute({ query: "test" });
+
+    expect(calls).toBeGreaterThan(1);
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
+  });
+
+  test("keyless You.com is not picked as a fallback for another provider", async () => {
+    seedWebSearch("your-own", "brave");
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response(JSON.stringify(youResponseBody), { status: 200 });
+    }) as any;
+
+    const result = await execute({ query: "test" });
+
+    expect(called).toBe(false);
+    expect(result.isError).toBe(true);
+  });
+
+  test("You.com is not picked as a fallback even when a You.com key is stored", async () => {
+    seedWebSearch("your-own", "brave");
+    mockYouSecureKey = "ydc_test";
+    const calledUrls: string[] = [];
+    globalThis.fetch = (async (url: string) => {
+      calledUrls.push(String(url));
+      return new Response(JSON.stringify(youResponseBody), { status: 200 });
+    }) as any;
+
+    const result = await execute({ query: "test" });
+
+    expect(calledUrls.some((u) => u.includes("you.com"))).toBe(false);
+    expect(result.isError).toBe(true);
+  });
 
   // ---- Provider fallback --------------------------------------------------
 

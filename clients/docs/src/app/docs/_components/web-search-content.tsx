@@ -32,6 +32,7 @@ const TOC_ITEMS = [
   { id: "firecrawl", label: "Firecrawl Integration", level: 2 },
   { id: "exa", label: "Exa Integration", level: 2 },
   { id: "serply", label: "Serply Integration", level: 2 },
+  { id: "you", label: "You.com Integration", level: 2 },
 ];
 
 export function WebSearchContent() {
@@ -184,6 +185,17 @@ export function WebSearchContent() {
                     snippet.
                   </td>
                 </tr>
+                <tr>
+                  <td className="py-3 pr-4 font-medium text-stone-900 dark:text-stone-100">
+                    You.com
+                  </td>
+                  <td className="py-3 pr-4"><KindBadge kind="BYOK" /></td>
+                  <td className="py-3">
+                    Web search built for LLMs. Works without a key on a free
+                    daily tier; an optional key lifts the cap. Returns page
+                    snippets with each result.
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -243,6 +255,15 @@ export function WebSearchContent() {
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               Serply
+            </Link>
+            ,{" "}
+            <Link
+              href="https://you.com/legal/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
+            >
+              You.com
             </Link>
             .
           </p>
@@ -602,6 +623,27 @@ export function WebSearchContent() {
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               Serply integration page
+            </Link>
+            .
+          </p>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* You.com Integration                                                  */}
+        {/* ------------------------------------------------------------------ */}
+        <section id="you" className="mt-12">
+          <SectionHeading id="you" level={2}>
+            You.com Integration
+          </SectionHeading>
+          <p className="mb-4 text-stone-600 dark:text-stone-400">
+            You.com Search returns web results with page snippets and works
+            without a key on a free daily tier. For setup, the optional API key,
+            and usage, see the{" "}
+            <Link
+              href="/docs/key-concepts/web-search/you"
+              className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
+            >
+              You.com integration page
             </Link>
             .
           </p>
