@@ -394,17 +394,18 @@ export function computeManifestChecksum(manifest: unknown): string {
  * Hard caps on `manifest.json`, shared by the buffered and streaming
  * validators so preflight and import agree on what is acceptable. The two
  * are sized together: the manifest carries one `contents` entry (path,
- * sha256, size) per bundled file at roughly 150 bytes each, so 200,000
- * entries serialize to about 32 MiB.
+ * sha256, size) per bundled file at roughly 150 bytes each, so 800,000
+ * entries serialize to about 128 MiB.
  *
- * That absorbs a workspace with a stray dependency install or checked-out
- * repo while still bounding the transient memory a hostile "manifest" can
- * force the importer to hold (buffer, decoded string, parsed object,
- * canonical re-serialization for the self-checksum) and the per-entry work
- * it commits to, on a memory-constrained pod.
+ * Long-lived workspaces with several checked-out repos, worktrees, and
+ * dependency installs reach 275,000 entries and 55 MiB, so the caps leave
+ * room for those while still bounding the transient memory a hostile
+ * "manifest" can force the importer to hold (buffer, decoded string, parsed
+ * object, canonical re-serialization for the self-checksum) and the
+ * per-entry work it commits to.
  */
-export const MANIFEST_MAX_BYTES = 32 * 1024 * 1024;
-export const MANIFEST_MAX_ENTRIES = 200_000;
+export const MANIFEST_MAX_BYTES = 128 * 1024 * 1024;
+export const MANIFEST_MAX_ENTRIES = 800_000;
 
 export interface ValidateVBundleOptions {
   /**
