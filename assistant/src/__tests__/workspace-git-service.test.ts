@@ -430,10 +430,14 @@ describe("WorkspaceGitService", () => {
         expect(trackedFiles()).toContain(name);
       }
 
-      const messages = execFileSync("git", ["log", "--pretty=%B", "--reverse"], {
-        cwd: testDir,
-        encoding: "utf-8",
-      });
+      const messages = execFileSync(
+        "git",
+        ["log", "--pretty=%B", "--reverse"],
+        {
+          cwd: testDir,
+          encoding: "utf-8",
+        },
+      );
       expect(messages).toContain("batch: 1/3");
       expect(messages).toContain("batch: 2/3");
       expect(messages).toContain("batch: 3/3");
@@ -505,7 +509,12 @@ describe("WorkspaceGitService", () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      for (const name of ["keep.txt", "gone-a.txt", "gone-b.txt", "gone-c.txt"]) {
+      for (const name of [
+        "keep.txt",
+        "gone-a.txt",
+        "gone-b.txt",
+        "gone-c.txt",
+      ]) {
         writeFileSync(join(testDir, name), name);
       }
       await service.commitChanges("Seed files");
@@ -765,6 +774,31 @@ describe("WorkspaceGitService", () => {
   });
 
   describe("existing repo normalization", () => {
+    test("keeps history when refs/ is missing because every ref is packed", async () => {
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      writeFileSync(join(testDir, "file.txt"), "content");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "restored history"], {
+        cwd: testDir,
+      });
+      execFileSync("git", ["pack-refs", "--all"], { cwd: testDir });
+      // A files-only restore drops the now-empty refs/ directory.
+      rmSync(join(testDir, ".git", "refs"), { recursive: true, force: true });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const log = execFileSync("git", ["log", "--format=%s"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(log).toContain("restored history");
+    });
+
     test("existing repo on feature branch auto-switches to main on init", async () => {
       // Set up a pre-existing git repo on a feature branch
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
