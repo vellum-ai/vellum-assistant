@@ -6,12 +6,14 @@ import {
   bundleFileSizeBytes,
   formatBundleSizeMb,
   importStagedBundle,
-  parseImportFailure,
   preflightStagedBundle,
   stageBundleForRestore,
   stagingTargetFromEntry,
 } from "../lib/bundle-staging.js";
-import type { ImportFailure } from "../lib/bundle-staging.js";
+import {
+  type ImportFailure,
+  parseImportFailure,
+} from "@vellumai/service-contracts/migration-import";
 import {
   loadGuardianToken,
   leaseGuardianToken,

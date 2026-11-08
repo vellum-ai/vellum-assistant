@@ -2,7 +2,10 @@ import { randomUUID } from "crypto";
 import { copyFileSync, existsSync, mkdirSync, statSync, unlinkSync } from "fs";
 import { join } from "path";
 
-import { z } from "zod";
+import {
+  type ImportFailure,
+  parseImportFailure,
+} from "@vellumai/service-contracts/migration-import";
 
 import type { AssistantEntry } from "./assistant-config.js";
 import { dockerResourceNames } from "./docker.js";
@@ -150,30 +153,6 @@ export async function importStagedBundle(
   }
 
   return response;
-}
-
-/** Failure body of an import: the runtime's validation report or a plain message. */
-export const importFailureSchema = z.object({
-  reason: z.string().optional(),
-  message: z.string().optional(),
-  errors: z
-    .array(z.object({ message: z.string(), path: z.string().optional() }))
-    .optional(),
-});
-
-export type ImportFailure = z.infer<typeof importFailureSchema>;
-
-/** Parse an import failure from JSON text, or null when the text is not one. */
-export function parseImportFailure(text: string): ImportFailure | null {
-  try {
-    const parsed = importFailureSchema.safeParse(JSON.parse(text));
-    return parsed.success &&
-      (parsed.data.reason || parsed.data.message || parsed.data.errors)
-      ? parsed.data
-      : null;
-  } catch {
-    return null;
-  }
 }
 
 /**
