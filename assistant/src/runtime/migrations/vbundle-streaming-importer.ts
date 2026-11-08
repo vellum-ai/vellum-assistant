@@ -89,10 +89,11 @@ const log = getLogger("vbundle-streaming-importer");
 
 /**
  * Byte ceiling for the cumulative size of all file data streamed from the
- * bundle. 16 GiB gives comfortable headroom over the 8 GB product limit
- * while still bounding worst-case disk use for the temp workspace.
+ * bundle. Workspaces with years of conversations and large databases reach
+ * 35 GiB, so 64 GiB leaves headroom while still bounding worst-case disk
+ * use for the temp workspace.
  */
-const DEFAULT_MAX_BUNDLE_BYTES = 16 * 1024 * 1024 * 1024;
+const DEFAULT_MAX_BUNDLE_BYTES = 64 * 1024 * 1024 * 1024;
 
 /**
  * Entry-count ceiling for the bundle, shared with manifest validation so
