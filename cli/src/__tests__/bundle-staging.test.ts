@@ -23,6 +23,7 @@ import { restoreBackup } from "../lib/backup-ops.js";
 import {
   bundleFileSizeBytes,
   formatBundleSizeMb,
+  importJobFailure,
   importStagedBundle,
   RESTORE_STAGING_DIRNAME,
   stageBundleForRestore,
@@ -44,7 +45,9 @@ function makeEntry(overrides: Partial<AssistantEntry> = {}): AssistantEntry {
 }
 
 let tmpRoot: string;
-let fetchSpy: ReturnType<typeof spyOn<typeof loopbackFetch, "loopbackSafeFetch">>;
+let fetchSpy: ReturnType<
+  typeof spyOn<typeof loopbackFetch, "loopbackSafeFetch">
+>;
 let execSpy: ReturnType<typeof spyOn<typeof stepRunner, "exec">>;
 
 beforeEach(() => {
@@ -98,12 +101,7 @@ describe("stageBundleForRestore", () => {
       hostBundle,
     );
 
-    const dest = join(
-      instanceDir,
-      ".vellum",
-      "workspace",
-      staged.relativePath,
-    );
+    const dest = join(instanceDir, ".vellum", "workspace", staged.relativePath);
     expect(staged.relativePath.startsWith(`${RESTORE_STAGING_DIRNAME}/`)).toBe(
       true,
     );
@@ -268,5 +266,42 @@ describe("bundle size helpers", () => {
   test("formatBundleSizeMb reports two decimal megabytes", () => {
     expect(formatBundleSizeMb(1024 * 1024)).toBe("1.00");
     expect(bundleFileSizeBytes(join(tmpRoot, "missing.vbundle"))).toBe(0);
+  });
+});
+
+describe("importJobFailure", () => {
+  test("restores a validation report recorded as the job error", () => {
+    const report = {
+      success: false,
+      reason: "validation_failed",
+      errors: [
+        {
+          code: "entry_hash",
+          message: "Checksum mismatch",
+          path: "workspace/data/monitoring/samples.jsonl",
+        },
+      ],
+    };
+    const failure = importJobFailure(JSON.stringify(report));
+    expect(failure.status).toBe(400);
+    expect(failure.body.reason).toBe("validation_failed");
+    expect(failure.body.errors).toEqual([
+      {
+        message: "Checksum mismatch",
+        path: "workspace/data/monitoring/samples.jsonl",
+      },
+    ]);
+  });
+
+  test("keeps a plain error message as a 500", () => {
+    const failure = importJobFailure("disk full");
+    expect(failure).toEqual({
+      status: 500,
+      body: { success: false, message: "disk full" },
+    });
+  });
+
+  test("reports a missing error as a generic failure", () => {
+    expect(importJobFailure(undefined).body.message).toBe("Import failed");
   });
 });
