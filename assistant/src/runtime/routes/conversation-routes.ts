@@ -2751,12 +2751,13 @@ export async function handleSendMessage(
               state: "denied" as const,
               source: "auto_deny" as const,
             });
-            // Sync the gateway request status so stale "pending" records don't
-            // get matched by later guardian reply routing, and withdraw the
-            // request's delivered approval cards so no surface keeps offering a
-            // decision that can no longer resolve anything. Fire-and-forget: the
-            // in-memory denial is authoritative here; a CAS miss (already
-            // decided elsewhere) or a lost sync is reaped by the orphan sweep.
+            // System-initiated denial: a new message to an idle conversation
+            // superseded this confirmation. There is no guardian actor, so
+            // applyGuardianDecision (which requires guardianPrincipalId for
+            // authorization) cannot be used. syncTerminalGuardianRequestStatus
+            // is the correct path for machine-initiated terminal status writes
+            // that have no acting principal; a CAS miss (already decided
+            // elsewhere) or a lost sync is reaped by the orphan sweep.
             void syncTerminalGuardianRequestStatus({
               requestId: interaction.requestId,
               status: "denied",
