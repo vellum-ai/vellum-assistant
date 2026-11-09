@@ -77,6 +77,7 @@ const PROVIDER_LABELS: Record<LlmProviderId, string> = {
   opencode: "OpenCode",
   baseten: "Baseten",
   ionet: "IO Intelligence",
+  standardcompute: "Standard Compute",
   poolside: "Poolside",
   typesafe: "TypeSafe",
 };
@@ -98,6 +99,7 @@ export const HATCH_PROVIDER_CHOICES: readonly LlmProviderId[] = [
   "atlascloud",
   "baseten",
   "ionet",
+  "standardcompute",
   "poolside",
 ];
 
@@ -256,6 +258,9 @@ export function inferProviderFromModel(model: string): string | undefined {
   }
   if (model === "jev-latest" || model.startsWith("jev-")) {
     return "typesafe";
+  }
+  if (model === "StandardCompute") {
+    return "standardcompute";
   }
   if (model === "qwen/qwen3-8b") {
     // The only qwen/* ID the Vellum hosted provider carries; the rest are

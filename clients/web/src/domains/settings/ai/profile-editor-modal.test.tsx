@@ -229,6 +229,7 @@ const UNCONNECTED_PROVIDER_LABELS = [
   "OpenCode",
   "Baseten",
   "IO Intelligence",
+  "Standard Compute",
   "Poolside",
   "TypeSafe",
 ];
