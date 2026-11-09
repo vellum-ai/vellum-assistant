@@ -68,7 +68,7 @@
     "jszip": "3.10.1",
     "marked": "18.0.0",
     "mdast-util-to-hast": "13.2.1",
-    "minimatch": "10.2.4",
+    "minimatch": "11.0.1",
     "openai": "6.29.0",
     "pino": "9.14.0",
     "pino-pretty": "13.1.3",
