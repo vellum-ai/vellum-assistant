@@ -6,12 +6,15 @@ export interface StandardComputeProviderOptions {
 }
 
 const DEFAULT_STANDARD_COMPUTE_BASE_URL = "https://api.stdcmpt.com/v1";
+const ROUTED_MODEL_ID = "StandardCompute";
 
 /**
  * Standard Compute serves an OpenAI chat-completions API. The `StandardCompute`
  * model id is routed: the gateway picks from the models the account has
- * enabled, while vendor-prefixed ids pin a single model. Prior thinking is not
- * replayed because a routed conversation can switch models between turns.
+ * enabled, while vendor-prefixed ids pin a single model. Prior thinking is
+ * replayed as `reasoning_content` for pinned models, which DeepSeek-style
+ * reasoning models expect on follow-up tool turns. It is not replayed for the
+ * routed id because a routed conversation can switch models between turns.
  */
 export class StandardComputeProvider extends OpenAIChatCompletionsProvider {
   constructor(
@@ -24,6 +27,8 @@ export class StandardComputeProvider extends OpenAIChatCompletionsProvider {
       providerName: "standardcompute",
       providerLabel: "Standard Compute",
       streamTimeoutMs: options.streamTimeoutMs,
+      assistantReasoningField:
+        model === ROUTED_MODEL_ID ? undefined : "reasoning_content",
     });
   }
 }

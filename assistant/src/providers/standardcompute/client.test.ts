@@ -81,4 +81,19 @@ describe("StandardComputeProvider", () => {
     ]);
     expect(response.resolvedEndpoint).toBe("https://inference.example.test/v1");
   });
+
+  test("replays thinking only for pinned models", () => {
+    const fieldOf = (provider: StandardComputeProvider) =>
+      (provider as unknown as { assistantReasoningField?: string })
+        .assistantReasoningField;
+
+    expect(
+      fieldOf(new StandardComputeProvider("test-key", "StandardCompute")),
+    ).toBeUndefined();
+    expect(
+      fieldOf(
+        new StandardComputeProvider("test-key", "deepseek/deepseek-v4-pro"),
+      ),
+    ).toBe("reasoning_content");
+  });
 });
