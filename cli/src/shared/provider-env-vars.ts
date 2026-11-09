@@ -34,6 +34,7 @@ export const LLM_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   opencode: "OPENCODE_API_KEY",
   baseten: "BASETEN_API_KEY",
   ionet: "IONET_API_KEY",
+  standardcompute: "STANDARDCOMPUTE_API_KEY",
   poolside: "POOLSIDE_API_KEY",
   typesafe: "TYPESAFE_API_KEY",
 };

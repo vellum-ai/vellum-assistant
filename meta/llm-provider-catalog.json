@@ -2660,6 +2660,66 @@
       ]
     },
     {
+      "id": "standardcompute",
+      "displayName": "Standard Compute",
+      "subtitle": "OpenAI-compatible gateway with a routed default model that picks from the models you enable, plus pinned model ids. Requires a Standard Compute API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your Standard Compute API key to enable Standard Compute models.",
+      "envVar": "STANDARDCOMPUTE_API_KEY",
+      "apiKeyPlaceholder": "Your Standard Compute API key",
+      "credentialsGuide": {
+        "description": "Sign in to Standard Compute and create an API key.",
+        "url": "https://standardcompute.com/dashboard/api-keys",
+        "linkLabel": "Open Standard Compute"
+      },
+      "supportsPlatformAuth": false,
+      "defaultModel": "StandardCompute",
+      "models": [
+        {
+          "id": "StandardCompute",
+          "displayName": "Standard Compute Router",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 32768,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsToolUse": true
+        },
+        {
+          "id": "anthropic/claude-sonnet-5.5",
+          "displayName": "Claude Sonnet 5.5",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 32768,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsVision": true,
+          "supportsToolUse": true
+        },
+        {
+          "id": "deepseek/deepseek-v4-pro",
+          "displayName": "DeepSeek V4 Pro",
+          "contextWindowTokens": 1048576,
+          "maxOutputTokens": 32768,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsVision": false,
+          "supportsToolUse": true
+        },
+        {
+          "id": "z-ai/glm-5.3",
+          "displayName": "GLM 5.3",
+          "contextWindowTokens": 1048576,
+          "maxOutputTokens": 32768,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsVision": false,
+          "supportsToolUse": true
+        }
+      ]
+    },
+    {
       "id": "poolside",
       "displayName": "Poolside",
       "subtitle": "Laguna models from Poolside (OpenAI-compatible). Requires a Poolside API key.",

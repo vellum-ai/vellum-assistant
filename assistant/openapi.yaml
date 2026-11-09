@@ -6161,6 +6161,7 @@ paths:
                     - atlascloud
                     - baseten
                     - ionet
+                    - standardcompute
                     - poolside
                 connectionName:
                   type: string
@@ -17121,8 +17122,8 @@ paths:
             type: string
           description:
             "Filter by provider id. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, litellm, opencode, openai-compatible, minimax, atlascloud, baseten, ionet, poolside,
-            typesafe, vellum"
+            vercel-ai-gateway, litellm, opencode, openai-compatible, minimax, atlascloud, baseten, ionet,
+            standardcompute, poolside, typesafe, vellum"
       responses:
         "200":
           description: Successful response
@@ -17394,8 +17395,8 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, litellm, opencode, openai-compatible, minimax, atlascloud, baseten, ionet, poolside,
-            typesafe, vellum, chatgpt"
+            vercel-ai-gateway, litellm, opencode, openai-compatible, minimax, atlascloud, baseten, ionet,
+            standardcompute, poolside, typesafe, vellum, chatgpt"
       responses:
         "200":
           description: Successful response
@@ -39579,6 +39580,7 @@ components:
         - atlascloud
         - baseten
         - ionet
+        - standardcompute
         - poolside
         - typesafe
         - vellum
@@ -39851,6 +39853,7 @@ components:
                     - atlascloud
                     - baseten
                     - ionet
+                    - standardcompute
                     - poolside
                 connectionName:
                   type: string
@@ -40240,6 +40243,7 @@ components:
                 - atlascloud
                 - baseten
                 - ionet
+                - standardcompute
                 - poolside
             - type: "null"
         connectionName:

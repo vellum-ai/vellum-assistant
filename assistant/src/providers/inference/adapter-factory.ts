@@ -47,6 +47,7 @@ import { OpenRouterProvider } from "../openrouter/client.js";
 import { PoolsideProvider } from "../poolside/client.js";
 import { dispatchProviderResolvable } from "../provider-resolvability.js";
 import { RetryProvider } from "../retry.js";
+import { StandardComputeProvider } from "../standardcompute/client.js";
 import { TogetherProvider } from "../together/client.js";
 import type { Provider, SendMessageOptions } from "../types.js";
 import { UsageTrackingProvider } from "../usage-tracking.js";
@@ -209,6 +210,11 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
     }),
   ionet: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
     new IonetProvider(apiKey, model, {
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
+  standardcompute: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new StandardComputeProvider(apiKey, model, {
       streamTimeoutMs,
       ...(baseURL ? { baseURL } : {}),
     }),

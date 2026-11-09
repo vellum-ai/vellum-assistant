@@ -24,6 +24,7 @@ export const INFERENCE_PROVIDERS = [
   "opencode",
   "baseten",
   "ionet",
+  "standardcompute",
   "poolside",
   "typesafe",
 ] as const;

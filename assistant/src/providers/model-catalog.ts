@@ -2787,6 +2787,65 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     apiKeyPlaceholder: "Your IO Intelligence API key",
   },
   {
+    id: "standardcompute",
+    displayName: "Standard Compute",
+    subtitle:
+      "OpenAI-compatible gateway with a routed default model that picks from the models you enable, plus pinned model ids. Requires a Standard Compute API key.",
+    setupMode: "api-key",
+    setupHint:
+      "Enter your Standard Compute API key to enable Standard Compute models.",
+    envVar: "STANDARDCOMPUTE_API_KEY",
+    credentialsGuide: {
+      description: "Sign in to Standard Compute and create an API key.",
+      url: "https://standardcompute.com/dashboard/api-keys",
+      linkLabel: "Open Standard Compute",
+    },
+    // `StandardCompute` is routed: the gateway picks from the account's
+    // enabled models by quality preference and uses cheaper models for simple
+    // steps. The other ids pin one model. Context windows, tool support and
+    // input modalities come from the endpoint's public `GET /models` catalog;
+    // maxOutputTokens is the gateway's per-request output ceiling.
+    models: [
+      {
+        id: "StandardCompute",
+        displayName: "Standard Compute Router",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 32768,
+        supportsToolUse: true,
+      },
+      {
+        id: "anthropic/claude-sonnet-5.5",
+        displayName: "Claude Sonnet 5.5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 32768,
+        supportsThinking: true,
+        supportsVision: true,
+        supportsToolUse: true,
+      },
+      {
+        id: "deepseek/deepseek-v4-pro",
+        displayName: "DeepSeek V4 Pro",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 32768,
+        supportsThinking: true,
+        supportsVision: false,
+        supportsToolUse: true,
+      },
+      {
+        id: "z-ai/glm-5.3",
+        displayName: "GLM 5.3",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 32768,
+        supportsThinking: true,
+        supportsVision: false,
+        supportsToolUse: true,
+      },
+    ],
+    defaultModel: "StandardCompute",
+    apiKeyUrl: "https://standardcompute.com/dashboard/api-keys",
+    apiKeyPlaceholder: "Your Standard Compute API key",
+  },
+  {
     id: "poolside",
     displayName: "Poolside",
     subtitle:
