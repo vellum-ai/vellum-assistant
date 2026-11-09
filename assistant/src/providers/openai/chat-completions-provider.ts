@@ -385,17 +385,21 @@ function carriesReasoningOptOut(params: unknown): boolean {
   );
 }
 
-function carriesReasoningEffort(params: unknown): boolean {
+/** The non-`"none"` reasoning effort tier on the wire, flat or nested. */
+function reasoningEffortTier(params: unknown): string | undefined {
   const p = params as {
     reasoning_effort?: unknown;
     reasoning?: { effort?: unknown } | null;
   };
-  return (
-    typeof p.reasoning_effort === "string" ||
-    (typeof p.reasoning === "object" &&
-      p.reasoning !== null &&
-      typeof p.reasoning.effort === "string")
-  );
+  const tier =
+    typeof p.reasoning_effort === "string"
+      ? p.reasoning_effort
+      : typeof p.reasoning === "object" &&
+          p.reasoning !== null &&
+          typeof p.reasoning.effort === "string"
+        ? p.reasoning.effort
+        : undefined;
+  return tier === "none" ? undefined : tier;
 }
 
 function stripReasoningParams(params: unknown): void {
@@ -418,7 +422,9 @@ const reasoningOptOutRejecters = new Set<string>();
 /**
  * Same as {@link reasoningOptOutRejecters}, for upstreams that rejected a
  * non-`"none"` reasoning effort (providers with
- * `retryWithoutRejectedReasoningEffort` only).
+ * `retryWithoutRejectedReasoningEffort` only). Keyed by the rejected tier as
+ * well: models with sparse effort support reject some tiers and accept
+ * others, so only the tier that failed is skipped later.
  */
 const reasoningEffortRejecters = new Set<string>();
 
@@ -453,7 +459,7 @@ function isReasoningOptOutRejection(error: unknown, params: unknown): boolean {
  * retry without it keeps a profile that names no effort working there.
  */
 function isReasoningEffortRejection(error: unknown, params: unknown): boolean {
-  if (!carriesReasoningEffort(params) || carriesReasoningOptOut(params)) {
+  if (reasoningEffortTier(params) === undefined) {
     return false;
   }
   if (!isClientErrorStatus(error)) {
@@ -1274,12 +1280,14 @@ export class OpenAIChatCompletionsProvider implements Provider {
             params.tool_choice = toolChoiceOmittedForReasoning;
           }
         };
+        const effortTier = reasoningEffortTier(params);
+        const effortRejectionKey = `${optOutKey}|${effortTier}`;
         if (
           (reasoningOptOutRejecters.has(optOutKey) &&
             carriesReasoningOptOut(params)) ||
           (this.retryWithoutRejectedReasoningEffort &&
-            reasoningEffortRejecters.has(optOutKey) &&
-            carriesReasoningEffort(params))
+            effortTier !== undefined &&
+            reasoningEffortRejecters.has(effortRejectionKey))
         ) {
           stripReasoning();
         }
@@ -1303,7 +1311,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
             if (lastCompatRetry === "reasoning-opt-out") {
               reasoningOptOutRejecters.add(optOutKey);
             } else if (lastCompatRetry === "reasoning-effort") {
-              reasoningEffortRejecters.add(optOutKey);
+              reasoningEffortRejecters.add(effortRejectionKey);
             }
             break;
           } catch (error) {

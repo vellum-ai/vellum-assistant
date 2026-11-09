@@ -956,6 +956,32 @@ describe("reasoning opt-out rejection fallback", () => {
     expect(text?.text).toBe("ok");
   });
 
+  test("remembers only the rejected effort tier, not every tier", async () => {
+    // Models with sparse effort support reject some tiers (here `medium`)
+    // and accept others; a learned rejection must not strip those.
+    const { provider, requests } = stubProviderWithErrors(
+      [rejection("reasoning_effort 'medium' is not supported for this model")],
+      OK_CHUNKS,
+      { retryWithoutRejectedReasoningEffort: true },
+    );
+    const send = (effort: "medium" | "high" | "none") =>
+      provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        { config: { effort } },
+      );
+
+    await send("medium");
+    await send("high");
+    await send("none");
+    await send("medium");
+
+    expect(
+      requests.map(
+        (r) => (r as { reasoning_effort?: string }).reasoning_effort,
+      ),
+    ).toEqual(["medium", undefined, "high", "none", undefined]);
+  });
+
   test("does not retry a rejected effort on a 4xx that does not name reasoning", async () => {
     const { provider, requests } = stubProviderWithErrors(
       [rejection("invalid api key")],
