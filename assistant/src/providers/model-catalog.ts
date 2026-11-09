@@ -2804,7 +2804,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     // enabled models by quality preference and uses cheaper models for simple
     // steps. The other ids pin one model. Context windows, tool support and
     // input modalities come from the endpoint's public `GET /models` catalog;
-    // maxOutputTokens is the gateway's per-request output ceiling.
+    // maxOutputTokens stays within the gateway's per-request output ceiling.
     models: [
       {
         id: "StandardCompute",
