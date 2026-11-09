@@ -213,6 +213,12 @@ export interface OpenAIChatCompletionsProviderOptions {
    *  (Fireworks, Together) keep sending `none` / forced choices. Enabled for
    *  the generic `openai-compatible` adapter, whose upstream is unknown. */
   omitToolChoiceWhenReasoning?: boolean;
+  /** Retry once without reasoning params when the upstream rejects any
+   *  reasoning effort, not only the explicit `"none"` opt-out. Non-reasoning
+   *  models behind strict OpenAI-compatible servers 4xx on the field itself
+   *  (`reasoning_effort is not supported with this model`). Enabled for the
+   *  generic `openai-compatible` adapter, whose upstream is unknown. */
+  retryWithoutRejectedReasoningEffort?: boolean;
   /** Send `tool_choice: "auto"` whenever tools are offered and the caller
    *  left the choice unspecified. Strict OpenAI-compatible upstreams default
    *  an unspecified `tool_choice` to "none" (io.net documents exactly that),
@@ -379,6 +385,23 @@ function carriesReasoningOptOut(params: unknown): boolean {
   );
 }
 
+/** The non-`"none"` reasoning effort tier on the wire, flat or nested. */
+function reasoningEffortTier(params: unknown): string | undefined {
+  const p = params as {
+    reasoning_effort?: unknown;
+    reasoning?: { effort?: unknown } | null;
+  };
+  const tier =
+    typeof p.reasoning_effort === "string"
+      ? p.reasoning_effort
+      : typeof p.reasoning === "object" &&
+          p.reasoning !== null &&
+          typeof p.reasoning.effort === "string"
+        ? p.reasoning.effort
+        : undefined;
+  return tier === "none" ? undefined : tier;
+}
+
 function stripReasoningParams(params: unknown): void {
   const p = params as Record<string, unknown>;
   delete p.reasoning_effort;
@@ -396,9 +419,19 @@ function stripReasoningParams(params: unknown): void {
  */
 const reasoningOptOutRejecters = new Set<string>();
 
+/**
+ * Same as {@link reasoningOptOutRejecters}, for upstreams that rejected a
+ * non-`"none"` reasoning effort (providers with
+ * `retryWithoutRejectedReasoningEffort` only). Keyed by the rejected tier as
+ * well: models with sparse effort support reject some tiers and accept
+ * others, so only the tier that failed is skipped later.
+ */
+const reasoningEffortRejecters = new Set<string>();
+
 /** Test-only: forget learned reasoning opt-out rejections. */
 export function resetReasoningOptOutRejectersForTests(): void {
   reasoningOptOutRejecters.clear();
+  reasoningEffortRejecters.clear();
 }
 
 /**
@@ -411,6 +444,22 @@ export function resetReasoningOptOutRejectersForTests(): void {
  */
 function isReasoningOptOutRejection(error: unknown, params: unknown): boolean {
   if (!carriesReasoningOptOut(params)) {
+    return false;
+  }
+  if (!isClientErrorStatus(error)) {
+    return false;
+  }
+  return /reasoning/i.test(openaiCompatErrorHaystack(error));
+}
+
+/**
+ * True when the request carried a non-`"none"` reasoning effort and the
+ * provider rejected it with a 4xx that names reasoning. Non-reasoning models
+ * behind strict OpenAI-compatible servers reject the field outright; one
+ * retry without it keeps a profile that names no effort working there.
+ */
+function isReasoningEffortRejection(error: unknown, params: unknown): boolean {
+  if (reasoningEffortTier(params) === undefined) {
     return false;
   }
   if (!isClientErrorStatus(error)) {
@@ -705,6 +754,7 @@ function flattenContentPartsToStrings(params: unknown): boolean {
 
 type OpenAICompatRetryKind =
   | "reasoning-opt-out"
+  | "reasoning-effort"
   | "thinking-tool-choice"
   | "missing-reasoning-content"
   | "unknown-reasoning-field"
@@ -716,13 +766,15 @@ function classifyOpenAICompatRetry(
   error: unknown,
   params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
   thoughtSignaturesByCallId: ReadonlyMap<string, string>,
+  retryWithoutRejectedReasoningEffort: boolean,
+  stripReasoning: () => void,
 ): { kind: OpenAICompatRetryKind; message: string; apply: () => void } | null {
   if (isReasoningOptOutRejection(error, params)) {
     return {
       kind: "reasoning-opt-out",
       message:
         "Model rejected the explicit reasoning opt-out; retrying without reasoning params",
-      apply: () => stripReasoningParams(params),
+      apply: stripReasoning,
     };
   }
   if (isThinkingModeToolChoiceRejection(error, params)) {
@@ -753,6 +805,19 @@ function classifyOpenAICompatRetry(
       apply: () => {
         stripAssistantReasoningFields(params);
       },
+    };
+  }
+  // After the reasoning round-trip checks above: their errors also name
+  // reasoning, and stripping the effort would not fix them.
+  if (
+    retryWithoutRejectedReasoningEffort &&
+    isReasoningEffortRejection(error, params)
+  ) {
+    return {
+      kind: "reasoning-effort",
+      message:
+        "Upstream rejected the reasoning effort; retrying without reasoning params",
+      apply: stripReasoning,
     };
   }
   const thoughtSignatureRetry = classifyGoogleThoughtSignatureRetry(params, {
@@ -871,6 +936,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
   private coerceObjectArgsToJsonString: boolean;
   private salvageXmlToolCalls: boolean;
   private omitToolChoiceWhenReasoning: boolean;
+  private retryWithoutRejectedReasoningEffort: boolean;
   private defaultToolChoiceAuto: boolean;
   private outputTokenLimitField: "max_completion_tokens" | "max_tokens";
 
@@ -904,6 +970,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
       options.salvageXmlToolCalls ?? shouldSalvageXmlToolCalls(model);
     this.omitToolChoiceWhenReasoning =
       options.omitToolChoiceWhenReasoning ?? false;
+    this.retryWithoutRejectedReasoningEffort =
+      options.retryWithoutRejectedReasoningEffort ?? false;
     this.defaultToolChoiceAuto = options.defaultToolChoiceAuto ?? false;
     this.outputTokenLimitField =
       options.outputTokenLimitField ?? "max_completion_tokens";
@@ -1014,6 +1082,11 @@ export class OpenAIChatCompletionsProvider implements Provider {
 
       const offeredToolNames = new Set((tools ?? []).map((t) => t.name));
       let xmlToolCallSalvageEnabled = false;
+      // A tool_choice left off only because reasoning is on the wire. Restored
+      // whenever the reasoning params are stripped from the request.
+      let toolChoiceOmittedForReasoning:
+        | OpenAI.Chat.Completions.ChatCompletionToolChoiceOption
+        | undefined;
 
       if (tools && tools.length > 0) {
         params.tools = tools.map((t) => {
@@ -1071,6 +1144,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
             !skipIncompatibleForcedChoice
           ) {
             params.tool_choice = toolChoice;
+          } else {
+            toolChoiceOmittedForReasoning = toolChoice;
           }
         }
       }
@@ -1199,11 +1274,22 @@ export class OpenAIChatCompletionsProvider implements Provider {
         const optOutKey = `${this.client.baseURL}|${params.model}|${JSON.stringify(
           (params as { provider?: unknown }).provider ?? null,
         )}`;
-        if (
-          reasoningOptOutRejecters.has(optOutKey) &&
-          carriesReasoningOptOut(params)
-        ) {
+        const stripReasoning = () => {
           stripReasoningParams(params);
+          if (toolChoiceOmittedForReasoning !== undefined) {
+            params.tool_choice = toolChoiceOmittedForReasoning;
+          }
+        };
+        const effortTier = reasoningEffortTier(params);
+        const effortRejectionKey = `${optOutKey}|${effortTier}`;
+        if (
+          (reasoningOptOutRejecters.has(optOutKey) &&
+            carriesReasoningOptOut(params)) ||
+          (this.retryWithoutRejectedReasoningEffort &&
+            effortTier !== undefined &&
+            reasoningEffortRejecters.has(effortRejectionKey))
+        ) {
+          stripReasoning();
         }
         const createStream = () => {
           // Snapshot after extra-body merge and any in-place compat retries
@@ -1224,6 +1310,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
             stream = await createStream();
             if (lastCompatRetry === "reasoning-opt-out") {
               reasoningOptOutRejecters.add(optOutKey);
+            } else if (lastCompatRetry === "reasoning-effort") {
+              reasoningEffortRejecters.add(effortRejectionKey);
             }
             break;
           } catch (error) {
@@ -1231,6 +1319,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
               error,
               params,
               thoughtSignaturesByCallId,
+              this.retryWithoutRejectedReasoningEffort,
+              stripReasoning,
             );
             if (!retry || attemptedCompatRetries.has(retry.kind)) {
               throw error;

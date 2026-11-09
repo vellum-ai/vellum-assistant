@@ -821,6 +821,60 @@ describe("RetryProvider — callSite resolution", () => {
     expect(config.thinking).toEqual({ type: "disabled" });
   });
 
+  test("passes a profile effort through for openai-compatible endpoints", async () => {
+    setLlmConfig({
+      callSites: {
+        mainAgent: {
+          provider: "openai-compatible",
+          model: "local-model",
+          effort: "medium",
+        },
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("openai-compatible", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.effort).toBe("medium");
+  });
+
+  test("disabled thinking forces effort none for openai-compatible endpoints", async () => {
+    setLlmConfig({
+      callSites: {
+        mainAgent: {
+          provider: "openai-compatible",
+          model: "local-model",
+          effort: "high",
+          thinking: { enabled: false, streamThinking: false },
+        },
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("openai-compatible", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.effort).toBe("none");
+    expect(config.thinking).toBeUndefined();
+  });
+
   test("disabled thinking keeps effort for gateway-delegated anthropic/* models", async () => {
     setLlmConfig({
       callSites: {
