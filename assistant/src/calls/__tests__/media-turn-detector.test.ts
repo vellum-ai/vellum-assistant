@@ -264,6 +264,151 @@ describe("MediaTurnDetector", () => {
     detector.dispose();
   });
 
+  // ── setSilenceThresholdMs ────────────────────────────────────────
+
+  test("setSilenceThresholdMs updates the threshold for the next turn", () => {
+    const onTurnEnd = jest.fn();
+
+    const detector = new MediaTurnDetector(
+      { silenceThresholdMs: 500 },
+      { onTurnEnd },
+    );
+
+    detector.onMediaChunk(true);
+    // Lower the threshold mid-turn — applies from the next silence-timer arm.
+    detector.setSilenceThresholdMs(200);
+
+    // Speak once more to reset the timer with the new 200ms threshold.
+    advance(100);
+    detector.onMediaChunk(true);
+
+    // 250ms of silence should now fire (> new 200ms threshold).
+    advance(250);
+    expect(onTurnEnd).toHaveBeenCalledTimes(1);
+
+    detector.dispose();
+  });
+
+  // ── onIntraTurnResume ────────────────────────────────────────────
+
+  describe("onIntraTurnResume", () => {
+    test("fires when speech resumes after a silence gap within the active turn", () => {
+      const onIntraTurnResume = jest.fn();
+
+      const detector = new MediaTurnDetector(
+        { silenceThresholdMs: 500 },
+        { onIntraTurnResume },
+      );
+
+      // Start turn with speech.
+      detector.onMediaChunk(true);
+      expect(onIntraTurnResume).not.toHaveBeenCalled();
+
+      // 200ms of silence starts the countdown.
+      advance(200);
+      detector.onMediaChunk(false);
+
+      // Speech resumes — pause was ~200ms.
+      advance(200);
+      detector.onMediaChunk(true);
+      expect(onIntraTurnResume).toHaveBeenCalledTimes(1);
+      expect(onIntraTurnResume).toHaveBeenCalledWith(expect.any(Number));
+
+      detector.dispose();
+    });
+
+    test("does NOT fire on the initial turn start", () => {
+      const onIntraTurnResume = jest.fn();
+
+      const detector = new MediaTurnDetector(
+        { silenceThresholdMs: 500 },
+        { onIntraTurnResume },
+      );
+
+      // First chunk starts the turn — no resume, no prior speech.
+      detector.onMediaChunk(true);
+      expect(onIntraTurnResume).not.toHaveBeenCalled();
+
+      detector.dispose();
+    });
+
+    test("does NOT fire for continuous speech with no silence gap", () => {
+      const onIntraTurnResume = jest.fn();
+
+      const detector = new MediaTurnDetector(
+        { silenceThresholdMs: 500 },
+        { onIntraTurnResume },
+      );
+
+      detector.onMediaChunk(true);
+      advance(50);
+      detector.onMediaChunk(true);
+      advance(50);
+      detector.onMediaChunk(true);
+
+      // No silence interval, so no intra-turn resume.
+      expect(onIntraTurnResume).not.toHaveBeenCalled();
+
+      detector.dispose();
+    });
+
+    test("fires once per resume event, not on every speech chunk after resuming", () => {
+      const onIntraTurnResume = jest.fn();
+
+      const detector = new MediaTurnDetector(
+        { silenceThresholdMs: 500 },
+        { onIntraTurnResume },
+      );
+
+      detector.onMediaChunk(true);
+
+      // Silence starts the countdown.
+      advance(100);
+      detector.onMediaChunk(false);
+
+      // Speech resumes.
+      advance(150);
+      detector.onMediaChunk(true);
+      expect(onIntraTurnResume).toHaveBeenCalledTimes(1);
+
+      // Additional speech chunks in the same resumed run: no new events.
+      advance(50);
+      detector.onMediaChunk(true);
+      advance(50);
+      detector.onMediaChunk(true);
+      expect(onIntraTurnResume).toHaveBeenCalledTimes(1);
+
+      detector.dispose();
+    });
+
+    test("fires for each distinct silence-then-resume cycle within the same turn", () => {
+      const onIntraTurnResume = jest.fn();
+
+      const detector = new MediaTurnDetector(
+        { silenceThresholdMs: 600 },
+        { onIntraTurnResume },
+      );
+
+      detector.onMediaChunk(true);
+
+      // First pause-resume cycle.
+      advance(100);
+      detector.onMediaChunk(false);
+      advance(100);
+      detector.onMediaChunk(true);
+      expect(onIntraTurnResume).toHaveBeenCalledTimes(1);
+
+      // Second pause-resume cycle.
+      advance(100);
+      detector.onMediaChunk(false);
+      advance(100);
+      detector.onMediaChunk(true);
+      expect(onIntraTurnResume).toHaveBeenCalledTimes(2);
+
+      detector.dispose();
+    });
+  });
+
   // ── Speech-aware segmentation ─────────────────────────────────────
 
   describe("speech-aware segmentation", () => {
