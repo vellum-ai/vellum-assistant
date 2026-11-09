@@ -108,6 +108,22 @@ export const acceleratorOption = (
 };
 
 /**
+ * Resolve the accelerator for a global shortcut key (quickInput,
+ * globalHotkey, toggleVoice…), preferring the user override from
+ * `settings.hotkeys.<key>` over the compiled default. Returns a
+ * menu/tray template fragment with no `accelerator` key when the binding
+ * is disabled or has no default — matching the contract of `acceleratorOption`
+ * so callers never pass an empty string to `Menu.buildFromTemplate`.
+ */
+export const resolveGlobalAcceleratorOption = (
+  key: string,
+): { accelerator?: string } => {
+  const accelerator =
+    readHotkeyOverride(key) ?? GLOBAL_SHORTCUT_DEFAULTS[key] ?? "";
+  return accelerator ? { accelerator } : {};
+};
+
+/**
  * Send a command to whichever BrowserWindow currently has focus, falling
  * back to the first window if none is focused (which happens when a menu
  * item is clicked from the menu bar while the app is in the background but
