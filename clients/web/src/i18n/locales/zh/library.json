@@ -26,11 +26,11 @@
     "pin": "置顶",
     "share": "分享",
     "shareSub": "导出为 .vellum 文件",
-    "deployed": "已部署到 Vercel",
+    "deployed": "已部署到 {provider}",
     "copyLink": "复制链接",
     "redeploy": "重新部署",
     "redeploySub": "发布当前版本",
-    "deploy": "部署到 Vercel",
+    "deploy": "部署到 {provider}",
     "deploySub": "发布为静态页面",
     "delete": "删除"
   },

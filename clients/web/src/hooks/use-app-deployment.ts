@@ -1,6 +1,6 @@
 /**
- * Read side of an app's Vercel deployment: whether it is already published
- * and, if so, where it lives.
+ * Read side of an app's deployment: whether it is already published and, if
+ * so, where it lives and which target it went to.
  *
  * The deploy *write* path lives in {@link useDeployStore} (it owns the
  * in-flight dialogs and the publish request). The published URL is server
@@ -8,9 +8,9 @@
  * into the store. See `docs/STATE_MANAGEMENT.md`.
  *
  * Surfaces that offer a deploy affordance (the app viewer's nav bar, the
- * library card's actions menu) call this so they can say "Deployed to
- * Vercel" and hand back the link instead of offering a first-time deploy
- * for an app that already has one.
+ * library card's actions menu) call this so an app that already has a
+ * deployment names its target and hands the link back, and one that does not
+ * offers a first-time deploy.
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -23,17 +23,20 @@ import {
 import { t } from "@/i18n";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { useDeployStore } from "@/stores/deploy-store";
+import { publishProviderName } from "@/utils/publish-provider";
 import { toast } from "@vellumai/design-library/components/toast";
 
 export interface AppDeployment {
   /** Live URL of the active deployment, or `null` when nothing is published. */
   deployedUrl: string | null;
+  /** Display name of the publish target this assistant is configured for. */
+  providerName: string;
   /** True while the first status read for this app is still in flight. */
   isLoading: boolean;
 }
 
 /**
- * Report the active Vercel deployment for `appId`.
+ * Report the active deployment for `appId`.
  *
  * `enabled` exists because the library renders one card per app: fetching a
  * status for every card on mount would be an N+1 against the daemon, so the
@@ -73,6 +76,7 @@ export function useAppDeployment(
 
   return {
     deployedUrl: query.data?.published ? (query.data.publicUrl ?? null) : null,
+    providerName: publishProviderName(query.data),
     isLoading: active && query.isPending,
   };
 }
