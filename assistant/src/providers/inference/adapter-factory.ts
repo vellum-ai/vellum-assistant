@@ -186,6 +186,9 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       // Custom OpenAI-compatible endpoints may front strict reasoning
       // models (DeepSeek thinking) that 400 on any explicit tool_choice.
       omitToolChoiceWhenReasoning: true,
+      // `high` is the top `reasoning_effort` tier OpenAI-compatible servers
+      // generally accept; strict validators reject `xhigh`/`max`.
+      maxReasoningEffort: "high",
       ...(baseURL ? { baseURL } : {}),
     }),
   minimax: ({ apiKey, model, streamTimeoutMs }) =>

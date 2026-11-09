@@ -89,6 +89,39 @@ describe("adapter factory", () => {
     ).toBe("reasoning_content");
   });
 
+  test("openai-compatible caps reasoning_effort at high", async () => {
+    const adapter = buildProviderAdapter("openai-compatible", {
+      apiKey: "test-key",
+      model: "my-local-model",
+      streamTimeoutMs: 60_000,
+      baseURL: "http://localhost:8080/v1",
+      useNativeWebSearch: false,
+    });
+    expect(adapter).toBeInstanceOf(OpenAIChatCompletionsProvider);
+    const provider = adapter as OpenAIChatCompletionsProvider;
+    const requests = stubChatCreate(provider);
+
+    for (const effort of [
+      "max",
+      "xhigh",
+      "high",
+      "medium",
+      "low",
+      "none",
+    ] as const) {
+      await provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        { config: { effort } },
+      );
+    }
+
+    expect(
+      requests.map(
+        (r) => (r as { reasoning_effort?: string }).reasoning_effort,
+      ),
+    ).toEqual(["high", "high", "high", "medium", "low", "none"]);
+  });
+
   test("litellm round-trips thinking as reasoning_content", () => {
     const adapter = buildProviderAdapter("litellm", {
       apiKey: "test-key",
