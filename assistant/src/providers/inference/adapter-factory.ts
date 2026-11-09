@@ -189,6 +189,7 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       // `high` is the top `reasoning_effort` tier OpenAI-compatible servers
       // generally accept; strict validators reject `xhigh`/`max`.
       maxReasoningEffort: "high",
+      retryWithoutRejectedReasoningEffort: true,
       ...(baseURL ? { baseURL } : {}),
     }),
   minimax: ({ apiKey, model, streamTimeoutMs }) =>
