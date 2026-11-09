@@ -105,6 +105,13 @@ describe("CSP_POLICY", () => {
     expect(directiveValue("base-uri")).toBe("'none'");
   });
 
+  test("connect-src allows the renderer TTS preview hosts", () => {
+    const connectSrc = directiveValue("connect-src")!;
+    expect(connectSrc).toContain("https://api.elevenlabs.io");
+    expect(connectSrc).toContain("https://api.deepgram.com");
+    expect(connectSrc).toContain("https://api.fish.audio");
+  });
+
   test("connect-src allows vellum.ai and sentry but not broad https:", () => {
     const connectSrc = directiveValue("connect-src")!;
     expect(connectSrc).toContain("https://*.vellum.ai");

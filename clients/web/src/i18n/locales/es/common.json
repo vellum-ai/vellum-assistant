@@ -850,6 +850,8 @@
   "ttsProviderForm": {
     "apiKey": "Clave de API",
     "apiKeyRequired": "Guarda una clave de API para este proveedor antes de probar.",
+    "fishVoiceIdRequired": "Introduce un ID de voz antes de probar Fish Audio.",
+    "xaiPreviewUnsupported": "La conversión de texto a voz de xAI todavía no se puede previsualizar aquí. Usa ElevenLabs o Deepgram para probar una voz.",
     "chooseFromCatalog": "Elegir del catálogo",
     "customVoiceIdAriaLabel": "ID de voz personalizado",
     "noManagedVoices": "No hay voces gestionadas disponibles en este momento.",

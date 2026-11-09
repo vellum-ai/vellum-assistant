@@ -30,13 +30,16 @@ const config: FishAudioConfig = {
 
 let originalFetch: typeof globalThis.fetch;
 let capturedBody = "";
+let capturedHeaders: HeadersInit | undefined;
 
 beforeEach(() => {
   originalFetch = globalThis.fetch;
   capturedBody = "";
+  capturedHeaders = undefined;
   globalThis.fetch = mock(
     async (_input: RequestInfo | URL, init?: RequestInit) => {
       capturedBody = init?.body as string;
+      capturedHeaders = init?.headers;
       return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
     },
   ) as unknown as typeof globalThis.fetch;
@@ -51,6 +54,15 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("synthesizeWithFishAudio request body", () => {
+  test("sends the TTS model as a request header and not a body field", async () => {
+    await synthesizeWithFishAudio("hello", config);
+
+    expect(new Headers(capturedHeaders).get("model")).toBe("s2-pro");
+    const body = JSON.parse(capturedBody);
+    expect(body.model).toBeUndefined();
+    expect(body.reference_id).toBe("test-reference-id");
+  });
+
   test("includes sample_rate when the sampleRate option is set", async () => {
     await synthesizeWithFishAudio("hello", config, { sampleRate: 8000 });
 
