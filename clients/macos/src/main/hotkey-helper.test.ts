@@ -141,6 +141,7 @@ const {
   postFrontAppShortcut,
   queryFreshMacHelperPermission,
   requestMacHelperInputMonitoringPermission,
+  requestMacHelperScreenRecordingPermission,
   requestMacHelperSpeechRecognitionPermission,
 } = await import("./hotkey-helper");
 
@@ -331,6 +332,37 @@ describe("permission request launchers", () => {
     await writeFile(args[6]!, '{"status":"granted"}');
     lastChild?.emit("exit", 0);
     expect(await pending).toBe("granted");
+  });
+
+  test("reads Screen Recording from the executable that captures", async () => {
+    appState.isPackaged = true;
+    helperBundleName = "Vellum Helper Staging";
+    helperExecutableName = "Vellum Helper Staging";
+    const pending = queryFreshMacHelperPermission("screen");
+    await wait(10);
+
+    expect(spawnCalls[0]?.[0]).toBe(getMacHelperPath());
+    const args = spawnCalls[0]?.[1] ?? [];
+    expect(args.slice(0, 3)).toEqual([
+      "--permission-status",
+      "screen",
+      "--status-output",
+    ]);
+    expect(args[3]).toBeString();
+
+    await writeFile(args[3]!, '{"status":"denied"}');
+    lastChild?.emit("exit", 0);
+    expect(await pending).toBe("denied");
+  });
+
+  test("requests Screen Recording from the executable that captures", async () => {
+    const pending = requestMacHelperScreenRecordingPermission();
+
+    expect(spawnCalls[0]?.[0]).toBe(getMacHelperPath());
+    expect(spawnCalls[0]?.[1]).toEqual(["--request-screen-recording"]);
+
+    lastChild?.emit("exit", 0);
+    await expect(pending).resolves.toBeUndefined();
   });
 
   test("launches the helper app for Speech Recognition prompts", async () => {

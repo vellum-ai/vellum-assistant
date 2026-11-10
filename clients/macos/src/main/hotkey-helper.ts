@@ -631,7 +631,7 @@ export const requestMacHelperInputMonitoringPermission =
 
 export const requestMacHelperScreenRecordingPermission =
   async (): Promise<void> => {
-    await openMacHelperApp(["--request-screen-recording"]);
+    await runCapturingMacHelper(["--request-screen-recording"]);
   };
 
 const queryBundledMacHelperPermission = async (
@@ -643,12 +643,12 @@ const queryBundledMacHelperPermission = async (
   const outputPath = path.join(tempDir, "status.json");
 
   try {
-    await openMacHelperApp([
-      "--permission-status",
-      kind,
-      "--status-output",
-      outputPath,
-    ]);
+    const args = ["--permission-status", kind, "--status-output", outputPath];
+    if (kind === "screen") {
+      await runCapturingMacHelper(args);
+    } else {
+      await openMacHelperApp(args);
+    }
     return await readPermissionStatusFile(outputPath);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
@@ -656,9 +656,22 @@ const queryBundledMacHelperPermission = async (
 };
 
 const openMacHelperApp = async (helperArgs: string[]): Promise<void> => {
+  await launchHelper("open", [
+    "-n",
+    getMacHelperAppPath(),
+    "--args",
+    ...helperArgs,
+  ]);
+};
+
+/** Use the same executable launch as the process that takes screen captures. */
+const runCapturingMacHelper = async (helperArgs: string[]): Promise<void> => {
+  await launchHelper(getMacHelperPath(), helperArgs);
+};
+
+const launchHelper = async (command: string, args: string[]): Promise<void> => {
   await new Promise<void>((resolve, reject) => {
-    const args = ["-n", getMacHelperAppPath(), "--args", ...helperArgs];
-    const child = spawn("open", args, { stdio: "ignore" });
+    const child = spawn(command, args, { stdio: "ignore", windowsHide: true });
     let settled = false;
 
     const settle = (err?: Error) => {
@@ -676,7 +689,11 @@ const openMacHelperApp = async (helperArgs: string[]): Promise<void> => {
       if (code === 0) {
         settle();
       } else {
-        settle(new Error(`open exited with code ${code ?? "unknown"}`));
+        settle(
+          new Error(
+            `${path.basename(command)} exited with code ${code ?? "unknown"}`,
+          ),
+        );
       }
     });
   });

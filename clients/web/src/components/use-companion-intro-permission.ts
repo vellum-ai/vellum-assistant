@@ -206,7 +206,7 @@ export function useCompanionIntroPermission(
           const requesting = revision;
           returnToApp = "waiting";
           const result =
-            kind !== "microphone" && supportsPermissionSetup()
+            kind === "inputMonitoring" && supportsPermissionSetup()
               ? await beginPermissionGuide(kind, source)
               : companionIntroOpensSettings(kind, item)
                 ? await openSystemPermissionSettings(kind)
