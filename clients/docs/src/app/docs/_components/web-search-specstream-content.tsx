@@ -51,12 +51,12 @@ export function WebSearchSpecstreamContent() {
             <li>
               A SpecStream API key. Create one under Agents &amp; API at{" "}
               <Link
-                href="https://specstream.ai/workspace"
+                href="https://specstream.ai/signup?src=vellum-assistant"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-emerald-700 underline hover:text-emerald-800"
               >
-                specstream.ai/workspace
+                specstream.ai/signup
               </Link>
               . New accounts start with $10 of credit.
             </li>
@@ -201,7 +201,7 @@ assistant config set services.web-search.provider specstream`}
             </li>
             <li>
               <Link
-                href="https://specstream.ai/workspace"
+                href="https://specstream.ai/signup?src=vellum-assistant"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-emerald-700 underline hover:text-emerald-800"
