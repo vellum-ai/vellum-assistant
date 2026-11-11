@@ -120,4 +120,12 @@ describe("search-provider-catalog", () => {
     expect(serply?.supportsApiBase).toBeUndefined();
     expect(serply?.envVar).toBe("SERPLY_API_KEY");
   });
+
+  test("SpecStream is a keyed BYOK provider without a custom API base", () => {
+    const specstream = getSearchProvider("specstream");
+    expect(specstream?.kind).toBe("byok");
+    expect(specstream?.keyless).toBeUndefined();
+    expect(specstream?.supportsApiBase).toBeUndefined();
+    expect(specstream?.envVar).toBe("SPECSTREAM_API_KEY");
+  });
 });

@@ -50,6 +50,10 @@ const SERPLY_API_URL = "https://api.serply.io/v1/search";
 // Serply returns at most 10 organic results per call; larger counts are
 // clamped on request and trimmed on response.
 const SERPLY_MAX_RESULTS = 10;
+const SPECSTREAM_API_URL = "https://api.specstream.ai/v1/web-search";
+// One SpecStream search is priced for up to 10 results; larger counts are
+// clamped on request and trimmed on response so a call stays one search.
+const SPECSTREAM_MAX_RESULTS = 10;
 // Keenable is keyless by default: the public path needs no key (rate-limited);
 // a key switches to the authenticated path and lifts the cap.
 const KEENABLE_API_BASE_URL = "https://api.keenable.ai";
@@ -66,7 +70,8 @@ type WebSearchProvider =
   | "searxng"
   | "tinyfish"
   | "exa"
-  | "serply";
+  | "serply"
+  | "specstream";
 
 /**
  * Arguments passed to every {@link WebSearchAdapter}. The full superset is
@@ -229,6 +234,20 @@ interface SerplySearchResponse {
   query?: string;
   total?: number;
   results?: SerplySearchResult[];
+}
+
+interface SpecstreamSearchSource {
+  url?: string;
+  title?: string | null;
+  snippet?: string | null;
+  published?: string | null;
+}
+
+interface SpecstreamSearchResponse {
+  data?: {
+    query?: string;
+    sources?: SpecstreamSearchSource[];
+  };
 }
 
 const SEARXNG_MISSING_INSTANCE_MESSAGE =
@@ -904,6 +923,61 @@ function serplyTbsForFreshness(
     default:
       return undefined;
   }
+}
+
+function formatSpecstreamResults(
+  sources: SpecstreamSearchSource[],
+  query: string,
+): string {
+  if (sources.length === 0) {
+    return `No results found for "${query}".`;
+  }
+
+  const lines: string[] = [`Web search results for "${query}":\n`];
+  for (let i = 0; i < sources.length; i++) {
+    const source = sources[i];
+    const title =
+      source.title?.trim() || source.url?.trim() || "Untitled result";
+    lines.push(`${i + 1}. ${title}`);
+    if (source.url) {
+      lines.push(`   URL: ${source.url}`);
+    }
+    const snippet = source.snippet?.trim();
+    if (snippet) {
+      lines.push(`   ${snippet}`);
+    }
+    if (source.published) {
+      lines.push(`   Published: ${source.published}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
+function buildSpecstreamMetadata(
+  sources: SpecstreamSearchSource[],
+  query: string,
+  durationMs: number,
+): WebSearchMetadata {
+  const items: WebSearchResultItem[] = sources.map((source, index) => {
+    const url = source.url ?? "";
+    const domain = extractDomain(url);
+    return {
+      rank: index + 1,
+      title: source.title?.trim() || url.trim() || "Untitled result",
+      url,
+      domain,
+      faviconUrl: faviconUrlForDomain(domain),
+      snippet: source.snippet?.trim() || undefined,
+    };
+  });
+  return {
+    query,
+    provider: "specstream",
+    resultCount: items.length,
+    durationMs,
+    results: items,
+  };
 }
 
 function tinyfishRecencyMinutesForFreshness(
@@ -2239,6 +2313,124 @@ async function executeSerplySearch(
   );
 }
 
+/**
+ * SpecStream's search has no recency filter, so `freshness` is not sent.
+ */
+async function executeSpecstreamSearch(
+  query: string,
+  count: number,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<ToolExecutionResult> {
+  const startedAt = Date.now();
+  const params = new URLSearchParams({
+    q: query,
+    num: String(Math.min(count, SPECSTREAM_MAX_RESULTS)),
+  });
+  const url = `${SPECSTREAM_API_URL}?${params.toString()}`;
+
+  const headers = {
+    Accept: "application/json",
+    Authorization: `Bearer ${apiKey.trim()}`,
+    "User-Agent": "vellum-assistant",
+  };
+
+  for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(url, { method: "GET", headers, signal });
+    } catch (err) {
+      return networkFailureResult(query, "specstream", startedAt, err, signal);
+    }
+
+    const bodyText = await response.text();
+    if (response.ok) {
+      let data: SpecstreamSearchResponse;
+      try {
+        data = JSON.parse(bodyText) as SpecstreamSearchResponse;
+      } catch {
+        return errorResult(
+          query,
+          "specstream",
+          startedAt,
+          "SpecStream Search returned an invalid JSON payload.",
+        );
+      }
+      const sources = (data.data?.sources ?? []).slice(0, count);
+      const durationMs = Date.now() - startedAt;
+      return {
+        content:
+          wrapUntrustedContent(formatSpecstreamResults(sources, query), {
+            source: "search",
+            sourceDetail: "specstream",
+          }) + CITATION_INSTRUCTION,
+        isError: false,
+        activityMetadata: {
+          webSearch: buildSpecstreamMetadata(sources, query, durationMs),
+        },
+      };
+    }
+
+    if (response.status === 401) {
+      return errorResult(
+        query,
+        "specstream",
+        startedAt,
+        "Invalid or expired SpecStream API key",
+      );
+    }
+    if (response.status === 402) {
+      return errorResult(
+        query,
+        "specstream",
+        startedAt,
+        "SpecStream account has no remaining credit.",
+      );
+    }
+    if (response.status === 403) {
+      return errorResult(
+        query,
+        "specstream",
+        startedAt,
+        "SpecStream Search request was forbidden by the upstream service.",
+      );
+    }
+
+    if (response.status === 429 && attempt < DEFAULT_MAX_RETRIES) {
+      const delayMs = getHttpRetryDelay(
+        response,
+        attempt,
+        DEFAULT_BASE_DELAY_MS,
+      );
+      log.warn(
+        { attempt: attempt + 1, delayMs },
+        "SpecStream Search rate limited, retrying",
+      );
+      await sleep(delayMs);
+      continue;
+    }
+
+    log.warn({ status: response.status }, "SpecStream Search API error");
+    return backendFailureResult(
+      query,
+      "specstream",
+      startedAt,
+      { statusCode: response.status, error: rawBodyDetail(bodyText) },
+      response.status === 429
+        ? "SpecStream Search rate limit exceeded after retries. Try again shortly."
+        : `SpecStream Search API returned status ${response.status}`,
+    );
+  }
+
+  return backendFailureResult(
+    query,
+    "specstream",
+    startedAt,
+    { statusCode: 429 },
+    "SpecStream Search rate limit exceeded after retries. Try again shortly.",
+  );
+}
+
 // ----------------------------------------------------------------------------
 // Adapter registry
 //
@@ -2338,6 +2530,14 @@ const serplySearchAdapter: WebSearchAdapter = {
     executeSerplySearch(query, count, freshness, apiKey, signal),
 };
 
+const specstreamSearchAdapter: WebSearchAdapter = {
+  id: "specstream",
+  providerKeyName: "specstream",
+  fallbackOrder: 11,
+  execute: ({ query, count, apiKey, signal }) =>
+    executeSpecstreamSearch(query, count, apiKey, signal),
+};
+
 /**
  * All built-in web-search adapters keyed by provider id. The
  * `Record<WebSearchProvider, ...>` shape forces TypeScript to flag any
@@ -2354,6 +2554,7 @@ const WEB_SEARCH_ADAPTERS: Record<WebSearchProvider, WebSearchAdapter> = {
   tinyfish: tinyfishSearchAdapter,
   exa: exaSearchAdapter,
   serply: serplySearchAdapter,
+  specstream: specstreamSearchAdapter,
 };
 
 /**
@@ -2385,7 +2586,7 @@ export const webSearchTool = {
       count: {
         type: "number",
         description:
-          "Number of results to return (1-20, default 10). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, Exa, and Serply providers.",
+          "Number of results to return (1-20, default 10). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, Exa, Serply, and SpecStream providers.",
       },
       offset: {
         type: "number",
@@ -2513,7 +2714,7 @@ export const webSearchTool = {
           query,
           provider,
           startedAt,
-          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, `keys set tavily <key>`, `keys set firecrawl <key>`, or `keys set fastcrw <key>`, or `keys set tinyfish <key>`, or `keys set exa <key>`, or `keys set serply <key>`, or configure it from the Settings page under API Keys. Or switch the web-search provider to Keenable, which works without a key, or SearXNG with your instance URL.",
+          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, `keys set tavily <key>`, `keys set firecrawl <key>`, or `keys set fastcrw <key>`, or `keys set tinyfish <key>`, or `keys set exa <key>`, or `keys set serply <key>`, or `keys set specstream <key>`, or configure it from the Settings page under API Keys. Or switch the web-search provider to Keenable, which works without a key, or SearXNG with your instance URL.",
         );
       }
     }

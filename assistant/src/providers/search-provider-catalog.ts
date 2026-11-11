@@ -207,6 +207,16 @@ export const SEARCH_PROVIDER_CATALOG: readonly SearchProviderCatalogEntry[] = [
     fallbackOrder: 10,
     privacyPolicyUrl: "https://serply.io/privacy",
   },
+  {
+    id: "specstream",
+    displayName: "SpecStream",
+    kind: "byok",
+    apiKeyPrefix: "SpecStream API key...",
+    envVar: "SPECSTREAM_API_KEY",
+    secretKey: "specstream",
+    fallbackOrder: 11,
+    privacyPolicyUrl: "https://specstream.ai/privacy",
+  },
 ];
 
 /** Provider ids accepted by the web-search config schema. */
