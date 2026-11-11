@@ -49,7 +49,7 @@ export function WebSearchSpecstreamContent() {
               apps all work.
             </li>
             <li>
-              A SpecStream API key. Create one under Agents &amp; API at{" "}
+              A SpecStream API key. Sign up at{" "}
               <Link
                 href="https://specstream.ai/signup?src=vellum-assistant"
                 target="_blank"
@@ -57,8 +57,9 @@ export function WebSearchSpecstreamContent() {
                 className="text-emerald-700 underline hover:text-emerald-800"
               >
                 specstream.ai/signup
-              </Link>
-              . New accounts start with $10 of credit.
+              </Link>{" "}
+              and create one under Agents &amp; API. New accounts start with
+              $10 of credit.
             </li>
           </ul>
         </section>
