@@ -748,6 +748,17 @@ export async function stopIngressNginx(workspaceDir: string): Promise<boolean> {
 export const INGRESS_READY_TIMEOUT_MS = 5_000;
 
 /**
+ * Budget for the gateway itself to answer /healthz before the edge is
+ * probed through nginx. After a wake the gateway lags the edge by seconds
+ * (about 14s from container start to /healthz in the reported case), and a
+ * probe through nginx cannot tell a starting gateway from a dead edge.
+ * Waiting for the gateway first keeps that ambiguity from killing a
+ * healthy nginx. A gateway that is already up answers the first probe, so
+ * the common case pays nothing.
+ */
+export const GATEWAY_READY_TIMEOUT_MS = 60_000;
+
+/**
  * Settle budget for the spawned nginx to prove port ownership: a healthy
  * master records its pid under our prefix within milliseconds, while one that
  * lost the bind exits. Bounds the wait for whichever happens first.
@@ -794,11 +805,13 @@ export type StartRemoteWebIngressResult =
   | { status: "port-conflict"; listenPort: number; logPath: string };
 
 /**
- * Generate the nginx config and start the remote-web ingress edge, probe
- * /healthz through it to prove the ingress → gateway path is live, and confirm
- * via the recorded pid file that the spawned nginx owns the listen port. A
- * spawned but unreachable or unowned nginx is rolled back so a failed attempt
- * leaves no half-up edge behind.
+ * Generate the nginx config and start the remote-web ingress edge, wait for
+ * the gateway to answer /healthz, probe /healthz through the edge to prove
+ * the ingress → gateway path is live, and confirm via the recorded pid file
+ * that the spawned nginx owns the listen port. A spawned nginx that is
+ * itself down or unowned is rolled back so a failed attempt leaves no
+ * half-up edge behind; one that is alive while its gateway is still
+ * starting stays up and starts serving once the gateway does.
  *
  * An edge already running in the requested mode, against the requested
  * gateway port, and serving the requested injected SPA config short-circuits
@@ -816,6 +829,12 @@ export async function startRemoteWebIngress(opts: {
   gatewayPort: number;
   listenPort?: number;
   readyTimeoutMs?: number;
+  /**
+   * Budget for the gateway itself to answer /healthz before the edge is
+   * probed (default GATEWAY_READY_TIMEOUT_MS). A caller that already waited
+   * for the gateway passes a shorter budget here.
+   */
+  gatewayReadyTimeoutMs?: number;
   /**
    * Serve the web SPA from the edge (default true). When false the web-dist
    * preflight is skipped and the edge only proxies gateway traffic behind the
@@ -925,17 +944,46 @@ export async function startRemoteWebIngress(opts: {
     remoteWebIngress: webDistDir ? { webDistDir, ...spaOptions } : undefined,
   });
   let exited = false;
+  let notifyChildExited: (() => void) | undefined;
+  const childExitedPromise = new Promise<void>((resolve) => {
+    notifyChildExited = resolve;
+  });
   child.once("exit", () => {
     exited = true;
+    notifyChildExited?.();
   });
   child.unref();
+  // nginx runs `daemon off`, so the spawned process is the master and stays
+  // alive while the edge serves. An early exit means startup failed: a dead
+  // spawn is reported as a port conflict even when the probe succeeded, since
+  // that probe reached some other process bound to the port (e.g. another
+  // assistant's edge), not this one.
+  const childExited = (): boolean => exited || child.exitCode !== null;
+
+  // The gateway can lag the edge by seconds after a wake, and a probe
+  // through nginx cannot tell a starting gateway from a dead edge. Poll the
+  // gateway directly first, so the edge probe below only judges nginx.
+  // Race that wait against the child exiting: a master that already failed
+  // its bind is a known startup failure, and waiting out the full gateway
+  // timeout before reporting it would stall `vellum tunnel` by ~a minute.
+  const gatewayReady = await Promise.race([
+    waitForDaemonReady(
+      opts.gatewayPort,
+      opts.gatewayReadyTimeoutMs ?? GATEWAY_READY_TIMEOUT_MS,
+    ),
+    childExitedPromise.then(() => false),
+  ]);
 
   // /healthz proxies through nginx to the gateway, so a 200 proves the whole
-  // ingress → gateway path works.
-  const ready = await waitForDaemonReady(
-    listenPort,
-    opts.readyTimeoutMs ?? INGRESS_READY_TIMEOUT_MS,
-  );
+  // ingress → gateway path works. Skip the probe when the master already
+  // exited: the childExited() check below discards its result either way,
+  // and probing a dead edge can only answer for some other process.
+  const ready = childExited()
+    ? false
+    : await waitForDaemonReady(
+        listenPort,
+        opts.readyTimeoutMs ?? INGRESS_READY_TIMEOUT_MS,
+      );
   const rollback = async (
     status: "port-conflict" | "unreachable",
   ): Promise<StartRemoteWebIngressResult> => {
@@ -943,16 +991,18 @@ export async function startRemoteWebIngress(opts: {
     await stopIngressNginx(opts.workspaceDir);
     return { status, listenPort, logPath };
   };
-  const childExited = (): boolean => exited || child.exitCode !== null;
-  // nginx runs `daemon off`, so the spawned process is the master and stays
-  // alive while the edge serves. An early exit means startup failed: a dead
-  // spawn is reported as a port conflict even when the probe succeeded, since
-  // that probe reached some other process bound to the port (e.g. another
-  // assistant's edge), not this one.
   if (!ready) {
-    return rollback(childExited() ? "port-conflict" : "unreachable");
+    // The gateway answered, so a failed edge probe means nginx itself is at
+    // fault and the spawn is rolled back. When the gateway never answered,
+    // the probe failure says nothing about nginx: a live master stays up
+    // and starts serving once the gateway does, so the ownership settle
+    // below decides instead of the rollback. A master that already exited
+    // is a port conflict either way.
+    if (gatewayReady || childExited()) {
+      return rollback(childExited() ? "port-conflict" : "unreachable");
+    }
   }
-  // A successful probe alone does not prove ownership either: a healthy edge
+  // A probe result alone does not prove ownership either: a healthy edge
   // from another workspace answers /healthz before our master finishes failing
   // its bind. A master that won the bind records its pid under our prefix, so
   // settle-poll until the spawn either exits (lost the bind) or that pid file
