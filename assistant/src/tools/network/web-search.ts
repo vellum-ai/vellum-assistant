@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import type {
   WebSearchMetadata,
   WebSearchResultItem,
@@ -236,19 +238,20 @@ interface SerplySearchResponse {
   results?: SerplySearchResult[];
 }
 
-interface SpecstreamSearchSource {
-  url?: string;
-  title?: string | null;
-  snippet?: string | null;
-  published?: string | null;
-}
+const SpecstreamSearchSourceSchema = z.object({
+  url: z.string(),
+  title: z.string().nullish(),
+  snippet: z.string().nullish(),
+  published: z.string().nullish(),
+});
 
-interface SpecstreamSearchResponse {
-  data?: {
-    query?: string;
-    sources?: SpecstreamSearchSource[];
-  };
-}
+type SpecstreamSearchSource = z.infer<typeof SpecstreamSearchSourceSchema>;
+
+const SpecstreamSearchResponseSchema = z.object({
+  data: z.object({
+    sources: z.array(SpecstreamSearchSourceSchema),
+  }),
+});
 
 const SEARXNG_MISSING_INSTANCE_MESSAGE =
   "SearXNG needs an instance URL. Set API Base in Settings under Web Search.";
@@ -937,7 +940,7 @@ function formatSpecstreamResults(
   for (let i = 0; i < sources.length; i++) {
     const source = sources[i];
     const title =
-      source.title?.trim() || source.url?.trim() || "Untitled result";
+      source.title?.trim() || source.url.trim() || "Untitled result";
     lines.push(`${i + 1}. ${title}`);
     if (source.url) {
       lines.push(`   URL: ${source.url}`);
@@ -960,7 +963,7 @@ function buildSpecstreamMetadata(
   durationMs: number,
 ): WebSearchMetadata {
   const items: WebSearchResultItem[] = sources.map((source, index) => {
-    const url = source.url ?? "";
+    const url = source.url;
     const domain = extractDomain(url);
     return {
       rank: index + 1,
@@ -2345,9 +2348,9 @@ async function executeSpecstreamSearch(
 
     const bodyText = await response.text();
     if (response.ok) {
-      let data: SpecstreamSearchResponse;
+      let body: unknown;
       try {
-        data = JSON.parse(bodyText) as SpecstreamSearchResponse;
+        body = JSON.parse(bodyText);
       } catch {
         return errorResult(
           query,
@@ -2356,7 +2359,16 @@ async function executeSpecstreamSearch(
           "SpecStream Search returned an invalid JSON payload.",
         );
       }
-      const sources = (data.data?.sources ?? []).slice(0, count);
+      const parsed = SpecstreamSearchResponseSchema.safeParse(body);
+      if (!parsed.success) {
+        return errorResult(
+          query,
+          "specstream",
+          startedAt,
+          "SpecStream Search returned an unexpected response shape.",
+        );
+      }
+      const sources = parsed.data.data.sources.slice(0, count);
       const durationMs = Date.now() - startedAt;
       return {
         content:

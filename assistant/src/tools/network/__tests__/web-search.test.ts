@@ -1641,6 +1641,29 @@ describe("web_search tool", () => {
     expect(clamped.isError).toBe(false);
   });
 
+  test.each([
+    { label: "missing data", body: {} },
+    { label: "sources not an array", body: { data: { sources: "none" } } },
+    {
+      label: "source without url",
+      body: { data: { sources: [{ title: "A" }] } },
+    },
+  ])("SpecStream rejects a response with $label", async ({ body }) => {
+    seedWebSearch("your-own", "specstream");
+    mockSpecstreamSecureKey = "specstream_test";
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as any;
+
+    const result = await execute({ query: "test" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("unexpected response shape");
+    expect(result.activityMetadata?.webSearch?.provider).toBe("specstream");
+  });
+
   test.each([401, 402, 403])(
     "SpecStream handles %d access error",
     async (status) => {
