@@ -32,6 +32,7 @@ const TOC_ITEMS = [
   { id: "firecrawl", label: "Firecrawl Integration", level: 2 },
   { id: "exa", label: "Exa Integration", level: 2 },
   { id: "serply", label: "Serply Integration", level: 2 },
+  { id: "specstream", label: "SpecStream Integration", level: 2 },
 ];
 
 export function WebSearchContent() {
@@ -184,6 +185,17 @@ export function WebSearchContent() {
                     snippet.
                   </td>
                 </tr>
+                <tr>
+                  <td className="py-3 pr-4 font-medium text-stone-900 dark:text-stone-100">
+                    SpecStream
+                  </td>
+                  <td className="py-3 pr-4"><KindBadge kind="BYOK" /></td>
+                  <td className="py-3">
+                    The live web data engine. Returns ranked web results, each
+                    with a title, link, snippet, and the published date when the
+                    page states one.
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -243,6 +255,15 @@ export function WebSearchContent() {
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               Serply
+            </Link>
+            ,{" "}
+            <Link
+              href="https://specstream.ai/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
+            >
+              SpecStream
             </Link>
             .
           </p>
@@ -602,6 +623,28 @@ export function WebSearchContent() {
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               Serply integration page
+            </Link>
+            .
+          </p>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* SpecStream Integration                                               */}
+        {/* ------------------------------------------------------------------ */}
+        <section id="specstream" className="mt-12">
+          <SectionHeading id="specstream" level={2}>
+            SpecStream Integration
+          </SectionHeading>
+          <p className="mb-4 text-stone-600 dark:text-stone-400">
+            SpecStream is the live web data engine. Its Search API returns
+            ranked web results as JSON, with a title, link, and snippet for
+            each. For a step-by-step walkthrough of connecting your SpecStream
+            API key, provider configuration, and usage, see the{" "}
+            <Link
+              href="/docs/key-concepts/web-search/specstream"
+              className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
+            >
+              SpecStream integration page
             </Link>
             .
           </p>
