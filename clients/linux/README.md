@@ -50,3 +50,23 @@ generation. The AppImage lands in `dist/`.
 bun run typecheck
 bun run test:ci
 ```
+
+## Display backend and desktop validation
+
+The shell explicitly defaults to X11, including XWayland on a Wayland
+session, for window placement and focus restoration. XWayland must be
+installed on Wayland desktops. An explicit `--ozone-platform` argument is
+preserved; native Wayland is experimental and window movement and focus
+restoration are not guaranteed there.
+
+The session probe describes the desktop session, not Electron's backend.
+Running the shell through XWayland does not give X11 tools access to native
+Wayland applications. Portal availability is separate from granted access.
+
+Before advertising desktop integration, validate packaged launches on GNOME
+Wayland, KDE Wayland and X11, recording desktop and portal versions. Cover
+normal launch, background login, ordinary relaunch, missing tray, locked
+keyring, consent cancellation and revocation, helper restart, suspend/resume,
+and mixed-scale monitors. Xvfb startup checks do not validate these desktop
+workflows. Architecture and distribution support require passing packaged
+checks on each advertised target.
