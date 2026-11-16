@@ -1,0 +1,8 @@
+{
+  "source": "youtube_suggestions",
+  "query": "battery recycling",
+  "params": {
+    "language": "en",
+    "region": "US"
+  }
+}

@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import type {
   WebSearchMetadata,
   WebSearchResultItem,
@@ -47,6 +49,21 @@ const FASTCRW_SEARCH_PATH = "/v1/search";
 const TINYFISH_DEFAULT_SEARCH_API_BASE = "https://api.search.tinyfish.ai";
 const EXA_API_URL = "https://api.exa.ai/search";
 const SERPLY_API_URL = "https://api.serply.io/v1/search";
+const FLASHDATA_API_URL = "https://data.flashdata.dev/v1/queries/realtime";
+const FLASHDATA_UNCERTAIN_OUTCOME =
+  "FlashData could not confirm this query's outcome. It may already have used Credits. Check Jobs in the FlashData console before submitting another query; do not automatically retry.";
+const flashdataResponseSchema = z.object({
+  source: z.literal("google_search"),
+  status: z.literal("done"),
+  results: z.array(z.object({
+    organic: z.array(z.object({
+      title: z.string().optional(),
+      link: z.url(),
+      snippet: z.string().optional(),
+      position: z.number().int().positive().optional(),
+    })).default([]),
+  })).min(1),
+});
 // Serply returns at most 10 organic results per call; larger counts are
 // clamped on request and trimmed on response.
 const SERPLY_MAX_RESULTS = 10;
@@ -66,7 +83,8 @@ type WebSearchProvider =
   | "searxng"
   | "tinyfish"
   | "exa"
-  | "serply";
+  | "serply"
+  | "flashdata";
 
 /**
  * Arguments passed to every {@link WebSearchAdapter}. The full superset is
@@ -886,10 +904,10 @@ function buildSerplyMetadata(
 }
 
 /**
- * Serply passes Google's `tbs` time filter through unchanged, so the tool's
+ * Google-backed providers pass `tbs` through unchanged, so the tool's
  * freshness buckets map onto the `qdr:` values Google understands.
  */
-function serplyTbsForFreshness(
+function googleTbsForFreshness(
   freshness: string | undefined,
 ): string | undefined {
   switch (freshness) {
@@ -1034,6 +1052,7 @@ function backendFailureResult(
   startedAt: number,
   raw: { error?: unknown; statusCode?: number; errorCode?: string },
   fallback: string,
+  recoveryMessage = WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
 ): ToolExecutionResult {
   const classification = classifyWebSearchFailure({
     isError: true,
@@ -1055,7 +1074,7 @@ function backendFailureResult(
   });
 
   return {
-    content: WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
+    content: recoveryMessage,
     isError: true,
     activityMetadata: {
       webSearch: {
@@ -1064,7 +1083,7 @@ function backendFailureResult(
         resultCount: 0,
         durationMs: Date.now() - startedAt,
         results: [],
-        errorMessage: WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
+        errorMessage: recoveryMessage,
       },
     },
   };
@@ -2129,7 +2148,7 @@ async function executeSerplySearch(
     q: query,
     num: String(Math.min(count, SERPLY_MAX_RESULTS)),
   });
-  const tbs = serplyTbsForFreshness(freshness);
+  const tbs = googleTbsForFreshness(freshness);
   if (tbs !== undefined) {
     params.set("tbs", tbs);
   }
@@ -2237,6 +2256,81 @@ async function executeSerplySearch(
     { statusCode: 429 },
     "Serply Search rate limit exceeded after retries. Try again shortly.",
   );
+}
+
+async function executeFlashDataSearch({
+  query, count, freshness, apiKey, signal,
+}: WebSearchAdapterArgs): Promise<ToolExecutionResult> {
+  const startedAt = Date.now();
+  const params = { num: count, tbs: googleTbsForFreshness(freshness) };
+  let response: Response;
+  try {
+    // A POST can consume Credits even if the response is lost. Never replay it.
+    response = await fetch(FLASHDATA_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": apiKey.trim() },
+      body: JSON.stringify({ source: "google_search", query, params }),
+      redirect: "error",
+      signal,
+    });
+  } catch (err) {
+    if (signal?.aborted) {
+      throw err;
+    }
+    return backendFailureResult(query, "flashdata", startedAt,
+      { error: err }, FLASHDATA_UNCERTAIN_OUTCOME, FLASHDATA_UNCERTAIN_OUTCOME);
+  }
+
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      return errorResult(query, "flashdata", startedAt,
+        "Check your FlashData API key and its google_search permission.");
+    }
+    if (response.status === 402) {
+      return errorResult(query, "flashdata", startedAt,
+        "Your FlashData account has insufficient Credits.");
+    }
+    return backendFailureResult(query, "flashdata", startedAt,
+      { statusCode: response.status },
+      `FlashData returned status ${response.status}. Check your request and account before retrying.`,
+      FLASHDATA_UNCERTAIN_OUTCOME);
+  }
+
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch (err) {
+    if (signal?.aborted) {
+      throw err;
+    }
+    return errorResult(query, "flashdata", startedAt, FLASHDATA_UNCERTAIN_OUTCOME);
+  }
+  const parsed = flashdataResponseSchema.safeParse(payload);
+  if (!parsed.success) {
+    return errorResult(query, "flashdata", startedAt, FLASHDATA_UNCERTAIN_OUTCOME);
+  }
+  const results = parsed.data.results[0].organic.slice(0, count);
+  const items = results.map((result, index) => {
+    const domain = extractDomain(result.link);
+    return {
+      rank: result.position ?? index + 1,
+      title: result.title?.trim() || result.link,
+      url: result.link,
+      domain,
+      faviconUrl: faviconUrlForDomain(domain),
+      snippet: result.snippet,
+    };
+  });
+  return {
+    content: wrapUntrustedContent(formatBraveResults(items.map((item) => ({
+      title: item.title, url: item.url, description: item.snippet ?? "",
+    })), query), { source: "search", sourceDetail: "flashdata" }) + CITATION_INSTRUCTION,
+    isError: false,
+    activityMetadata: { webSearch: {
+      query, provider: "flashdata", resultCount: items.length,
+      durationMs: Date.now() - startedAt, results: items,
+    } },
+  };
 }
 
 // ----------------------------------------------------------------------------
@@ -2354,6 +2448,12 @@ const WEB_SEARCH_ADAPTERS: Record<WebSearchProvider, WebSearchAdapter> = {
   tinyfish: tinyfishSearchAdapter,
   exa: exaSearchAdapter,
   serply: serplySearchAdapter,
+  flashdata: {
+    id: "flashdata",
+    providerKeyName: "flashdata",
+    fallbackOrder: 11,
+    execute: executeFlashDataSearch,
+  },
 };
 
 /**
@@ -2385,7 +2485,7 @@ export const webSearchTool = {
       count: {
         type: "number",
         description:
-          "Number of results to return (1-20, default 10). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, Exa, and Serply providers.",
+          "Number of results to return (1-20, default 10). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, Exa, Serply, and FlashData providers.",
       },
       offset: {
         type: "number",
@@ -2395,7 +2495,7 @@ export const webSearchTool = {
       freshness: {
         type: "string",
         description:
-          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, Exa, and Serply providers. SearXNG maps day/month/year and omits week.',
+          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, Exa, Serply, and FlashData providers. SearXNG maps day/month/year and omits week.',
       },
     },
     required: ["query"],

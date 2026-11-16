@@ -14,6 +14,7 @@ let mockSearxngSecureKey: string | undefined;
 let mockTinyfishSecureKey: string | undefined;
 let mockExaSecureKey: string | undefined;
 let mockSerplySecureKey: string | undefined;
+let mockFlashDataSecureKey: string | undefined;
 let mockManagedSearchProxyResult: any;
 let mockManagedSearchAvailable = true;
 let mockManagedSearchProxyCalls: Array<{
@@ -73,6 +74,9 @@ mock.module("../../../security/secure-keys.js", () => ({
     if (provider === "serply") {
       return mockSerplySecureKey;
     }
+    if (provider === "flashdata") {
+      return mockFlashDataSecureKey;
+    }
     return undefined;
   },
 }));
@@ -121,6 +125,7 @@ describe("web_search tool", () => {
     mockTinyfishSecureKey = undefined;
     mockExaSecureKey = undefined;
     mockSerplySecureKey = undefined;
+    mockFlashDataSecureKey = undefined;
     mockManagedSearchProxyCalls = [];
     mockManagedSearchAvailable = true;
     mockManagedSearchProxyResult = {
@@ -1545,6 +1550,90 @@ describe("web_search tool", () => {
       expect(result.activityMetadata?.webSearch?.provider).toBe("serply");
     },
   );
+
+  test("FlashData sends a scoped realtime query and preserves organic citations", async () => {
+    seedWebSearch("your-own", "flashdata");
+    mockFlashDataSecureKey = " test-key ";
+    let capturedUrl: unknown;
+    let capturedInit: RequestInit | undefined;
+    globalThis.fetch = Object.assign(mock(async (url, init) => {
+      capturedUrl = url;
+      capturedInit = init;
+      return Response.json({ source: "google_search", status: "done", results: [{
+        organic: [
+          { title: "Evidence", link: "https://example.com/source", snippet: "Source text", position: 3 },
+          { link: "https://example.org/extra" },
+        ],
+      }] });
+    }), { preconnect: originalFetch.preconnect });
+    const signal = new AbortController().signal;
+    const result = await execute({ query: "research", count: 1, freshness: "pw" }, { signal });
+    expect(capturedUrl).toBe("https://data.flashdata.dev/v1/queries/realtime");
+    expect(capturedInit?.method).toBe("POST");
+    expect(capturedInit?.redirect).toBe("error");
+    expect(capturedInit?.signal).toBe(signal);
+    expect(new Headers(capturedInit?.headers).get("X-API-Key")).toBe("test-key");
+    expect(JSON.parse(String(capturedInit?.body))).toEqual({
+      source: "google_search", query: "research", params: { num: 1, tbs: "qdr:w" },
+    });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("https://example.com/source");
+    expect(result.content).toContain("Source text");
+    expect(result.content).not.toContain("https://example.org/extra");
+    expect(result.activityMetadata.webSearch).toMatchObject({
+      provider: "flashdata", resultCount: 1, results: [{ rank: 3, domain: "example.com" }],
+    });
+  });
+
+  test("FlashData accepts an empty organic list and omits an unspecified time filter", async () => {
+    seedWebSearch("your-own", "flashdata");
+    mockFlashDataSecureKey = "test-key";
+    globalThis.fetch = Object.assign(mock(async (_url, init) => {
+      expect(JSON.parse(String(init?.body)).params).toEqual({ num: 10 });
+      return Response.json({ source: "google_search", status: "done", results: [{ organic: [] }] });
+    }), { preconnect: originalFetch.preconnect });
+    const result = await execute({ query: "empty" });
+    expect(result.isError).toBe(false);
+    expect(result.activityMetadata.webSearch.resultCount).toBe(0);
+  });
+
+  test.each([401, 402, 403, 429, 500])("FlashData does not replay HTTP %d queries", async (status) => {
+    seedWebSearch("your-own", "flashdata");
+    mockFlashDataSecureKey = "test-key";
+    const fetchMock = mock(async () => new Response("private upstream detail", { status }));
+    globalThis.fetch = Object.assign(fetchMock, { preconnect: originalFetch.preconnect });
+    const result = await execute({ query: "test" });
+    expect(result.isError).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.content).not.toContain("private upstream detail");
+    if (status >= 429) {
+      expect(result.content).toContain("do not automatically retry");
+    }
+  });
+
+  test.each(["not json", '{}', '{"status":"pending","results":[]}']) (
+    "FlashData rejects malformed or unfinished responses without resubmitting: %s", async (body) => {
+      seedWebSearch("your-own", "flashdata");
+      mockFlashDataSecureKey = "test-key";
+      const fetchMock = mock(async () => new Response(body));
+      globalThis.fetch = Object.assign(fetchMock, { preconnect: originalFetch.preconnect });
+      const result = await execute({ query: "test" });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("Check Jobs");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  test("FlashData transport loss reports uncertain billing without replaying the POST", async () => {
+    seedWebSearch("your-own", "flashdata");
+    mockFlashDataSecureKey = "test-key";
+    const fetchMock = mock(async () => { throw new TypeError("fetch failed"); });
+    globalThis.fetch = Object.assign(fetchMock, { preconnect: originalFetch.preconnect });
+    const result = await execute({ query: "test" });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("may already have used Credits");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 
   // ---- Provider fallback --------------------------------------------------
 

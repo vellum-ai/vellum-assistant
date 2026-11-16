@@ -1,0 +1,7 @@
+{
+  "source": "youtube_search",
+  "query": "battery recycling",
+  "params": {
+    "max_results": 10
+  }
+}
