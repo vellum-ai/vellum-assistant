@@ -14,6 +14,7 @@ import {
   _resetEmbeddingBillingBreaker,
   recordBillingBlock,
 } from "./embedding-billing-breaker.js";
+import { _setBypassWorkerForTests } from "./embedding-gemini.js";
 import { OpenAIEmbeddingBackend } from "./embedding-openai.js";
 
 const getProviderKeyAsyncMock = mock(
@@ -287,6 +288,8 @@ describe("managed-proxy Gemini fallback to direct key", () => {
   let fetchMock: ReturnType<typeof mock>;
 
   beforeEach(() => {
+    // Force in-process HTTP so globalThis.fetch mocks are visible to the backend.
+    _setBypassWorkerForTests(true);
     clearEmbeddingBackendCache();
     // Managed-proxy requests (proxy.example.com) are rejected like a platform
     // proxy with a bad credential; direct Google API requests succeed.
@@ -301,6 +304,7 @@ describe("managed-proxy Gemini fallback to direct key", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    _setBypassWorkerForTests(false);
     clearEmbeddingBackendCache();
     getProviderKeyAsyncMock.mockReset();
     getProviderKeyAsyncMock.mockImplementation(async () => undefined);
