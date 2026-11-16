@@ -50,6 +50,7 @@ const SERPLY_API_URL = "https://api.serply.io/v1/search";
 // Serply returns at most 10 organic results per call; larger counts are
 // clamped on request and trimmed on response.
 const SERPLY_MAX_RESULTS = 10;
+const OUTCRAWL_API_URL = "https://api.outcrawl.ai/v1/search";
 // Keenable is keyless by default: the public path needs no key (rate-limited);
 // a key switches to the authenticated path and lifts the cap.
 const KEENABLE_API_BASE_URL = "https://api.keenable.ai";
@@ -66,7 +67,8 @@ type WebSearchProvider =
   | "searxng"
   | "tinyfish"
   | "exa"
-  | "serply";
+  | "serply"
+  | "outcrawl";
 
 /**
  * Arguments passed to every {@link WebSearchAdapter}. The full superset is
@@ -229,6 +231,17 @@ interface SerplySearchResponse {
   query?: string;
   total?: number;
   results?: SerplySearchResult[];
+}
+
+interface OutcrawlSearchHit {
+  url?: string;
+  title?: string | null;
+  snippet?: string | null;
+  rank?: number;
+}
+
+interface OutcrawlSearchResponse {
+  hits?: OutcrawlSearchHit[];
 }
 
 const SEARXNG_MISSING_INSTANCE_MESSAGE =
@@ -904,6 +917,59 @@ function serplyTbsForFreshness(
     default:
       return undefined;
   }
+}
+
+function formatOutcrawlResults(
+  data: OutcrawlSearchResponse,
+  query: string,
+): string {
+  const hits = data.hits ?? [];
+  if (hits.length === 0) {
+    return `No results found for "${query}".`;
+  }
+
+  const lines: string[] = [`Web search results for "${query}":\n`];
+  for (let i = 0; i < hits.length; i++) {
+    const hit = hits[i];
+    const title = hit.title?.trim() || hit.url?.trim() || "Untitled result";
+    lines.push(`${i + 1}. ${title}`);
+    if (hit.url) {
+      lines.push(`   URL: ${hit.url}`);
+    }
+    const snippet = hit.snippet?.trim();
+    if (snippet) {
+      lines.push(`   ${snippet}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
+function buildOutcrawlMetadata(
+  data: OutcrawlSearchResponse,
+  query: string,
+  durationMs: number,
+): WebSearchMetadata {
+  const hits = data.hits ?? [];
+  const items: WebSearchResultItem[] = hits.map((hit, index) => {
+    const url = hit.url ?? "";
+    const domain = extractDomain(url);
+    return {
+      rank: index + 1,
+      title: hit.title?.trim() || url.trim() || "Untitled result",
+      url,
+      domain,
+      faviconUrl: faviconUrlForDomain(domain),
+      snippet: hit.snippet?.trim() || undefined,
+    };
+  });
+  return {
+    query,
+    provider: "outcrawl",
+    resultCount: items.length,
+    durationMs,
+    results: items,
+  };
 }
 
 function tinyfishRecencyMinutesForFreshness(
@@ -2239,6 +2305,125 @@ async function executeSerplySearch(
   );
 }
 
+async function executeOutcrawlSearch(
+  query: string,
+  count: number,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<ToolExecutionResult> {
+  const startedAt = Date.now();
+  const requestBody = { query, limit: count };
+
+  const headers = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    Authorization: `Bearer ${apiKey.trim()}`,
+    "User-Agent": "vellum-assistant",
+  };
+
+  for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(OUTCRAWL_API_URL, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(requestBody),
+        signal,
+      });
+    } catch (err) {
+      return networkFailureResult(query, "outcrawl", startedAt, err, signal);
+    }
+
+    const bodyText = await response.text();
+    if (response.ok) {
+      let data: OutcrawlSearchResponse;
+      try {
+        data = JSON.parse(bodyText) as OutcrawlSearchResponse;
+      } catch {
+        return errorResult(
+          query,
+          "outcrawl",
+          startedAt,
+          "Outcrawl Search returned an invalid JSON payload.",
+        );
+      }
+      if (data.hits && data.hits.length > count) {
+        data.hits = data.hits.slice(0, count);
+      }
+      const durationMs = Date.now() - startedAt;
+      return {
+        content:
+          wrapUntrustedContent(formatOutcrawlResults(data, query), {
+            source: "search",
+            sourceDetail: "outcrawl",
+          }) + CITATION_INSTRUCTION,
+        isError: false,
+        activityMetadata: {
+          webSearch: buildOutcrawlMetadata(data, query, durationMs),
+        },
+      };
+    }
+
+    if (response.status === 401) {
+      return errorResult(
+        query,
+        "outcrawl",
+        startedAt,
+        "Invalid or expired Outcrawl API key",
+      );
+    }
+    if (response.status === 402) {
+      return errorResult(
+        query,
+        "outcrawl",
+        startedAt,
+        "Outcrawl account has no remaining credits.",
+      );
+    }
+    if (response.status === 403) {
+      return errorResult(
+        query,
+        "outcrawl",
+        startedAt,
+        "Outcrawl Search request was forbidden by the upstream service.",
+      );
+    }
+
+    if (response.status === 429 && attempt < DEFAULT_MAX_RETRIES) {
+      const delayMs = getHttpRetryDelay(
+        response,
+        attempt,
+        DEFAULT_BASE_DELAY_MS,
+      );
+      log.warn(
+        { attempt: attempt + 1, delayMs },
+        "Outcrawl Search rate limited, retrying",
+      );
+      await sleep(delayMs);
+      continue;
+    }
+
+    log.warn({ status: response.status }, "Outcrawl Search API error");
+    return backendFailureResult(
+      query,
+      "outcrawl",
+      startedAt,
+      { statusCode: response.status, error: rawBodyDetail(bodyText) },
+      response.status === 429
+        ? "Outcrawl Search rate limit exceeded after retries. Try again shortly."
+        : `Outcrawl Search API returned status ${response.status}`,
+    );
+  }
+
+  return backendFailureResult(
+    query,
+    "outcrawl",
+    startedAt,
+    { statusCode: 429 },
+    "Outcrawl Search rate limit exceeded after retries. Try again shortly.",
+  );
+}
+
 // ----------------------------------------------------------------------------
 // Adapter registry
 //
@@ -2338,6 +2523,14 @@ const serplySearchAdapter: WebSearchAdapter = {
     executeSerplySearch(query, count, freshness, apiKey, signal),
 };
 
+const outcrawlSearchAdapter: WebSearchAdapter = {
+  id: "outcrawl",
+  providerKeyName: "outcrawl",
+  fallbackOrder: 11,
+  execute: ({ query, count, apiKey, signal }) =>
+    executeOutcrawlSearch(query, count, apiKey, signal),
+};
+
 /**
  * All built-in web-search adapters keyed by provider id. The
  * `Record<WebSearchProvider, ...>` shape forces TypeScript to flag any
@@ -2354,6 +2547,7 @@ const WEB_SEARCH_ADAPTERS: Record<WebSearchProvider, WebSearchAdapter> = {
   tinyfish: tinyfishSearchAdapter,
   exa: exaSearchAdapter,
   serply: serplySearchAdapter,
+  outcrawl: outcrawlSearchAdapter,
 };
 
 /**
@@ -2385,7 +2579,7 @@ export const webSearchTool = {
       count: {
         type: "number",
         description:
-          "Number of results to return (1-20, default 10). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, Exa, and Serply providers.",
+          "Number of results to return (1-20, default 10). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, Exa, Serply, and Outcrawl providers.",
       },
       offset: {
         type: "number",
@@ -2513,7 +2707,7 @@ export const webSearchTool = {
           query,
           provider,
           startedAt,
-          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, `keys set tavily <key>`, `keys set firecrawl <key>`, or `keys set fastcrw <key>`, or `keys set tinyfish <key>`, or `keys set exa <key>`, or `keys set serply <key>`, or configure it from the Settings page under API Keys. Or switch the web-search provider to Keenable, which works without a key, or SearXNG with your instance URL.",
+          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, `keys set tavily <key>`, `keys set firecrawl <key>`, or `keys set fastcrw <key>`, or `keys set tinyfish <key>`, or `keys set exa <key>`, or `keys set serply <key>`, or `keys set outcrawl <key>`, or configure it from the Settings page under API Keys. Or switch the web-search provider to Keenable, which works without a key, or SearXNG with your instance URL.",
         );
       }
     }

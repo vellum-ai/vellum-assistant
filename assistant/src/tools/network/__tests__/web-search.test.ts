@@ -14,6 +14,7 @@ let mockSearxngSecureKey: string | undefined;
 let mockTinyfishSecureKey: string | undefined;
 let mockExaSecureKey: string | undefined;
 let mockSerplySecureKey: string | undefined;
+let mockOutcrawlSecureKey: string | undefined;
 let mockManagedSearchProxyResult: any;
 let mockManagedSearchAvailable = true;
 let mockManagedSearchProxyCalls: Array<{
@@ -73,6 +74,9 @@ mock.module("../../../security/secure-keys.js", () => ({
     if (provider === "serply") {
       return mockSerplySecureKey;
     }
+    if (provider === "outcrawl") {
+      return mockOutcrawlSecureKey;
+    }
     return undefined;
   },
 }));
@@ -121,6 +125,7 @@ describe("web_search tool", () => {
     mockTinyfishSecureKey = undefined;
     mockExaSecureKey = undefined;
     mockSerplySecureKey = undefined;
+    mockOutcrawlSecureKey = undefined;
     mockManagedSearchProxyCalls = [];
     mockManagedSearchAvailable = true;
     mockManagedSearchProxyResult = {
@@ -1543,6 +1548,96 @@ describe("web_search tool", () => {
 
       expect(result.isError).toBe(true);
       expect(result.activityMetadata?.webSearch?.provider).toBe("serply");
+    },
+  );
+
+  // ---- Outcrawl provider -------------------------------------------------
+
+  test("Outcrawl search sends the JSON request with bearer auth", async () => {
+    seedWebSearch("your-own", "outcrawl");
+    mockOutcrawlSecureKey = "outcrawl_test";
+    let capturedUrl = "";
+    let capturedInit: RequestInit | undefined;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      capturedUrl = url;
+      capturedInit = init;
+      return new Response(
+        JSON.stringify({
+          hits: [
+            {
+              url: "https://example.com/outcrawl",
+              title: "Outcrawl Result",
+              snippet: "Fresh from Outcrawl",
+              rank: 1,
+            },
+          ],
+          usage: { credits: "0.5" },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const result = await execute({ query: "fresh tools", count: 5 });
+
+    expect(result.isError).toBe(false);
+    expect(capturedUrl).toBe("https://api.outcrawl.ai/v1/search");
+    expect(capturedInit?.method).toBe("POST");
+    const headers = new Headers(capturedInit?.headers);
+    expect(headers.get("authorization")).toBe("Bearer outcrawl_test");
+    expect(headers.get("content-type")).toBe("application/json");
+    expect(JSON.parse(String(capturedInit?.body))).toEqual({
+      query: "fresh tools",
+      limit: 5,
+    });
+    expect(result.content).toContain("Outcrawl Result");
+    expect(result.content).toContain("Fresh from Outcrawl");
+    expect(result.activityMetadata?.webSearch?.provider).toBe("outcrawl");
+    expect(result.activityMetadata?.webSearch?.results?.[0]?.domain).toBe(
+      "example.com",
+    );
+  });
+
+  test("Outcrawl trims hits to count and reports no results", async () => {
+    seedWebSearch("your-own", "outcrawl");
+    mockOutcrawlSecureKey = "outcrawl_test";
+    let responseHits: unknown[] = [
+      { url: "https://a.example.com", title: "A", snippet: "a" },
+      { url: "https://b.example.com", title: "B", snippet: "b" },
+      { url: "https://c.example.com", title: "C", snippet: "c" },
+    ];
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ hits: responseHits }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as unknown as typeof fetch;
+
+    const result = await execute({ query: "test", count: 2 });
+
+    expect(result.content).toContain("https://a.example.com");
+    expect(result.content).toContain("https://b.example.com");
+    expect(result.content).not.toContain("https://c.example.com");
+    expect(result.activityMetadata?.webSearch?.resultCount).toBe(2);
+
+    responseHits = [];
+    const empty = await execute({ query: "nothing here" });
+    expect(empty.isError).toBe(false);
+    expect(empty.content).toContain('No results found for "nothing here".');
+  });
+
+  test.each([401, 402, 403])(
+    "Outcrawl handles %d access error",
+    async (status) => {
+      seedWebSearch("your-own", "outcrawl");
+      mockOutcrawlSecureKey = "outcrawl_test";
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify({ error: "Invalid API key" }), {
+          status,
+        })) as unknown as typeof fetch;
+
+      const result = await execute({ query: "test" });
+
+      expect(result.isError).toBe(true);
+      expect(result.activityMetadata?.webSearch?.provider).toBe("outcrawl");
     },
   );
 

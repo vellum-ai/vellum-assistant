@@ -207,6 +207,16 @@ export const SEARCH_PROVIDER_CATALOG: readonly SearchProviderCatalogEntry[] = [
     fallbackOrder: 10,
     privacyPolicyUrl: "https://serply.io/privacy",
   },
+  {
+    id: "outcrawl",
+    displayName: "Outcrawl",
+    kind: "byok",
+    apiKeyPrefix: "Outcrawl API key...",
+    envVar: "OUTCRAWL_API_KEY",
+    secretKey: "outcrawl",
+    fallbackOrder: 11,
+    privacyPolicyUrl: "https://outcrawl.ai/legal/privacy",
+  },
 ];
 
 /** Provider ids accepted by the web-search config schema. */
