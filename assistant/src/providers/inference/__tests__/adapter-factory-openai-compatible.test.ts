@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   EMPTY_ASSISTANT_TURN_PLACEHOLDER,
   OpenAIChatCompletionsProvider,
+  resetReasoningOptOutRejectersForTests,
 } from "../../openai/chat-completions-provider.js";
 import {
   buildProviderAdapter,
@@ -87,6 +88,170 @@ describe("adapter factory", () => {
       (adapter as unknown as { assistantReasoningField?: string })
         .assistantReasoningField,
     ).toBe("reasoning_content");
+  });
+
+  test("openai-compatible caps reasoning_effort at high", async () => {
+    const adapter = buildProviderAdapter("openai-compatible", {
+      apiKey: "test-key",
+      model: "my-local-model",
+      streamTimeoutMs: 60_000,
+      baseURL: "http://localhost:8080/v1",
+      useNativeWebSearch: false,
+    });
+    expect(adapter).toBeInstanceOf(OpenAIChatCompletionsProvider);
+    const provider = adapter as OpenAIChatCompletionsProvider;
+    const requests = stubChatCreate(provider);
+
+    for (const effort of [
+      "max",
+      "xhigh",
+      "high",
+      "medium",
+      "low",
+      "none",
+    ] as const) {
+      await provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        { config: { effort } },
+      );
+    }
+
+    expect(
+      requests.map(
+        (r) => (r as { reasoning_effort?: string }).reasoning_effort,
+      ),
+    ).toEqual(["high", "high", "high", "medium", "low", "none"]);
+  });
+
+  test("openai-compatible retries without reasoning_effort an endpoint rejects", async () => {
+    resetReasoningOptOutRejectersForTests();
+    const adapter = buildProviderAdapter("openai-compatible", {
+      apiKey: "test-key",
+      model: "llama-3.3-70b",
+      streamTimeoutMs: 60_000,
+      baseURL: "http://localhost:8081/v1",
+      useNativeWebSearch: false,
+    });
+    expect(adapter).toBeInstanceOf(OpenAIChatCompletionsProvider);
+    const provider = adapter as OpenAIChatCompletionsProvider;
+    const requests: Array<{ reasoning_effort?: string }> = [];
+    (provider as unknown as { client: unknown }).client = {
+      baseURL: "http://localhost:8081/v1",
+      chat: {
+        completions: {
+          create: async (params: { reasoning_effort?: string }) => {
+            requests.push({ ...params });
+            if (params.reasoning_effort !== undefined) {
+              throw Object.assign(
+                new Error(
+                  "`reasoning_effort` is not supported with this model",
+                ),
+                { status: 400 },
+              );
+            }
+            return {
+              async *[Symbol.asyncIterator]() {
+                yield {
+                  choices: [
+                    { delta: { content: "ok" }, finish_reason: "stop" },
+                  ],
+                  usage: { prompt_tokens: 2, completion_tokens: 1 },
+                };
+              },
+            };
+          },
+        },
+      },
+    };
+
+    const response = await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      { config: { effort: "max" } },
+    );
+
+    expect(requests.map((r) => r.reasoning_effort)).toEqual([
+      "high",
+      undefined,
+    ]);
+    expect(response.content).toContainEqual({ type: "text", text: "ok" });
+  });
+
+  test("openai-compatible keeps a forced tool_choice when it drops a rejected reasoning_effort", async () => {
+    resetReasoningOptOutRejectersForTests();
+    const adapter = buildProviderAdapter("openai-compatible", {
+      apiKey: "test-key",
+      model: "llama-3.3-70b",
+      streamTimeoutMs: 60_000,
+      baseURL: "http://localhost:8082/v1",
+      useNativeWebSearch: false,
+    });
+    expect(adapter).toBeInstanceOf(OpenAIChatCompletionsProvider);
+    const provider = adapter as OpenAIChatCompletionsProvider;
+    const requests: Array<{
+      reasoning_effort?: string;
+      tool_choice?: unknown;
+    }> = [];
+    (provider as unknown as { client: unknown }).client = {
+      baseURL: "http://localhost:8082/v1",
+      chat: {
+        completions: {
+          create: async (params: {
+            reasoning_effort?: string;
+            tool_choice?: unknown;
+          }) => {
+            requests.push({
+              reasoning_effort: params.reasoning_effort,
+              tool_choice: params.tool_choice,
+            });
+            if (params.reasoning_effort !== undefined) {
+              throw Object.assign(
+                new Error(
+                  "`reasoning_effort` is not supported with this model",
+                ),
+                { status: 400 },
+              );
+            }
+            return {
+              async *[Symbol.asyncIterator]() {
+                yield {
+                  choices: [
+                    { delta: { content: "ok" }, finish_reason: "stop" },
+                  ],
+                  usage: { prompt_tokens: 2, completion_tokens: 1 },
+                };
+              },
+            };
+          },
+        },
+      },
+    };
+    const send = () =>
+      provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        {
+          config: {
+            effort: "high",
+            tool_choice: { type: "tool", name: "save" },
+          },
+          tools: [
+            {
+              name: "save",
+              description: "Save it",
+              input_schema: { type: "object", properties: {} },
+            },
+          ],
+        },
+      );
+
+    await send();
+    await send();
+
+    const forced = { type: "function", function: { name: "save" } };
+    expect(requests).toEqual([
+      { reasoning_effort: "high", tool_choice: undefined },
+      { reasoning_effort: undefined, tool_choice: forced },
+      { reasoning_effort: undefined, tool_choice: forced },
+    ]);
   });
 
   test("litellm round-trips thinking as reasoning_content", () => {

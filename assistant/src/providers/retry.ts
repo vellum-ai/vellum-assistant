@@ -99,6 +99,7 @@ const EFFORT_SUPPORTED_PROVIDERS = new Set([
   "together",
   "baseten",
   "poolside",
+  "openai-compatible",
 ]);
 
 // For these providers, disabling reasoning is encoded through the same effort
@@ -112,6 +113,7 @@ const DISABLED_THINKING_USES_EFFORT_PROVIDERS = new Set([
   "vercel-ai-gateway",
   "baseten",
   "poolside",
+  "openai-compatible",
 ]);
 
 // Whether a disabled `thinking` config must be encoded as `effort: "none"`
@@ -1085,7 +1087,7 @@ function normalizeSendMessageOptions(
     delete nextConfig.top_p;
   }
 
-  // effort is supported by Anthropic, OpenAI, and OpenAI-compatible providers; strip for others
+  // effort is consumed only by EFFORT_SUPPORTED_PROVIDERS; strip for others
   if (
     !EFFORT_SUPPORTED_PROVIDERS.has(providerName) &&
     nextConfig.effort !== undefined

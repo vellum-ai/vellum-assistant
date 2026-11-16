@@ -924,6 +924,80 @@ describe("reasoning opt-out rejection fallback", () => {
     expect(requests).toHaveLength(1);
   });
 
+  test("retries once without a rejected non-none effort when enabled", async () => {
+    const { provider, requests } = stubProviderWithErrors(
+      [rejection("`reasoning_effort` is not supported with this model")],
+      OK_CHUNKS,
+      { retryWithoutRejectedReasoningEffort: true },
+    );
+    const send = () =>
+      provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        { config: { effort: "high" } },
+      );
+
+    const response = await send();
+    await send();
+
+    expect(requests).toHaveLength(3);
+    expect(
+      (requests[0] as { reasoning_effort?: string }).reasoning_effort,
+    ).toBe("high");
+    expect(
+      (requests[1] as { reasoning_effort?: string }).reasoning_effort,
+    ).toBeUndefined();
+    // The rejecting endpoint is remembered: later requests skip the effort.
+    expect(
+      (requests[2] as { reasoning_effort?: string }).reasoning_effort,
+    ).toBeUndefined();
+    const text = response.content.find((b) => b.type === "text") as
+      | { type: "text"; text: string }
+      | undefined;
+    expect(text?.text).toBe("ok");
+  });
+
+  test("remembers only the rejected effort tier, not every tier", async () => {
+    // Models with sparse effort support reject some tiers (here `medium`)
+    // and accept others; a learned rejection must not strip those.
+    const { provider, requests } = stubProviderWithErrors(
+      [rejection("reasoning_effort 'medium' is not supported for this model")],
+      OK_CHUNKS,
+      { retryWithoutRejectedReasoningEffort: true },
+    );
+    const send = (effort: "medium" | "high" | "none") =>
+      provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        { config: { effort } },
+      );
+
+    await send("medium");
+    await send("high");
+    await send("none");
+    await send("medium");
+
+    expect(
+      requests.map(
+        (r) => (r as { reasoning_effort?: string }).reasoning_effort,
+      ),
+    ).toEqual(["medium", undefined, "high", "none", undefined]);
+  });
+
+  test("does not retry a rejected effort on a 4xx that does not name reasoning", async () => {
+    const { provider, requests } = stubProviderWithErrors(
+      [rejection("invalid api key")],
+      OK_CHUNKS,
+      { retryWithoutRejectedReasoningEffort: true },
+    );
+
+    await expect(
+      provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        { config: { effort: "high" } },
+      ),
+    ).rejects.toThrow();
+    expect(requests).toHaveLength(1);
+  });
+
   test("does not retry a 4xx that does not name reasoning", async () => {
     const { provider, requests } = stubProviderWithErrors(
       [rejection("invalid api key")],
