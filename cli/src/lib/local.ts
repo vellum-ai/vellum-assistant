@@ -142,15 +142,24 @@ function compiledSibling(name: string): string {
   return join(dirname(process.execPath), executableName(name, platform()));
 }
 
-function envWithCompiledRuntimeNodePath(
+/**
+ * Working directory and environment for a compiled sibling that loads external
+ * packages from the `node_modules` directory beside it (the daemon's native
+ * image packages, the gateway's drizzle-kit).
+ *
+ * Bun resolves a compiled binary's external imports from the process working
+ * directory and reads NODE_PATH only when that directory lookup succeeds, so
+ * the working directory is the binary's own directory. NODE_PATH names the
+ * same `node_modules` as a second lookup path.
+ */
+export function compiledSiblingSpawnOptions(
+  binary: string,
   env: Record<string, string>,
-): Record<string, string> {
-  if (!isCompiledCli()) {
-    return env;
-  }
+): { cwd: string; env: Record<string, string> } {
+  const runtimeDir = dirname(binary);
   return {
-    ...env,
-    NODE_PATH: join(dirname(process.execPath), "node_modules"),
+    cwd: runtimeDir,
+    env: { ...env, NODE_PATH: join(runtimeDir, "node_modules") },
   };
 }
 
@@ -1671,7 +1680,10 @@ export async function startLocalDaemon(
         }
       }
       applyDaemonEnvOverrides(daemonEnv, resources, options);
-      const daemonSpawnEnv = envWithCompiledRuntimeNodePath(daemonEnv);
+      const daemonSpawnOptions = compiledSiblingSpawnOptions(
+        daemonBinary,
+        daemonEnv,
+      );
 
       // Write a sentinel PID file before spawning so concurrent hatch() calls
       // see the file and fall through to the httpHealthCheck() port check
@@ -1680,19 +1692,17 @@ export async function startLocalDaemon(
 
       const child = foreground
         ? spawn(daemonBinary, [], {
-            cwd: dirname(daemonBinary),
+            ...daemonSpawnOptions,
             stdio: "inherit",
-            env: daemonSpawnEnv,
             windowsHide: true,
           })
         : (() => {
             const daemonLogFd = openLogFile("hatch.log");
             const c = spawn(daemonBinary, [], {
-              cwd: dirname(daemonBinary),
+              ...daemonSpawnOptions,
               detached: true,
               stdio: ["ignore", "pipe", "pipe"],
               windowsHide: true,
-              env: daemonSpawnEnv,
             });
             pipeToLogFile(c, daemonLogFd, "daemon");
             c.unref();
@@ -1910,10 +1920,10 @@ export async function startGateway(
     // and use source (bun --watch only works with source files).
     const gatewayLogFd = openLogFile("hatch.log");
     gateway = spawn(gatewayBinary, [], {
+      ...compiledSiblingSpawnOptions(gatewayBinary, gatewayEnv),
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
-      env: envWithCompiledRuntimeNodePath(gatewayEnv),
     });
     pipeToLogFile(gateway, gatewayLogFd, "gateway");
   } else {
