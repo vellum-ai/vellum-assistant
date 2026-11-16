@@ -79,6 +79,7 @@ describe("sandbox auto-approve", () => {
     const result = evaluate({
       riskLevel: RiskLevel.High,
       toolName: "bash",
+      toolOrigin: "default",
       hasSandboxAutoApprove: false,
       isContainerized: true,
     });
@@ -129,6 +130,7 @@ describe("sandbox auto-approve", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "bash",
+      toolOrigin: "default",
       hasSandboxAutoApprove: true,
       isContainerized: true,
       autoApproveUpTo: "none",
@@ -242,6 +244,7 @@ describe("no rule — autoApproveUpTo 'none'", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "file_read",
+      toolOrigin: "default",
       autoApproveUpTo: "none",
     });
     expect(result.decision).toBe("prompt");
@@ -252,6 +255,7 @@ describe("no rule — autoApproveUpTo 'none'", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Medium,
       toolName: "file_read",
+      toolOrigin: "default",
       autoApproveUpTo: "none",
     });
     expect(result.decision).toBe("prompt");
@@ -262,6 +266,7 @@ describe("no rule — autoApproveUpTo 'none'", () => {
     const result = evaluate({
       riskLevel: RiskLevel.High,
       toolName: "file_read",
+      toolOrigin: "default",
       autoApproveUpTo: "none",
     });
     expect(result.decision).toBe("prompt");
@@ -272,6 +277,7 @@ describe("no rule — autoApproveUpTo 'none'", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "file_read",
+      toolOrigin: "default",
       autoApproveUpTo: "none",
       isWorkspaceScoped: true,
     });
@@ -283,6 +289,7 @@ describe("no rule — autoApproveUpTo 'none'", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "file_read",
+      toolOrigin: "default",
       autoApproveUpTo: "low",
     });
     expect(result.decision).toBe("allow");
@@ -293,6 +300,7 @@ describe("no rule — autoApproveUpTo 'none'", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Medium,
       toolName: "file_read",
+      toolOrigin: "default",
       autoApproveUpTo: "low",
     });
     expect(result.decision).toBe("prompt");
@@ -307,6 +315,7 @@ describe("no rule — workspace-scoped operations", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "file_read",
+      toolOrigin: "default",
       isWorkspaceScoped: true,
     });
     expect(result.decision).toBe("allow");
@@ -317,6 +326,7 @@ describe("no rule — workspace-scoped operations", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "file_read",
+      toolOrigin: "default",
       isWorkspaceScoped: false,
     });
     // Falls through to risk-based: Low → allow (within default "low" threshold)
@@ -328,6 +338,7 @@ describe("no rule — workspace-scoped operations", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Medium,
       toolName: "file_write",
+      toolOrigin: "default",
       isWorkspaceScoped: true,
     });
     expect(result.decision).toBe("prompt");
@@ -338,6 +349,7 @@ describe("no rule — workspace-scoped operations", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "bash",
+      toolOrigin: "default",
       isContainerized: false,
       isWorkspaceScoped: true,
     });
@@ -349,6 +361,7 @@ describe("no rule — workspace-scoped operations", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "bash",
+      toolOrigin: "default",
       isContainerized: true,
       isWorkspaceScoped: true,
     });
@@ -360,6 +373,7 @@ describe("no rule — workspace-scoped operations", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "file_read",
+      toolOrigin: "default",
       isWorkspaceScoped: true,
       autoApproveUpTo: "none",
     });
@@ -424,6 +438,7 @@ describe("risk-based fallback (no rule, no special case)", () => {
     const result = evaluate({
       riskLevel: RiskLevel.High,
       toolName: "some_tool",
+      toolOrigin: "default",
     });
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("high risk");
@@ -433,6 +448,7 @@ describe("risk-based fallback (no rule, no special case)", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "some_tool",
+      toolOrigin: "default",
     });
     expect(result.decision).toBe("allow");
     expect(result.reason).toContain("low risk");
@@ -442,6 +458,7 @@ describe("risk-based fallback (no rule, no special case)", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Medium,
       toolName: "some_tool",
+      toolOrigin: "default",
     });
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("medium risk");
@@ -455,6 +472,7 @@ describe("edge cases", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "bash",
+      toolOrigin: "default",
       isContainerized: false,
       isWorkspaceScoped: true,
     });
@@ -499,6 +517,7 @@ describe("autoApproveUpTo threshold", () => {
       const result = evaluate({
         riskLevel: RiskLevel.Low,
         toolName: "some_tool",
+        toolOrigin: "default",
         autoApproveUpTo: "none",
       });
       expect(result.decision).toBe("prompt");
@@ -509,6 +528,7 @@ describe("autoApproveUpTo threshold", () => {
       const result = evaluate({
         riskLevel: RiskLevel.Medium,
         toolName: "some_tool",
+        toolOrigin: "default",
         autoApproveUpTo: "none",
       });
       expect(result.decision).toBe("prompt");
@@ -519,6 +539,7 @@ describe("autoApproveUpTo threshold", () => {
       const result = evaluate({
         riskLevel: RiskLevel.High,
         toolName: "some_tool",
+        toolOrigin: "default",
         autoApproveUpTo: "none",
       });
       expect(result.decision).toBe("prompt");
@@ -531,6 +552,7 @@ describe("autoApproveUpTo threshold", () => {
       const result = evaluate({
         riskLevel: RiskLevel.Low,
         toolName: "some_tool",
+        toolOrigin: "default",
         autoApproveUpTo: "low",
       });
       expect(result.decision).toBe("allow");
@@ -541,6 +563,7 @@ describe("autoApproveUpTo threshold", () => {
       const result = evaluate({
         riskLevel: RiskLevel.Medium,
         toolName: "some_tool",
+        toolOrigin: "default",
         autoApproveUpTo: "low",
       });
       expect(result.decision).toBe("prompt");
@@ -551,6 +574,7 @@ describe("autoApproveUpTo threshold", () => {
       const result = evaluate({
         riskLevel: RiskLevel.High,
         toolName: "some_tool",
+        toolOrigin: "default",
         autoApproveUpTo: "low",
       });
       expect(result.decision).toBe("prompt");
@@ -563,6 +587,7 @@ describe("autoApproveUpTo threshold", () => {
       const result = evaluate({
         riskLevel: RiskLevel.Low,
         toolName: "some_tool",
+        toolOrigin: "default",
         autoApproveUpTo: "medium",
       });
       expect(result.decision).toBe("allow");
@@ -573,6 +598,7 @@ describe("autoApproveUpTo threshold", () => {
       const result = evaluate({
         riskLevel: RiskLevel.Medium,
         toolName: "some_tool",
+        toolOrigin: "default",
         autoApproveUpTo: "medium",
       });
       expect(result.decision).toBe("allow");
@@ -583,6 +609,7 @@ describe("autoApproveUpTo threshold", () => {
       const result = evaluate({
         riskLevel: RiskLevel.High,
         toolName: "some_tool",
+        toolOrigin: "default",
         autoApproveUpTo: "medium",
       });
       expect(result.decision).toBe("prompt");
@@ -595,6 +622,7 @@ describe("autoApproveUpTo threshold", () => {
       const result = evaluate({
         riskLevel: RiskLevel.Low,
         toolName: "some_tool",
+        toolOrigin: "default",
         autoApproveUpTo: "high",
       });
       expect(result.decision).toBe("allow");
@@ -605,6 +633,7 @@ describe("autoApproveUpTo threshold", () => {
       const result = evaluate({
         riskLevel: RiskLevel.Medium,
         toolName: "some_tool",
+        toolOrigin: "default",
         autoApproveUpTo: "high",
       });
       expect(result.decision).toBe("allow");
@@ -615,6 +644,7 @@ describe("autoApproveUpTo threshold", () => {
       const result = evaluate({
         riskLevel: RiskLevel.High,
         toolName: "some_tool",
+        toolOrigin: "default",
         autoApproveUpTo: "high",
       });
       expect(result.decision).toBe("allow");
@@ -627,6 +657,7 @@ describe("autoApproveUpTo threshold", () => {
       const result = evaluate({
         riskLevel: RiskLevel.Low,
         toolName: "file_read",
+        toolOrigin: "default",
         isWorkspaceScoped: true,
         autoApproveUpTo: "medium",
       });
@@ -638,6 +669,7 @@ describe("autoApproveUpTo threshold", () => {
       const result = evaluate({
         riskLevel: RiskLevel.Low,
         toolName: "file_read",
+        toolOrigin: "default",
         isWorkspaceScoped: true,
         autoApproveUpTo: "none",
       });
@@ -649,6 +681,7 @@ describe("autoApproveUpTo threshold", () => {
       const result = evaluate({
         riskLevel: RiskLevel.Low,
         toolName: "file_read",
+        toolOrigin: "default",
         isWorkspaceScoped: false,
         autoApproveUpTo: "none",
       });
@@ -662,10 +695,68 @@ describe("autoApproveUpTo threshold", () => {
       const result = evaluate({
         riskLevel: RiskLevel.Low,
         toolName: "some_tool",
+        toolOrigin: "default",
         // autoApproveUpTo not set
       });
       expect(result.decision).toBe("allow");
       expect(result.reason).toContain("within auto-approve threshold");
     });
+  });
+});
+
+// ── Unknown tool origin ───────────────────────────────────────────────────────
+
+describe("unknown tool origin (toolOrigin === undefined)", () => {
+  test("unknown origin, Low risk, default threshold → allow (within threshold)", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.Low,
+      toolName: "ghost_tool",
+    });
+    expect(result.decision).toBe("allow");
+    expect(result.reason).toContain("within auto-approve threshold");
+  });
+
+  test("unknown origin, Low risk, strict threshold → prompt", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.Low,
+      toolName: "ghost_tool",
+      autoApproveUpTo: "none",
+    });
+    expect(result.decision).toBe("prompt");
+    expect(result.reason).toContain("Skill tool");
+  });
+
+  test("unknown origin, High risk → prompt regardless of threshold default", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.High,
+      toolName: "ghost_tool",
+    });
+    expect(result.decision).toBe("prompt");
+    expect(result.reason).toContain("Skill tool");
+  });
+
+  test("unknown origin, workspace-scoped — workspace check does not fire (unknown origin intercepts first)", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.Low,
+      toolName: "ghost_tool",
+      isWorkspaceScoped: true,
+    });
+    // Unknown-origin tools are caught by step 2 (third-party path), before
+    // the workspace-scoped check at step 3. Low risk within default "low"
+    // threshold → allow, but via the skill-tool reason, not Workspace-scoped.
+    expect(result.decision).toBe("allow");
+    expect(result.reason).toContain("within auto-approve threshold");
+    expect(result.reason).not.toContain("Workspace-scoped");
+  });
+
+  test("unknown origin, hasManifestOverride also triggers third-party path", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.Low,
+      toolName: "ghost_tool",
+      hasManifestOverride: true,
+      autoApproveUpTo: "none",
+    });
+    expect(result.decision).toBe("prompt");
+    expect(result.reason).toContain("Skill tool");
   });
 });
