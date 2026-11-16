@@ -75,6 +75,8 @@ import {
   MAX_PRESERVED_MODULE_PRELOADS,
   ensureTunnelEdge,
   EDGE_TEMPLATE_VERSION,
+  GATEWAY_READY_TIMEOUT_MS,
+  getIngressPid,
   startRemoteWebIngress,
   stopContainerTunnelEdge,
   stopIngressNginx,
@@ -1690,6 +1692,50 @@ describe("startRemoteWebIngress", () => {
     expect(result.status).toBe("port-conflict");
   });
 
+  test("an edge that exits during the gateway wait reports the failure without waiting out the timeout", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockWebDistMissing();
+    // The gateway never answers, and the edge exits mid-wait (e.g. a bind
+    // conflict): the start must fail fast instead of burning the full
+    // gateway timeout plus the edge probe. The gateway wait below never
+    // settles on its own, so without the race this test times out.
+    spawnMock.mockImplementation((() => {
+      const child = {
+        unref: () => {},
+        exitCode: null as number | null,
+        pid: SPAWNED_NGINX_PID,
+        once: (event: string, listener: () => void) => {
+          if (event === "exit") {
+            setTimeout(() => {
+              child.exitCode = 1;
+              listener();
+            }, 50);
+          }
+        },
+      };
+      return child as unknown as ChildProcess;
+    }) as unknown as typeof childProcess.spawn);
+    waitForDaemonReadyMock.mockImplementation((port: number) => {
+      if (port === 7830) {
+        return new Promise<boolean>(() => {});
+      }
+      return Promise.resolve(false);
+    });
+
+    const result = await startRemoteWebIngress({
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      listenPort: 7845,
+      includeWebApp: false,
+    });
+
+    expect(result.status).toBe("port-conflict");
+    // Only the gateway wait ran: no edge probe against the dead master.
+    expect(waitForDaemonReadyMock.mock.calls).toHaveLength(1);
+    expect(waitForDaemonReadyMock.mock.calls[0]?.[0]).toBe(7830);
+  }, 10_000);
+
   test("a child still retrying its bind at the settle deadline is killed before rollback", async () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
@@ -2128,7 +2174,11 @@ describe("ensureTunnelEdge", () => {
     mockNginxInstalled();
     mockNginxSpawn();
     mockWebDistPresent();
-    waitForDaemonReadyMock.mockImplementation(async () => false);
+    // The gateway answers, so a failed edge probe means nginx itself is at
+    // fault and the spawn is rolled back.
+    waitForDaemonReadyMock.mockImplementation(
+      async (port: number) => port === 7830,
+    );
 
     await expect(
       ensureTunnelEdge({
@@ -2137,6 +2187,75 @@ describe("ensureTunnelEdge", () => {
         gatewayPort: 7830,
       }),
     ).rejects.toThrow(join(ws, "data", "logs", "nginx-ingress.log"));
+  });
+
+  test("waits for a slow gateway instead of killing the edge", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistPresent();
+    // The reported wake sequence: containers start, the tunnel starts 2s
+    // later, and the gateway answers /healthz about 14s after container
+    // start. The 5s edge probe alone never sees the gateway up.
+    const gatewayUpAtMs = 14_000;
+    let nowMs = 2_000;
+    waitForDaemonReadyMock.mockImplementation(
+      async (port: number, timeoutMs?: number) => {
+        const deadline = nowMs + (timeoutMs ?? 60_000);
+        if (port === 7830) {
+          if (gatewayUpAtMs <= deadline) {
+            nowMs = gatewayUpAtMs;
+            return true;
+          }
+          nowMs = deadline;
+          return false;
+        }
+        if (nowMs >= gatewayUpAtMs) {
+          return true;
+        }
+        nowMs = deadline;
+        return false;
+      },
+    );
+
+    const result = await ensureTunnelEdge({
+      assistantId: ASSISTANT_ID,
+      workspaceDir: ws,
+      gatewayPort: 7830,
+    });
+
+    expect(result).toEqual({
+      port: REQUESTED_PORT,
+      started: true,
+      includesWebApp: true,
+    });
+    expect(getIngressPid(ws)).toBe(SPAWNED_NGINX_PID);
+    expect(waitForDaemonReadyMock.mock.calls[0][0]).toBe(7830);
+    expect(waitForDaemonReadyMock.mock.calls[0][1]).toBe(
+      GATEWAY_READY_TIMEOUT_MS,
+    );
+    expect(waitForDaemonReadyMock.mock.calls[1][0]).toBe(REQUESTED_PORT);
+  });
+
+  test("keeps a live edge when the gateway never comes up", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistPresent();
+    waitForDaemonReadyMock.mockImplementation(async () => false);
+
+    const result = await ensureTunnelEdge({
+      assistantId: ASSISTANT_ID,
+      workspaceDir: ws,
+      gatewayPort: 7830,
+    });
+
+    expect(result).toEqual({
+      port: REQUESTED_PORT,
+      started: true,
+      includesWebApp: true,
+    });
+    expect(getIngressPid(ws)).toBe(SPAWNED_NGINX_PID);
   });
 
   test("a port conflict throws naming the port and the override mechanism", async () => {
