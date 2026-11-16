@@ -175,6 +175,7 @@ describe("WebSearchCard — provider-only configuration", () => {
       "TinyFish",
       "Exa",
       "Serply",
+      "SpecStream",
     ]);
   });
 
