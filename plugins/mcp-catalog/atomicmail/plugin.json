@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "atomicmail",
+  "version": "1.0.2",
+  "description": "Give your assistant its own inbox to read, search, send, and reply to email.",
+  "homepage": "https://atomicmail.io/agents",
+  "license": "MIT"
+}
