@@ -34,7 +34,7 @@
     "node-addon-api": "8.9.0",
     "node-gyp": "12.4.0",
     "typescript": "5.9.3",
-    "vite": "7.3.3"
+    "vite": "7.3.7"
   },
   "dependencies": {
     "@sentry/electron": "7.13.0",
